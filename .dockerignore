@@ -1,0 +1,8 @@
+.venv
+.git
+.state
+.env
+docs/slides
+**/__pycache__
+knowledge/**/*.pdf
+web/fonts/*.ttf

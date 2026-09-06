@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import json
+import os
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
@@ -25,6 +26,11 @@ from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills,
 
 app = FastAPI(title="bankrag POC", version="0.2.0")
 settings = Settings.load()
+_backup_dest = Path(os.environ["SQLITE_DB_BACKUP"]) if os.environ.get("SQLITE_DB_BACKUP") else None
+if _backup_dest is not None:
+    if SESS.restore_db(settings, _backup_dest):
+        print(f"restored session database from {_backup_dest}")
+    SESS.start_backup_thread(settings, _backup_dest, int(os.environ.get("SQLITE_DB_BACKUP_INTERVAL", "60")))
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 _sessions: "OrderedDict[str, object]" = OrderedDict()  # live ChatSession cache (LRU)
 _MAX_LIVE = 50

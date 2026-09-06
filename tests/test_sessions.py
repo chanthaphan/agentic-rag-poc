@@ -82,3 +82,16 @@ def test_recap_items_and_rotation_counter(tmp_path):
         append_turns(rec, f"q{i}", ans)
     restored = ChatSession.from_record(s, skills, rec, project=FakeProject())
     assert restored.turns_in_conversation == 3 and MAX_TURNS_PER_CONVERSATION == 6
+
+
+def test_backup_and_restore(tmp_path, monkeypatch):
+    from bankrag.sessions import backup_db, restore_db
+
+    s = _settings(tmp_path)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "local" / "bankrag.db"))
+    rec = new_record(); append_turns(rec, "q", Answer(skill_id="general", confidence=0.5, text="a")); save_session(s, rec)
+    dest = tmp_path / "share" / "bankrag.db.bak"
+    assert backup_db(s, dest) and dest.exists()
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "fresh" / "bankrag.db"))
+    assert restore_db(s, dest) and load_session(s, rec.id).title == "q"
+    assert restore_db(s, dest) is False  # already present

@@ -8,10 +8,13 @@ Existing .state/sessions/*.json files (older versions) are imported once.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,13 +54,104 @@ def new_session_id() -> str:
 
 
 def db_path(settings: Settings) -> Path:
-    return settings.state_dir / DB_NAME
+    """SQLITE_DB_PATH lets the DB live on local disk (network shares such as Azure Files cannot lock SQLite reliably)."""
+    override = os.environ.get("SQLITE_DB_PATH", "").strip()
+    return Path(override) if override else settings.state_dir / DB_NAME
 
 
-def connect(settings: Settings) -> sqlite3.Connection:
+def backup_db(settings: Settings, dest: Path) -> bool:
+    """Consistent online copy of the DB (sqlite backup API) to `dest`; returns False when there is nothing to copy."""
+    src = db_path(settings)
+    if not src.exists():
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    with _lock:
+        con = sqlite3.connect(src, timeout=30)
+        try:
+            bck = sqlite3.connect(tmp)
+            try:
+                con.backup(bck)
+            finally:
+                bck.close()
+        finally:
+            con.close()
+    os.replace(tmp, dest)
+    return True
+
+
+def restore_db(settings: Settings, src: Path) -> bool:
+    """Copy a backup into place if the working DB does not exist yet (first boot on a fresh container)."""
+    dst = db_path(settings)
+    if dst.exists() or not src.exists():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    import shutil
+
+    shutil.copy2(src, dst)
+    return True
+
+
+def start_backup_thread(settings: Settings, dest: Path, interval_s: int = 60) -> threading.Thread:
+    """Background copy of the DB to `dest` (e.g. the mounted share) whenever it changed."""
+    def loop() -> None:
+        last = None
+        while True:
+            try:
+                src = db_path(settings)
+                stamp = (src.stat().st_mtime, src.stat().st_size) if src.exists() else None
+                if stamp and stamp != last:
+                    backup_db(settings, dest)
+                    last = stamp
+            except Exception:  # noqa: BLE001 - never kill the thread
+                pass
+            time.sleep(interval_s)
+
+    t = threading.Thread(target=loop, name="db-backup", daemon=True)
+    t.start()
+    return t
+
+
+_journal_mode: dict[str, str] = {}
+
+
+@contextlib.contextmanager
+def connect(settings: Settings):
+    """Open, yield, commit, and always CLOSE (an unclosed connection keeps a lock; fatal on SMB shares like Azure Files).
+    WAL needs shared memory that network shares lack, so fall back to the rollback journal there."""
     settings.state_dir.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(db_path(settings), timeout=10, check_same_thread=False)
-    con.execute("PRAGMA journal_mode=WAL")
+    db_path(settings).parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path(settings), timeout=30, check_same_thread=False, isolation_level="DEFERRED")
+    try:
+        key = str(db_path(settings))
+        mode = _journal_mode.get(key)
+        if mode is None and os.environ.get("SQLITE_JOURNAL_MODE", "").lower() == "delete":
+            con.execute("PRAGMA journal_mode=DELETE")
+            mode = "delete"
+        if mode is None:
+            try:
+                mode = con.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                if str(mode).lower() != "wal":
+                    raise sqlite3.OperationalError("wal unavailable")
+            except sqlite3.OperationalError:
+                con.execute("PRAGMA journal_mode=DELETE")
+                mode = "delete"
+            _journal_mode[key] = str(mode).lower()
+        con.execute("PRAGMA synchronous=NORMAL")
+        _init_schema(settings, con)
+        yield con
+        con.commit()
+    finally:
+        con.close()
+
+
+_schema_done: set[str] = set()
+
+
+def _init_schema(settings: Settings, con: sqlite3.Connection) -> None:
+    key = str(db_path(settings))
+    if key in _schema_done:
+        return
     con.executescript(SCHEMA)
     cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
     if "source" not in cols:
@@ -66,7 +160,8 @@ def connect(settings: Settings) -> sqlite3.Connection:
     if "cost_usd" not in tcols:
         con.execute("ALTER TABLE turns ADD COLUMN cost_usd REAL")
     _import_legacy_json(settings, con)
-    return con
+    con.commit()
+    _schema_done.add(key)
 
 
 def _import_legacy_json(settings: Settings, con: sqlite3.Connection) -> None:

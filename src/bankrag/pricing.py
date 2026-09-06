@@ -12,7 +12,7 @@ DEFAULT = {"input": 1.0, "cached_input": 0.25, "output": 4.0}
 
 
 def pricing_path(settings: Settings) -> Path:
-    return settings.root / "pricing.yaml"
+    return settings.pricing_file
 
 
 def load_pricing(settings: Settings) -> dict[str, Any]:

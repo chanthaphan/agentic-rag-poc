@@ -24,7 +24,7 @@ def _env(name: str, default: str = "") -> str:
 
 
 def overlay_path(root: Path) -> Path:
-    return root / os.environ.get("STATE_DIR", ".state") / "settings.json"
+    return root / os.environ.get("STATE_DIR", ".state") / "settings.json"  # absolute STATE_DIR wins in Path joining
 
 
 def load_overlay(root: Path) -> dict[str, str]:
@@ -90,6 +90,8 @@ class Settings:
     skills_dir: Path
     knowledge_dir: Path
     state_dir: Path
+    evals_dir: Path
+    pricing_file: Path
     api_port: int
 
     @classmethod
@@ -129,6 +131,8 @@ class Settings:
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),
             state_dir=root / _env("STATE_DIR", ".state"),
+            evals_dir=root / _env("EVALS_DIR", "evals"),
+            pricing_file=root / _env("PRICING_FILE", "pricing.yaml"),
             api_port=int(_env("API_PORT", "8010")),
         )
 

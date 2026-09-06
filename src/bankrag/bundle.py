@@ -17,13 +17,13 @@ def export_bundle(settings: Settings) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for part in PARTS:
-            base = settings.root / part
+            base = {"skills": settings.skills_dir, "knowledge": settings.knowledge_dir, "evals": settings.evals_dir}[part]
             if not base.exists():
                 continue
             for f in sorted(base.rglob("*")):
                 if f.is_file() and not f.name.startswith("."):
                     zf.write(f, f"{part}/{f.relative_to(base).as_posix()}")
-        for extra in (settings.root / "pricing.yaml", overlay_path(settings.root)):
+        for extra in (settings.pricing_file, overlay_path(settings.root)):
             if extra.exists():
                 zf.write(extra, "pricing.yaml" if extra.name == "pricing.yaml" else "settings.json")
     return buf.getvalue()
@@ -40,17 +40,18 @@ def import_bundle(settings: Settings, data: bytes, *, mode: str = "merge", log: 
                 raise ValueError(f"unsafe path in bundle: {n}")
         if mode == "replace":
             for part in ("skills", "knowledge"):
-                d = settings.root / part
+                d = {"skills": settings.skills_dir, "knowledge": settings.knowledge_dir}[part]
                 if d.exists() and any(n.startswith(part + "/") for n in names):
                     shutil.rmtree(d)
                     log(f"removed existing {part}/")
         for n in names:
             top = Path(n).parts[0]
             if top in PARTS:
-                dest = settings.root / n
+                base = {"skills": settings.skills_dir, "knowledge": settings.knowledge_dir, "evals": settings.evals_dir}[top]
+                dest = base / Path(*Path(n).parts[1:])
                 counts[top] += 1
             elif n == "pricing.yaml":
-                dest = settings.root / "pricing.yaml"
+                dest = settings.pricing_file
                 counts["other"] += 1
             elif n == "settings.json":
                 dest = overlay_path(settings.root)

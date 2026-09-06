@@ -18,6 +18,7 @@ def test_bundle_roundtrip_and_guard(tmp_path):
     dst = Settings.load(ROOT)
     dst.root = tmp_path
     dst.state_dir = tmp_path / ".state"
+    dst.skills_dir, dst.knowledge_dir, dst.evals_dir, dst.pricing_file = tmp_path / "skills", tmp_path / "knowledge", tmp_path / "evals", tmp_path / "pricing.yaml"
     log = []
     counts = import_bundle(dst, data, mode="merge", log=log.append)
     assert counts["skills"] >= 6 and (tmp_path / "skills" / "credit-card" / "SKILL.md").exists() and (tmp_path / "pricing.yaml").exists()

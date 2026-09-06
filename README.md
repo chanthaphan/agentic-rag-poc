@@ -64,3 +64,17 @@ uv run bankrag serve               # http://localhost:8010
 ## Environment
 
 Copy `.env.example` to `.env`. Keys: `AOAI_API_KEY` (embeddings + index vectorizer), `SEARCH_ADMIN_KEY` (index and knowledge-base management), `SEARCH_QUERY_KEY` (only for `KB_MCP_AUTH=apikey`, a POC fallback when the managed-identity connection is unavailable). Foundry calls use `DefaultAzureCredential` (your `az login`).
+
+## Deploy to Azure (low cost)
+
+The app runs as one container on **Azure Container Apps (consumption)** with an **Azure Files** share for skills, knowledge, evals, prices and JSON state; the SQLite session database stays on the container's local disk and is backed up to the share every minute (restored on boot). Approximate monthly cost: container ~$10-15 at 1 replica, storage <$1, Azure Container Registry Basic $5, Free-tier search $0, models pay-per-use.
+
+```bash
+./infra/00-login.sh                 # personal tenant
+export ACR_NAME=bankragacr
+./infra/10-acr-build.sh             # builds the image in ACR (no local Docker needed); prints IMAGE=...
+IMAGE=<printed image> ./infra/11-containerapp.sh   # storage share, environment, app, secrets from .env, volume, Foundry roles
+./infra/12-easyauth.sh              # Entra ID sign-in in front of the whole app (app registration + built-in auth)
+```
+
+Re-deploy after a code change: run `10-acr-build.sh`, then `az containerapp update -g my-aiverse -n bankrag --image <IMAGE>`. The app identity uses managed identity for Foundry (`DefaultAzureCredential`), so no `az login` is needed inside the container. Environment: `DATA_DIR=/data` (mounted share), `SQLITE_DB_PATH` / `SQLITE_DB_BACKUP` set by `docker/entrypoint.sh`.

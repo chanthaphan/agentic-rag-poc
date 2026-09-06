@@ -23,7 +23,7 @@ def _now() -> str:
 def eval_path(settings: Settings, set_name: str) -> Path:
     if set_name not in SETS:
         raise ValueError("unknown eval set")
-    return settings.root / "evals" / SETS[set_name]
+    return settings.evals_dir / SETS[set_name]
 
 
 def load_cases(settings: Settings, set_name: str) -> list[dict]:

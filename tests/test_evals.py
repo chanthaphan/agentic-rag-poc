@@ -52,6 +52,7 @@ def test_run_rag_with_stub_session(tmp_path):
 def test_save_and_load_cases(tmp_path):
     s = Settings.load(ROOT)
     s.root = tmp_path
+    s.evals_dir = tmp_path / "evals"
     saved = save_cases(s, "routing", [{"q": " hi ", "skill": "general"}, {"q": "", "skill": "x"}])
     assert saved == [{"q": "hi", "skill": "general"}] and load_cases(s, "routing") == saved
     saved = save_cases(s, "rag", [{"q": "q", "expect": ["a", ""], "skill": "credit-card", "require_source": False}])
