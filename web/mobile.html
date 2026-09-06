@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/mobile.css">
 </head>
 <body>
+<nav class="topnav" id="topnav"><a href="/studio" class="tn-btn">Studio</a><a href="/.auth/logout?post_logout_redirect_uri=/" class="tn-btn" id="tn-signout" hidden>Sign out</a></nav>
 <div class="stage">
   <div class="phone-col">
   <div class="phone">
@@ -58,7 +59,7 @@
   </aside>
 </div>
 <button id="dp-show" class="dp-show" hidden>show log</button>
-<div class="stage-note">POC · <a href="/studio">Studio (testers)</a> · <a href="/legacy">debug view</a></div>
+<div class="stage-note">POC · <a href="/legacy">debug view</a></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <script src="/static/trace.js"></script>

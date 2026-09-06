@@ -164,6 +164,18 @@ async function loadSession(id) {
 }
 
 // ---------- init ----------
+// Entra (Container Apps built-in auth): show who is signed in and a Sign out button when /.auth/me answers.
+(async function authNav() {
+  try {
+    const r = await fetch(new URL("/.auth/me", location.origin), { credentials: "same-origin" });
+    if (!r.ok) return;
+    const me = await r.json(); const claims = (me[0] || me.clientPrincipal || {}).user_claims || [];
+    const name = (claims.find((c) => c.typ === "name") || claims.find((c) => c.typ === "preferred_username") || {}).val || (me[0] || {}).user_id || "";
+    $("#tn-signout").hidden = false;
+    if (name) $("#topnav").insertAdjacentHTML("afterbegin", `<span class="tn-user">${esc(name)}</span>`);
+  } catch {}
+})();
+
 (async function init() {
   try { state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant"; } catch {}
   let saved = null; try { saved = localStorage.getItem("bankrag_session"); } catch {}
