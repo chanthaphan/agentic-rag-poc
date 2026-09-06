@@ -12,6 +12,7 @@ from azure.ai.projects.models import MCPTool, PromptAgentDefinition, SkillInline
 
 from . import connections as CONN
 from . import knowledge_base as KB
+from .ingest.progress import report as progress
 from .config import Settings
 from .foundry import credential, project_client
 from .models import ROUTER_AGENT, SkillSpec, SyncReport, SyncRow
@@ -179,9 +180,12 @@ def sync_skills(
     shared = KB.shared_kb_spec(skills)
     ordered = sorted(skills.values(), key=lambda s: (0 if shared and s.id == shared.id else 1, s.id))
 
+    targets = [s for s in ordered if not only or s.id == only or (shared and s.id == shared.id and owners.get(only) is shared)]
+    progress(log, "sync", 0, len(targets) + 1, message="")
     for spec in ordered:
         if only and spec.id != only and not (shared and spec.id == shared.id and owners.get(only) is shared):
             continue
+        progress(log, "sync", targets.index(spec), len(targets) + 1, message=spec.id)
         owner = owners[spec.id]
         row = SyncRow(skill_id=spec.id, agent=spec.agent_name)
         shared_by_quota = False
@@ -228,6 +232,7 @@ def sync_skills(
 
     if True:  # the router enum lists every skill id, so reconcile it on every sync (cheap: hash-guarded)
         row = SyncRow(skill_id="(router)", agent=ROUTER_AGENT)
+        progress(log, "sync", len(targets), len(targets) + 1, message="router")
         try:
             row.action, row.version = ensure_agent(
                 client, ROUTER_AGENT, build_router_definition(settings, skills), {"source": SOURCE_TAG, "skill_id": "router"},

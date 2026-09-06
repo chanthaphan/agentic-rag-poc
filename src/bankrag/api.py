@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import secrets
+import hashlib
+import re
 import threading
 import uuid
 from collections import OrderedDict
@@ -850,14 +852,29 @@ def feedback_csv():
 
 
 # ---------------- pages ----------------
+def _asset_version() -> str:
+    """Short hash of the web assets' mtimes: appended as ?v= so browsers drop cached JS/CSS after a deploy."""
+    stamps = "|".join(f"{q.name}:{int(q.stat().st_mtime)}" for q in sorted(WEB_DIR.glob("*.js")) + sorted(WEB_DIR.glob("*.css")))
+    return hashlib.sha1(stamps.encode()).hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
+
+def _page(name: str) -> Response:
+    html = (WEB_DIR / name).read_text(encoding="utf-8")
+    html = re.sub(r'(/static/[^"\s?]+\.(?:js|css))"', lambda m: f'{m.group(1)}?v={ASSET_VERSION}"', html)
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/")
 def mobile_page():
-    return FileResponse(WEB_DIR / "mobile.html")
+    return _page("mobile.html")
 
 
 @app.get("/legacy")
 def legacy_page():
-    return FileResponse(WEB_DIR / "index.html")
+    return _page("index.html")
 
 
 def _login_ok_response(password: str, tester: str = "", to: str = "/studio") -> RedirectResponse:
@@ -879,12 +896,12 @@ def studio_page(request: Request, key: Optional[str] = None, creds: Optional[HTT
         raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env")
     if not _studio_authed(request, creds):
         return RedirectResponse("/studio/login", status_code=303)
-    return FileResponse(WEB_DIR / "studio.html")
+    return _page("studio.html")
 
 
 @app.get("/studio/login")
 def studio_login_page():
-    return FileResponse(WEB_DIR / "login.html")
+    return _page("login.html")
 
 
 @app.post("/studio/login")

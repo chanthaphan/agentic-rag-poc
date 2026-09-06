@@ -1,40 +1,50 @@
-// Skills tab: list + lint badges, editor (form, markdown body, preview, versions diff, playground, try routing).
+// Skills tab: skill cards + lint badges, Foundry sync panel (progress, per-skill result rows, log), editor
+// (routing/answering form, markdown body, lint, preview, versions diff, playground, try routing).
 let current = null; let lintCache = {}; window.skillDirty = false;
+const SY = { timer: null };
 
 function setDirty(v) { window.skillDirty = v; $("#ed-dirty").hidden = !v; }
 window.addEventListener("beforeunload", (e) => { if (window.skillDirty) { e.preventDefault(); e.returnValue = ""; } });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && current && $("#view-skills").classList.contains("on")) { e.preventDefault(); saveSkill().catch((err) => showMsgs([err.message], [])); } });
 
+const STATE_LABEL = { "in-sync": "in sync", outdated: "outdated", missing: "not deployed", error: "error" };
 async function loadSkills() {
   $("#sk-status").textContent = "checking Foundry…";
   const [rows, lint] = await Promise.all([api("/skills"), api("/skills/lint").catch(() => ({}))]);
-  S.skillsCache = rows; lintCache = lint; const tb = $("#sk-table tbody"); tb.innerHTML = "";
+  S.skillsCache = rows; lintCache = lint; const box = $("#sk-cards"); box.innerHTML = "";
   for (const r of rows) {
     const findings = lint[r.id] || []; const warns = findings.filter((f) => f.level === "warn").length; const infos = findings.length - warns;
-    const tr = document.createElement("tr"); tr.className = "row" + (current === r.id ? " sel" : ""); tr.dataset.id = r.id;
-    tr.innerHTML = `<td><b>${esc(r.id)}</b><br><span class="muted">${esc(r.name)}</span></td><td>${esc(r.product_category)}</td><td>${esc(r.model)}</td><td>${esc(r.knowledge_base)}</td><td class="st-${esc(r.state).replace(/[^a-z-]/g, "")}">${esc(r.state)}</td><td>${esc(r.version)}</td><td>${warns ? `<span class="pill warn">${warns}</span>` : ""}${infos ? `<span class="pill info">${infos}</span>` : ""}${!findings.length ? '<span class="pill ok">ok</span>' : ""}</td>`;
-    tr.addEventListener("click", () => { if (window.skillDirty && current !== r.id && !confirm("Discard unsaved changes?")) return; openSkill(r.id); });
-    tb.appendChild(tr);
+    const st = String(r.state || "").replace(/[^a-z-]/g, "");
+    const el = document.createElement("div"); el.className = "sk-card" + (current === r.id ? " sel" : ""); el.dataset.id = r.id;
+    el.innerHTML = `<span class="id">${esc(r.id)}</span><span class="st" title="Foundry agent ${esc(r.agent || "")}"><span class="dot ${st}"></span>${esc(STATE_LABEL[st] || r.state)}${r.version ? ` · v${esc(r.version)}` : ""}</span>
+      <span class="nm">${esc(r.name)}</span>
+      <span class="meta"><span class="pill">${esc(r.product_category)}</span><span class="pill">${esc(r.model)}</span><span class="pill" title="knowledge base">${esc(r.knowledge_base || "no knowledge base")}</span>${warns ? `<span class="pill warn" title="lint warnings">⚠ ${warns}</span>` : ""}${infos ? `<span class="pill info" title="lint notes">ℹ ${infos}</span>` : ""}</span>`;
+    el.addEventListener("click", () => { if (window.skillDirty && current !== r.id && !confirm("Discard unsaved changes?")) return; openSkill(r.id); });
+    box.appendChild(el);
   }
-  $("#sk-status").textContent = `${rows.length} skills`;
-  if (current) renderLint();
+  const outdated = rows.filter((r) => r.state === "outdated").length, missing = rows.filter((r) => r.state === "missing").length;
+  $("#sk-status").textContent = `${rows.length} skills` + (outdated ? ` · ${outdated} outdated` : "") + (missing ? ` · ${missing} not deployed` : "");
+  if (current) { renderLint(); const row = rows.find((r) => r.id === current); if (row) setStatePill(row); }
 }
 S.loaders.skills = loadSkills;
 
+function setStatePill(row) { const st = String(row.state || "").replace(/[^a-z-]/g, ""); const p = $("#ed-state"); p.className = `pill st-${st}`; p.textContent = `Foundry: ${STATE_LABEL[st] || row.state}${row.version ? ` · version ${row.version}` : ""}`; }
 function renderLint() {
-  const f = lintCache[current] || [];
-  $("#ed-lint").innerHTML = f.length ? f.map((x) => `<div class="lint-${x.level}">${x.level === "warn" ? "⚠" : "ℹ"} <b>${esc(x.code)}</b> ${esc(x.message)}</div>`).join("") : '<div class="lint-ok">✓ lint: no findings</div>';
+  const f = lintCache[current] || []; const warns = f.filter((x) => x.level === "warn").length;
+  $("#ed-lint").innerHTML = f.length ? f.map((x) => `<div class="lint-${x.level}">${x.level === "warn" ? "⚠" : "ℹ"} <b>${esc(x.code)}</b> ${esc(x.message)}</div>`).join("") : '<div class="lint-ok">✓ no findings</div>';
+  $("#ed-lint-summary").innerHTML = f.length ? `lint: ${warns ? `<span class="lint-warn">${warns} warning${warns > 1 ? "s" : ""}</span>` : ""}${warns && f.length - warns ? ", " : ""}${f.length - warns ? `${f.length - warns} note${f.length - warns > 1 ? "s" : ""}` : ""}` : '<span class="lint-ok">lint: ✓ no findings</span>';
+  $("#ed-lintwrap").open = warns > 0;
 }
 async function openSkill(id) {
   const d = await api(`/skills/${id}`); current = id; const fm = d.frontmatter;
-  $("#sk-editor").hidden = false; $("#ed-title").textContent = `${id}  ·  skills/${id}/SKILL.md`;
-  const row = S.skillsCache.find((r) => r.id === id); $("#ed-state").textContent = row ? `Foundry: ${row.state} (version ${row.version || "-"})` : "";
+  $("#sk-empty").hidden = true; $("#sk-editor").hidden = false; $("#ed-title").textContent = fm.name || id; $("#ed-path").textContent = `skills/${id}/SKILL.md`;
+  const row = S.skillsCache.find((r) => r.id === id); if (row) setStatePill(row);
   $("#f-name").value = fm.name || ""; $("#f-description").value = fm.description || ""; $("#f-category").value = fm.product_category || id;
   $("#f-keywords").value = (fm.keywords || []).join(", "); fillModelSelect($("#f-model"), fm.model || "gpt-4.1-mini"); $("#f-topk").value = fm.top_k || 5;
   $("#f-suggestions").value = (fm.suggestions || []).join("\n"); $("#f-body").value = d.body || ""; updateLines();
   $("#ed-zip").href = `/skills/${id}/zip`; showMsgs(d.errors, d.warnings); renderLint(); setDirty(false);
-  $$("#sk-table tr.row").forEach((tr) => tr.classList.toggle("sel", tr.dataset.id === id));
-  $("#ver-table tbody").innerHTML = ""; $("#ver-diff").textContent = ""; $("#ver-restore").hidden = true; $("#ver-status").textContent = "";
+  $$("#sk-cards .sk-card").forEach((el) => el.classList.toggle("sel", el.dataset.id === id));
+  $("#ver-table tbody").innerHTML = ""; $("#ver-diff").textContent = ""; $("#ver-restore").hidden = true; $("#ver-status").textContent = ""; $("#try-out").textContent = "";
   pgReset();
   $$(".subtabs button[data-pane]")[0].click();
 }
@@ -44,7 +54,7 @@ function formPayload() {
     model: $("#f-model").value, top_k: +$("#f-topk").value || 5, suggestions: $("#f-suggestions").value, body: $("#f-body").value };
 }
 function updateLines() { $("#f-lines").textContent = `${$("#f-body").value.split("\n").length} lines · ${$("#f-body").value.length} chars`; }
-["#f-name", "#f-description", "#f-category", "#f-keywords", "#f-model", "#f-topk", "#f-suggestions", "#f-body"].forEach((sel) => $(sel).addEventListener("input", () => { setDirty(true); if (sel === "#f-body") updateLines(); }));
+["#f-name", "#f-description", "#f-category", "#f-keywords", "#f-model", "#f-topk", "#f-suggestions", "#f-body"].forEach((sel) => $(sel).addEventListener("input", () => { setDirty(true); if (sel === "#f-body") updateLines(); if (sel === "#f-name") $("#ed-title").textContent = $("#f-name").value || current; }));
 $("#f-body").addEventListener("keydown", (e) => { if (e.key === "Tab") { e.preventDefault(); const t = e.target; const s = t.selectionStart; t.value = t.value.slice(0, s) + "  " + t.value.slice(t.selectionEnd); t.selectionStart = t.selectionEnd = s + 2; setDirty(true); } });
 
 async function saveSkill() {
@@ -58,18 +68,18 @@ $("#ed-save-sync").addEventListener("click", async () => {
     const r = await saveSkill(); if (r.errors.length) return;
     const before = (S.skillsCache.find((x) => x.id === current) || {}).version || "-";
     const j = await api(`/skills/sync?only=${current}`, { method: "POST" });
-    await pollJob(j.job_id, $("#sk-log"), $("#sk-status")); await loadSkills();
+    await watchSync(j.job_id); await loadSkills();
     const after = (S.skillsCache.find((x) => x.id === current) || {}).version || "-";
-    $("#ed-state").textContent = `synced: version ${before} → ${after}`; pgBanner();
+    $("#sk-status").textContent = before === after ? `${current}: no change to deploy (version ${after})` : `${current}: deployed version ${before} → ${after}`; pgBanner();
   } catch (e) { showMsgs([e.message], []); }
 });
 $("#ed-delete").addEventListener("click", async () => {
   if (!confirm(`Delete skill '${current}' and its Foundry agent / knowledge base?`)) return;
-  const r = await api(`/skills/${current}?prune=true`, { method: "DELETE" }); $("#sk-editor").hidden = true; current = null; setDirty(false);
-  if (r.job_id) pollJob(r.job_id, $("#sk-log"), $("#sk-status"), loadSkills); else loadSkills();
+  const r = await api(`/skills/${current}?prune=true`, { method: "DELETE" }); $("#sk-editor").hidden = true; $("#sk-empty").hidden = false; current = null; setDirty(false);
+  if (r.job_id) { await watchSync(r.job_id); } loadSkills();
 });
 $("#sk-refresh").addEventListener("click", loadSkills);
-$("#sk-sync-all").addEventListener("click", async () => { const j = await api("/skills/sync", { method: "POST" }); pollJob(j.job_id, $("#sk-log"), $("#sk-status"), loadSkills); });
+$("#sk-sync-all").addEventListener("click", async () => { if (SY.timer) return; const j = await api("/skills/sync", { method: "POST" }); await watchSync(j.job_id); loadSkills(); });
 $("#sk-zip").addEventListener("change", async (e) => {
   const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f);
   try { const r = await api("/skills/upload", { method: "POST", body: fd }); $("#sk-status").textContent = `installed ${r.id}`; await loadSkills(); openSkill(r.id); } catch (err) { $("#sk-status").textContent = err.message; }
@@ -83,10 +93,36 @@ $("#dlg-new form").addEventListener("submit", async (e) => {
     $("#dlg-new").close(); await loadSkills(); openSkill(r.spec.id); } catch (err) { alert(err.message); }
 });
 
+// ---- Foundry sync panel ----
+function watchSync(id) {
+  clearInterval(SY.timer);
+  $("#sync-barwrap").hidden = false; $("#sync-rows").innerHTML = ""; $("#sync-logwrap").open = false;
+  return new Promise((resolve) => {
+    const tick = async () => {
+      let j; try { j = await api(`/jobs/${id}`); } catch (e) { clearInterval(SY.timer); SY.timer = null; $("#sync-progress").textContent = e.message; resolve(null); return; }
+      renderSync(j);
+      if (j.status !== "running") { clearInterval(SY.timer); SY.timer = null; resolve(j); }
+    };
+    tick(); SY.timer = setInterval(tick, 800);
+  });
+}
+function renderSync(j) {
+  const pr = j.progress || {}; const running = j.status === "running", failed = j.status === "error";
+  const st = $("#sync-state"); st.textContent = running ? "syncing" : failed ? "failed" : "done"; st.className = "pill " + (running ? "run" : failed ? "err" : "ok");
+  const fill = $("#sync-bar"); const pct = j.status === "done" ? 100 : pr.total ? Math.round(100 * (pr.done || 0) / pr.total) : null;
+  fill.className = "fill" + (failed ? " err" : j.status === "done" ? " ok" : pct == null ? " indet" : ""); fill.style.width = pct == null ? "" : pct + "%";
+  $("#sync-progress").textContent = running ? (pr.message ? `syncing ${pr.message}…` : "starting…") : `${j.kind} ${j.status} in ${(j.elapsed_ms / 1000).toFixed(1)} s`;
+  const rows = (j.result && j.result.rows) || [];
+  $("#sync-rows").innerHTML = rows.map((r) => `<div class="r"><span><b>${esc(r.skill_id)}</b> <span class="muted">${esc(r.agent || "")}${r.knowledge_base ? " · " + esc(r.knowledge_base) : ""}</span></span><span class="a-${esc(r.action)}">${esc(r.action)}${r.version ? ` v${esc(r.version)}` : ""}</span>${r.note ? `<span class="n">${esc(r.note)}</span>` : ""}</div>`).join("");
+  const log = $("#sk-log"); log.textContent = (j.log || []).join("\n"); log.scrollTop = 1e9;
+  if (failed || rows.some((r) => r.action === "error")) $("#sync-logwrap").open = true;
+}
+
 // ---- preview ----
 S.loaders["pane-preview"] = () => { $("#md-preview").innerHTML = md(`# ${$("#f-name").value}\n\n> ${$("#f-description").value}\n\n${$("#f-body").value}`); };
 
 // ---- try routing ----
+$("#try-q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#try-run").click(); });
 $("#try-run").addEventListener("click", async () => {
   const q = $("#try-q").value.trim(); if (!q) return; $("#try-out").textContent = "routing…";
   try { const d = await api("/route", json({ message: q })); const hit = d.skill_id === current;
@@ -98,7 +134,7 @@ async function loadVersions() {
   $("#ver-status").textContent = "loading…";
   try {
     const vs = await api(`/skills/${current}/versions`); const tb = $("#ver-table tbody"); tb.innerHTML = "";
-    for (const v of vs) { const tr = document.createElement("tr"); tr.className = "row"; tr.innerHTML = `<td>${esc(v.version)}</td><td>${v.created_at ? new Date(v.created_at * 1000 || v.created_at).toLocaleString() : ""}</td><td>${esc(v.model)}</td><td class="muted">${esc((v.metadata || {}).spec_hash || "")}</td>`; tr.addEventListener("click", () => showDiff(v.version)); tb.appendChild(tr); }
+    for (const v of vs) { const tr = document.createElement("tr"); tr.className = "row"; tr.innerHTML = `<td>${esc(v.version)}</td><td>${v.created_at ? new Date(v.created_at * 1000 || v.created_at).toLocaleString() : ""}</td><td>${esc(v.model)}</td><td class="muted">${esc((v.metadata || {}).spec_hash || "")}</td>`; tr.addEventListener("click", () => { $$("#ver-table tr.row").forEach((x) => x.classList.toggle("sel", x === tr)); showDiff(v.version); }); tb.appendChild(tr); }
     $("#ver-status").textContent = `${vs.length} versions`;
   } catch (e) { $("#ver-status").textContent = e.message; }
 }
@@ -121,7 +157,7 @@ $("#ver-restore").addEventListener("click", () => {
 // ---- playground ----
 let pgSession = null; let pgBusy = false;
 function pgReset() { pgSession = null; $("#pg-thread").innerHTML = ""; pgBanner(); }
-function pgBanner() { const row = S.skillsCache.find((x) => x.id === current); $("#pg-banner").textContent = row ? `Testing the deployed agent ${row.agent} (version ${row.version || "-"}, ${row.state}${row.state === "outdated" ? " · Save & sync to test your edits" : ""})` : ""; }
+function pgBanner() { const row = S.skillsCache.find((x) => x.id === current); $("#pg-banner").textContent = row ? `Testing the deployed agent ${row.agent} (version ${row.version || "-"}, ${STATE_LABEL[row.state] || row.state}${row.state === "outdated" ? " · Save & sync to test your edits" : ""})` : ""; }
 $("#pg-new").addEventListener("click", pgReset);
 $("#pg-q").addEventListener("keydown", (e) => { if (e.key === "Enter") pgSend(); });
 $("#pg-send").addEventListener("click", pgSend);

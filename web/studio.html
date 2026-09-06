@@ -27,65 +27,93 @@
 <main>
 <!-- ================= SKILLS ================= -->
 <section id="view-skills" class="view on">
-  <div class="toolbar">
-    <button id="sk-new">New skill</button>
-    <label class="btn-secondary">Upload zip <input type="file" id="sk-zip" accept=".zip" hidden></label>
-    <button id="sk-sync-all" class="btn-secondary">Sync all to Foundry</button>
-    <button id="sk-refresh" class="btn-secondary">Refresh</button>
-    <span id="sk-status" class="muted"></span>
-  </div>
-  <div class="split">
-    <div>
-      <table class="list" id="sk-table"><thead><tr><th>id</th><th>category</th><th>model</th><th>knowledge base</th><th>Foundry</th><th>ver</th><th>lint</th></tr></thead><tbody></tbody></table>
-      <pre id="sk-log" class="log"></pre>
-    </div>
-    <div class="editor" id="sk-editor" hidden>
-      <div class="ed-head"><h2 id="ed-title"></h2><span id="ed-state" class="muted"></span><span id="ed-dirty" class="pill warn" hidden>unsaved</span></div>
-      <div class="subtabs"><button data-pane="edit" class="on">Edit</button><button data-pane="preview">Preview</button><button data-pane="versions">Versions</button><button data-pane="playground">Playground</button></div>
+  <div class="sk-grid">
+    <aside class="sk-side">
+      <div class="panel">
+        <div class="panel-head"><h3>Skills</h3><span id="sk-status" class="muted"></span></div>
+        <div class="row wrap sk-actions"><button id="sk-new">New skill</button><label class="btn-secondary">Upload zip <input type="file" id="sk-zip" accept=".zip" hidden></label><button id="sk-refresh" class="btn-secondary" title="Re-check Foundry">Refresh</button></div>
+        <div id="sk-cards" class="sk-cards"></div>
+        <div class="muted sk-legend"><span class="dot in-sync"></span>in sync <span class="dot outdated"></span>outdated (save &amp; sync) <span class="dot missing"></span>not deployed</div>
+      </div>
+      <div class="panel" id="sk-syncpanel">
+        <div class="panel-head"><h3>Foundry sync</h3><span id="sync-state" class="pill">idle</span></div>
+        <div id="sync-hint" class="muted">Edits reach the assistant only after a sync. "Save &amp; sync" pushes one skill; "Sync all" reconciles every agent, knowledge base and the router.</div>
+        <div class="row wrap sk-actions"><button id="sk-sync-all" class="btn-secondary">Sync all to Foundry</button><span id="sync-progress" class="muted"></span></div>
+        <div class="bar" id="sync-barwrap" hidden><div id="sync-bar" class="fill"></div></div>
+        <div id="sync-rows" class="sync-rows"></div>
+        <details id="sync-logwrap"><summary class="muted">log</summary><pre id="sk-log" class="log"></pre></details>
+      </div>
+    </aside>
 
-      <div class="pane on" id="pane-edit">
-        <div id="ed-lint" class="lint"></div>
-        <div class="ed-grid">
-          <div class="form">
-            <label>Name <input id="f-name"></label>
-            <label>Description <small>(the router reads this; Thai + English)</small><textarea id="f-description" rows="4"></textarea></label>
-            <label>Product category <small>(= knowledge/&lt;category&gt;)</small><input id="f-category"></label>
-            <label>Keywords <small>(comma separated)</small><textarea id="f-keywords" rows="3"></textarea></label>
-            <div class="two">
-              <label>Model <select id="f-model"></select></label>
-              <label>Top K <input id="f-topk" type="number" min="1" max="50"></label>
+    <div class="sk-main">
+      <div class="panel sk-empty" id="sk-empty">
+        <h3>Pick a skill on the left to edit it</h3>
+        <p class="muted">A skill is one <code>SKILL.md</code>: routing metadata (description, keywords) in the frontmatter and the answering instructions in the body. The shared rules in Settings → Base rules are prepended to every skill.</p>
+        <ol class="muted sk-howto">
+          <li><b>Edit</b> the description, keywords and instructions. The router reads the description and keywords to pick the skill.</li>
+          <li><b>Try routing</b> with a real customer question to confirm the router picks this skill.</li>
+          <li><b>Save &amp; sync</b> to publish a new agent version in Foundry, then test it in the <b>Playground</b>.</li>
+          <li><b>Versions</b> shows every deployed version and a diff against the local file, with restore.</li>
+        </ol>
+      </div>
+
+      <div class="editor" id="sk-editor" hidden>
+        <div class="ed-head">
+          <div class="ed-titles">
+            <h2 id="ed-title"></h2>
+            <div class="ed-sub"><span id="ed-path" class="muted"></span><span id="ed-state" class="pill"></span><span id="ed-dirty" class="pill warn" hidden>unsaved</span></div>
+          </div>
+          <div class="ed-actions">
+            <button id="ed-save" class="btn-secondary" title="Cmd/Ctrl+S">Save</button>
+            <button id="ed-save-sync">Save &amp; sync</button>
+            <a id="ed-zip" class="btn-secondary" href="#" title="Download this skill as a zip">Zip</a>
+            <button id="ed-delete" class="btn-danger" title="Delete the skill folder and its Foundry agent / knowledge base">Delete</button>
+          </div>
+        </div>
+        <div class="subtabs"><button data-pane="edit" class="on">Edit</button><button data-pane="preview">Preview</button><button data-pane="versions">Versions</button><button data-pane="playground">Playground</button></div>
+
+        <div class="pane on" id="pane-edit">
+          <div class="ed-grid">
+            <div class="form ed-form">
+              <h4>Routing</h4>
+              <label>Name <input id="f-name"></label>
+              <label>Description <small>(the router reads this; write it in Thai + English)</small><textarea id="f-description" rows="4"></textarea></label>
+              <label>Keywords <small>(comma separated, Thai + English)</small><textarea id="f-keywords" rows="3"></textarea></label>
+              <div class="try"><label>Try routing <small>(router only, no answer)</small><div class="row"><input id="try-q" placeholder="type a customer question"><button id="try-run" class="btn-secondary">Route</button></div></label><div id="try-out" class="muted"></div></div>
+              <h4>Answering</h4>
+              <label>Product category <small>(= knowledge/&lt;category&gt;)</small><input id="f-category"></label>
+              <div class="two">
+                <label>Model <select id="f-model"></select></label>
+                <label>Top K <small>(chunks)</small><input id="f-topk" type="number" min="1" max="50"></label>
+              </div>
+              <label>Suggested follow-ups <small>(one per line; 3 Thai + 3 English)</small><textarea id="f-suggestions" rows="6"></textarea></label>
             </div>
-            <label>Suggested follow-ups <small>(one per line; give 3 Thai + 3 English)</small><textarea id="f-suggestions" rows="6"></textarea></label>
-            <div class="try"><label>Try routing <small>(router only, no answer)</small><div class="row"><input id="try-q" placeholder="type a customer question"><button id="try-run" class="btn-secondary">Route</button></div></label><div id="try-out" class="muted"></div></div>
-          </div>
-          <label class="bodylab">Instructions <small>(markdown, appended after skills/_base/SKILL.md · Cmd/Ctrl+S saves)</small><textarea id="f-body" rows="30" spellcheck="false"></textarea><span id="f-lines" class="muted"></span></label>
-        </div>
-        <div id="ed-msgs"></div>
-        <div class="toolbar">
-          <button id="ed-save">Save</button>
-          <button id="ed-save-sync">Save &amp; sync to Foundry</button>
-          <a id="ed-zip" class="btn-secondary" href="#">Download zip</a>
-          <button id="ed-delete" class="btn-danger">Delete skill</button>
-        </div>
-      </div>
-
-      <div class="pane" id="pane-preview"><div class="md-preview" id="md-preview"></div></div>
-
-      <div class="pane" id="pane-versions">
-        <div class="toolbar"><button id="ver-refresh" class="btn-secondary">Load versions</button><span id="ver-status" class="muted"></span></div>
-        <div class="split-narrow">
-          <table class="list" id="ver-table"><thead><tr><th>ver</th><th>created</th><th>model</th><th>hash</th></tr></thead><tbody></tbody></table>
-          <div>
-            <div class="toolbar"><span id="ver-title" class="muted">Select a version to diff it against the local SKILL.md (local = green, deployed = red)</span><button id="ver-restore" class="btn-secondary" hidden>Restore this version's body into the editor</button></div>
-            <pre id="ver-diff" class="diff"></pre>
+            <div class="ed-main">
+              <details id="ed-lintwrap" class="lintwrap"><summary><span id="ed-lint-summary">lint</span></summary><div id="ed-lint" class="lint"></div></details>
+              <label class="bodylab">Instructions <small>(markdown body of SKILL.md, appended after the base rules · Tab indents · Cmd/Ctrl+S saves)</small><textarea id="f-body" rows="30" spellcheck="false"></textarea><span id="f-lines" class="muted"></span></label>
+              <div id="ed-msgs"></div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="pane" id="pane-playground">
-        <div class="toolbar"><span id="pg-banner" class="muted"></span><button id="pg-new" class="btn-secondary">New conversation</button></div>
-        <div class="row"><input id="pg-q" placeholder="ask this skill a test question (Thai or English)" style="flex:1"><button id="pg-send">Ask</button></div>
-        <div id="pg-thread" class="pg-thread"></div>
+        <div class="pane" id="pane-preview"><div class="muted" style="margin-bottom:8px">What the agent receives: the base rules, then this skill. Rendered as markdown.</div><div class="md-preview" id="md-preview"></div></div>
+
+        <div class="pane" id="pane-versions">
+          <div class="toolbar"><button id="ver-refresh" class="btn-secondary">Reload versions</button><span id="ver-status" class="muted"></span></div>
+          <div class="split-narrow">
+            <table class="list" id="ver-table"><thead><tr><th>ver</th><th>created</th><th>model</th><th>hash</th></tr></thead><tbody></tbody></table>
+            <div>
+              <div class="toolbar"><span id="ver-title" class="muted">Select a version to diff it against the local SKILL.md (local = green, deployed = red)</span><button id="ver-restore" class="btn-secondary" hidden>Restore this version's body into the editor</button></div>
+              <pre id="ver-diff" class="diff"></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" id="pane-playground">
+          <div class="toolbar"><span id="pg-banner" class="muted"></span><button id="pg-new" class="btn-secondary">New conversation</button></div>
+          <div class="row"><input id="pg-q" placeholder="ask this skill a test question (Thai or English)" style="flex:1"><button id="pg-send">Ask</button></div>
+          <div id="pg-thread" class="pg-thread"></div>
+        </div>
       </div>
     </div>
   </div>
