@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bankrag.chat import ChatSession, detect_language, pick_suggestions, strip_markers
+from bankrag.chat import ChatSession, detect_language, pick_suggestions, strip_markers, strip_source_talk
 from bankrag.config import Settings
 from bankrag.models import Answer, Citation
 from bankrag.sessions import append_turns, delete_session, list_sessions, load_session, new_record, save_session
@@ -95,3 +95,14 @@ def test_backup_and_restore(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "fresh" / "bankrag.db"))
     assert restore_db(s, dest) and load_session(s, rec.id).title == "q"
     assert restore_db(s, dest) is False  # already present
+
+
+def test_strip_source_talk_footer_and_sentences():
+    th = "บัตร Infinite เข้าเลานจ์ได้ 2 ครั้งต่อปีค่ะ [Infinite](https://x/inf) ข้อมูลนี้จากแหล่งข้อมูลของธนาคารกรุงเทพค่ะ\n\nแหล่งข้อมูล:\n- [Infinite](https://x/inf)\n- https://x/terms"
+    assert strip_markers(th) == "บัตร Infinite เข้าเลานจ์ได้ 2 ครั้งต่อปีค่ะ [Infinite](https://x/inf)"
+    en = "The annual fee is 3,000 baht. You can find the official details here [Platinum](https://x/p).\n\n**Sources**\n1. [Platinum](https://x/p)"
+    assert strip_markers(en) == "The annual fee is 3,000 baht."
+    assert strip_source_talk("ข้อมูลนี้มาจากแบบประกันสุขภาพที่ธนาคารให้บริการค่ะ ถ้าสนใจแจ้งได้เลยนะคะ").strip() == "ถ้าสนใจแจ้งได้เลยนะคะ"
+    # legit content is untouched: a next step without a link, a 'Sources' header followed by prose, inline links
+    keep = "The fee is waived at 150,000 baht a year [Platinum](https://x/p). You can find more details at any branch.\n\nSources:\nThe bank publishes fees on its product page and they can change."
+    assert strip_source_talk(keep) == keep

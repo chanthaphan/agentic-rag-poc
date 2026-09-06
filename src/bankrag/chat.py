@@ -228,9 +228,38 @@ class ChatSession:
 _MARKER_RE = re.compile(r"【[^】]*】")
 
 
+_SOURCES_HEADER_RE = re.compile(r"(?:^|\n)[ \t]*(?:[-*•]\s*)?(?:\*\*|__|#+\s*)?(?:Sources?|References?|แหล่งข้อมูล(?:อ้างอิง)?|แหล่งที่มา|ที่มา(?:ของข้อมูล)?|อ้างอิง)(?:\*\*|__)?[ \t]*[:：]?[ \t]*(?=\n|$)", re.I)
+_LINKISH_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])?\s*(?:\[[^\]]*\]\([^)]*\)|https?://\S+|<https?://[^>]+>)", re.I)
+_SOURCE_SENTENCE_RES = [
+    # Thai: "ข้อมูลนี้อ้างอิงจาก…ค่ะ", "ข้อมูลข้างต้นมาจากเอกสาร…"
+    re.compile(r"(?:(?<=\s)|^)ข้อมูล(?:นี้|ข้างต้น|ดังกล่าว|ทั้งหมด)?(?:\s*(?:อ้างอิง|นำมา|มา))?\s*จาก(?:แหล่งข้อมูล|เอกสาร|แบบ|หน้า|ฐาน|ข้อมูล)[^\n]{0,200}?(?:ค่ะ|คะ|นะคะ|ครับ|\.|(?=\n)|$)"),
+    # English: "This information is based on / taken from …", "You can find the official details here [link]."
+    re.compile(r"(?:(?<=\s)|^)(?:This|The above|These) (?:information|answer|details?|facts?) (?:is|are|was|were) (?:based on|from|taken from|sourced from|referenced from|according to)[^\n]{0,200}?(?:\.|(?=\n)|$)", re.I),
+    re.compile(r"(?:(?<=\s)|^)(?:You can|Please) (?:find|see|check|read|refer to)[^\n]{0,60}?(?:\[[^\]]*\]\([^)]*\)|https?://\S+)[^\n]{0,40}?(?:\.|(?=\n)|$)", re.I),
+]
+
+
+def strip_source_talk(text: str) -> str:
+    """Drop a trailing 'Sources:' / 'แหล่งข้อมูล' list and sentences that narrate where the facts came from.
+    The app shows sources in its own card, and customer-facing answers must not talk about documents."""
+    m = None
+    for m in _SOURCES_HEADER_RE.finditer(text):
+        pass
+    if m is not None:
+        rest = text[m.end():]
+        lines = [ln for ln in rest.split("\n") if ln.strip()]
+        if len(lines) <= 10 and all(_LINKISH_RE.match(ln) for ln in lines):
+            text = text[: m.start()]
+    for rx in _SOURCE_SENTENCE_RES:
+        text = rx.sub("", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
 def strip_markers(text: str) -> str:
-    """Remove Foundry citation markers like 【4:0†source】 (and any echoed reply-language hint) from the visible answer."""
+    """Remove Foundry citation markers like 【4:0†source】, any echoed reply-language hint, and source narration from the visible answer."""
     text = _HINT_ECHO_RE.sub(" ", _MARKER_RE.sub("", text))
+    text = strip_source_talk(text)
     return re.sub(r"[ \t]+\n", "\n", text).strip()
 
 
