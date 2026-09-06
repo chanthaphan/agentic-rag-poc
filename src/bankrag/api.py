@@ -102,20 +102,46 @@ class SkillForm(BaseModel):
 
 
 # ---------------- jobs ----------------
-def _start_job(kind: str, fn) -> str:
+def _start_job(kind: str, fn, meta: Optional[dict] = None) -> str:
+    """Run fn(log) on a thread. `log(msg)` appends to the job log; `log.progress(phase=, done=, total=, message=, **stats)`
+    updates the structured progress that the Studio renders (phase stepper, bar, counters)."""
     job_id = uuid.uuid4().hex[:8]
-    _jobs[job_id] = {"id": job_id, "kind": kind, "status": "running", "log": [], "started": datetime.now(timezone.utc).isoformat(), "result": None}
+    now = datetime.now(timezone.utc)
+    _jobs[job_id] = {"id": job_id, "kind": kind, "meta": meta or {}, "status": "running", "log": [], "started": now.isoformat(), "finished": None,
+                     "elapsed_ms": 0, "progress": {"phase": "queued", "done": None, "total": None, "message": "", "stats": {}}, "result": None}
+    for old_id in list(_jobs)[:-50]:  # keep the 50 most recent jobs in memory
+        if _jobs[old_id]["status"] != "running":
+            _jobs.pop(old_id, None)
 
     def log(msg: str) -> None:
         _jobs[job_id]["log"].append(msg)
+        _jobs[job_id]["elapsed_ms"] = int((datetime.now(timezone.utc) - now).total_seconds() * 1000)
+
+    def progress(phase: Optional[str] = None, done: Optional[int] = None, total: Optional[int] = None, message: Optional[str] = None, **stats) -> None:
+        pr = _jobs[job_id]["progress"]
+        if phase:
+            pr["phase"] = phase
+        pr["done"], pr["total"] = done, total
+        if message is not None:
+            pr["message"] = message
+        pr["stats"].update({k: v for k, v in stats.items() if v is not None})
+        _jobs[job_id]["elapsed_ms"] = int((datetime.now(timezone.utc) - now).total_seconds() * 1000)
+
+    log.progress = progress  # type: ignore[attr-defined]
 
     def run() -> None:
         try:
             _jobs[job_id]["result"] = fn(log)
             _jobs[job_id]["status"] = "done"
+            _jobs[job_id]["progress"]["phase"] = "done"
         except Exception as e:  # noqa: BLE001
             log(f"ERROR {type(e).__name__}: {e}")
             _jobs[job_id]["status"] = "error"
+            _jobs[job_id]["progress"]["phase"] = "error"
+            _jobs[job_id]["progress"]["message"] = f"{type(e).__name__}: {str(e)[:200]}"
+        finally:
+            _jobs[job_id]["finished"] = datetime.now(timezone.utc).isoformat()
+            _jobs[job_id]["elapsed_ms"] = int((datetime.now(timezone.utc) - now).total_seconds() * 1000)
 
     threading.Thread(target=run, daemon=True).start()
     return job_id
@@ -126,7 +152,17 @@ def get_job(job_id: str):
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
+    if job["status"] == "running":
+        job["elapsed_ms"] = int((datetime.now(timezone.utc) - datetime.fromisoformat(job["started"])).total_seconds() * 1000)
     return job
+
+
+@app.get("/jobs")
+def list_jobs(kind: Optional[str] = None, limit: int = 10):
+    """Recent jobs, newest first, without their logs. kind = comma-separated filter (e.g. ingest,crawl)."""
+    kinds = {k.strip() for k in (kind or "").split(",") if k.strip()}
+    rows = [j for j in reversed(list(_jobs.values())) if not kinds or j["kind"] in kinds]
+    return [{k: v for k, v in j.items() if k != "log"} for j in rows[: max(1, min(limit, 50))]]
 
 
 # ---------------- health / app config ----------------
@@ -577,7 +613,7 @@ def ingest_endpoint(category: Optional[str] = None, full: bool = False):
         rep = ingest(settings, category=category, full=full, log=log)
         return {"summary": rep.summary(), "uploaded": rep.uploaded_chunks, "deleted": rep.deleted_chunks, "per_category": rep.per_category}
 
-    return {"job_id": _start_job("ingest", run)}
+    return {"job_id": _start_job("ingest", run, {"category": category or "all", "full": full})}
 
 
 @app.get("/knowledge/retrieve")
@@ -632,7 +668,7 @@ def knowledge_reingest(path: str):
         rep = ingest(settings, category=category, full=True, only_paths=[path], log=log)
         return {"summary": rep.summary(), "uploaded": rep.uploaded_chunks}
 
-    return {"job_id": _start_job("reingest", run)}
+    return {"job_id": _start_job("reingest", run, {"category": category, "path": path})}
 
 
 class ImportRequest(BaseModel):
@@ -657,7 +693,7 @@ def knowledge_import_url(req: ImportRequest):
             out["ingest"] = rep.summary()
         return out
 
-    return {"job_id": _start_job("import", run)}
+    return {"job_id": _start_job("import", run, {"category": req.category, "urls": len(req.urls)})}
 
 
 class CrawlRequest(BaseModel):
@@ -688,7 +724,7 @@ def knowledge_crawl(req: CrawlRequest):
             out["ingest"] = rep.summary()
         return out
 
-    return {"job_id": _start_job("crawl", run)}
+    return {"job_id": _start_job("crawl", run, {"category": req.category, "start": req.start_urls[0] if req.start_urls else ""})}
 
 
 @studio.get("/bundle.zip")

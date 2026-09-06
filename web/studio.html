@@ -96,35 +96,69 @@
   <div class="toolbar">
     <label>Category <select id="kn-category"></select></label>
     <input id="kn-newcat" placeholder="or new category id (e.g. mortgage)">
-    <label class="btn-secondary">Upload documents (.md/.pdf/.txt) <input type="file" id="kn-files" multiple accept=".md,.pdf,.txt" hidden></label>
-    <button id="kn-ingest">Run ingest</button>
-    <button id="kn-ingest-full" class="btn-secondary">Full re-ingest</button>
     <button id="kn-refresh" class="btn-secondary">Refresh</button>
     <span id="kn-status" class="muted"></span>
   </div>
-  <div id="kn-drop" class="dropzone">Drop .md / .pdf / .txt files here to upload into the selected category</div>
   <div class="cards" id="kn-cards"></div>
-  <div class="split-narrow">
-    <div>
-      <table class="list" id="kn-files-table"><thead><tr><th>file</th><th>kind</th><th>size</th><th>chunks</th><th></th></tr></thead><tbody></tbody></table>
-      <h3>Crawl a website section <span class="muted">(built in, no external service)</span></h3>
-      <div class="form">
-        <label>Start URL(s) <small>(one per line)</small><textarea id="cr-start" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards"></textarea></label>
-        <label>Stay under prefix(es) <small>(one per line; default = the start URLs)</small><textarea id="cr-prefix" rows="2"></textarea></label>
-        <div class="row"><label>Max pages <input id="cr-max" type="number" value="30" min="1" max="300" style="width:90px"></label><label><input type="checkbox" id="cr-pdf" checked> download linked PDFs</label><label><input type="checkbox" id="cr-ingest" checked> ingest after crawl</label><button id="cr-run">Crawl into category</button></div>
+  <div class="kn-grid">
+    <div class="kn-main">
+      <div class="panel">
+        <div class="panel-head"><h3>Add content to <span class="kn-cat-name"></span></h3></div>
+        <div class="subtabs">
+          <button class="on" data-kpane="upload">Upload files</button>
+          <button data-kpane="crawl">Crawl a website section</button>
+          <button data-kpane="import">Import URLs</button>
+        </div>
+        <div class="pane on" id="kpane-upload">
+          <div id="kn-drop" class="dropzone">
+            <div class="dz-big">Drop .md / .pdf / .txt files here</div>
+            <div class="muted">or</div>
+            <label class="btn-secondary">Choose files <input type="file" id="kn-files" multiple accept=".md,.pdf,.txt" hidden></label>
+            <div class="muted dz-note">Files land in the selected category and show as <span class="pill info">not ingested</span> until you run ingest.</div>
+          </div>
+        </div>
+        <div class="pane" id="kpane-crawl">
+          <div class="form">
+            <label>Start URL(s) <small>(one per line)</small><textarea id="cr-start" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards"></textarea></label>
+            <label>Stay under prefix(es) <small>(one per line; default = the start URLs)</small><textarea id="cr-prefix" rows="2"></textarea></label>
+            <div class="row wrap"><label>Max pages <input id="cr-max" type="number" value="30" min="1" max="300" style="width:90px"></label><label><input type="checkbox" id="cr-pdf" checked> download linked PDFs</label><label><input type="checkbox" id="cr-ingest" checked> ingest after crawl</label><button id="cr-run">Crawl into category</button></div>
+            <div class="muted">Built in, no external service. Re-crawls only rewrite pages whose content changed.</div>
+          </div>
+        </div>
+        <div class="pane" id="kpane-import">
+          <textarea id="kn-urls" rows="3" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards/...&#10;one page or PDF URL per line"></textarea>
+          <div class="row wrap"><button id="kn-import">Import URLs</button><label><input type="checkbox" id="kn-import-ingest" checked> ingest after import</label></div>
+        </div>
       </div>
-      <h3>Import single URLs <span class="muted">(pages or PDFs; one per line)</span></h3>
-      <textarea id="kn-urls" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards/..."></textarea>
-      <div class="toolbar"><button id="kn-import" class="btn-secondary">Import URLs</button><label><input type="checkbox" id="kn-import-ingest" checked> ingest after import</label></div>
+      <div class="panel">
+        <div class="panel-head"><h3>Files in <span class="kn-cat-name"></span></h3><span id="kn-files-hint" class="muted"></span></div>
+        <table class="list" id="kn-files-table"><thead><tr><th>file</th><th>kind</th><th>size</th><th>chunks</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Search the index</h3><span class="muted">hybrid search filtered by the selected category, plus the knowledge base retrieve a skill would see</span></div>
+        <div class="row"><input id="kn-q" placeholder="question or keywords" style="flex:1"><select id="kn-skill"></select><button id="kn-retrieve">Search</button></div>
+        <div id="kn-refs"></div>
+      </div>
     </div>
-    <div>
-      <h3 style="margin-top:0">Search the index <span class="muted">(hybrid, filtered by the selected category)</span></h3>
-      <div class="row"><input id="kn-q" placeholder="question or keywords" style="flex:1"><select id="kn-skill"></select><button id="kn-retrieve">Search</button></div>
-      <div id="kn-refs"></div>
-    </div>
+    <aside class="kn-side">
+      <div class="panel ingest" id="kn-ingest-panel">
+        <div class="panel-head"><h3>Ingestion</h3><span id="ig-state" class="pill">idle</span></div>
+        <div id="ig-hint" class="muted"></div>
+        <div class="row wrap ig-actions"><button id="kn-ingest">Run ingest</button><button id="kn-ingest-full" class="btn-secondary">Full re-ingest</button></div>
+        <div id="ig-body" hidden>
+          <ol id="ig-steps" class="steps"></ol>
+          <div class="bar"><div id="ig-bar" class="fill"></div></div>
+          <div class="ig-line"><span id="ig-pct"></span><span id="ig-count" class="muted"></span><span id="ig-elapsed" class="muted"></span></div>
+          <div id="ig-msg" class="ig-msg muted"></div>
+          <div id="ig-stats" class="igchips"></div>
+          <details id="ig-logwrap"><summary class="muted">log</summary><pre id="kn-log" class="log"></pre></details>
+        </div>
+        <h4>Recent runs</h4>
+        <div id="ig-runs" class="runs muted">none yet</div>
+      </div>
+    </aside>
   </div>
   <div id="kn-chunks" class="drawer" hidden><div class="toolbar"><b id="kn-chunks-title"></b><button id="kn-chunks-close" class="btn-secondary">Close</button></div><div id="kn-chunks-body"></div></div>
-  <pre id="kn-log" class="log"></pre>
 </section>
 
 <!-- ================= EVALS ================= -->

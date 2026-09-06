@@ -19,6 +19,7 @@ import frontmatter
 
 from ..config import Settings
 from . import clean as C
+from .progress import report as progress
 
 Log = Callable[[str], None]
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
@@ -103,8 +104,13 @@ def crawl(
     stats = {"fetched": 0, "pages": 0, "pdfs": 0, "unchanged": 0, "errors": 0, "skipped_out_of_scope": 0, "files": []}
     pdf_queue: list[str] = []
 
+    def _tick(phase: str, done: int, total: int, message: str) -> None:
+        progress(log, phase, done, total, message=message, pages=stats["pages"], unchanged=stats["unchanged"], pdfs=stats["pdfs"], errors=stats["errors"], queued=len(queue), pdf_queue=len(pdf_queue))
+
+    _tick("crawl", 0, max_pages, start_urls[0] if start_urls else "")
     while queue and stats["pages"] + stats["unchanged"] < max_pages:
         url = queue.popleft()
+        _tick("crawl", stats["pages"] + stats["unchanged"], max_pages, url)
         if url.lower().endswith(SKIP_EXT):
             continue
         if url.lower().endswith(".pdf"):
@@ -155,7 +161,9 @@ def crawl(
         time.sleep(delay_s)
 
     if include_pdfs:
-        for url in pdf_queue[: max(0, max_pages * 2)]:
+        todo = pdf_queue[: max(0, max_pages * 2)]
+        for i, url in enumerate(todo):
+            _tick("pdfs", i, len(todo), url)
             try:
                 body, _ctype, status = fetch(url)
                 stats["fetched"] += 1
@@ -190,6 +198,7 @@ def crawl(
 
     mp.parent.mkdir(parents=True, exist_ok=True)
     mp.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    _tick("pdfs", stats["pdfs"], stats["pdfs"], "")
     if queue:
         log(f"stopped at max_pages={max_pages}; {len(queue)} URLs left in the queue")
     log(f"crawl done: {stats['pages']} new/changed pages, {stats['unchanged']} unchanged, {stats['pdfs']} PDFs, {stats['errors']} errors")

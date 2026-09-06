@@ -13,7 +13,7 @@ def make_openai_client(settings: Settings) -> OpenAI:
     return OpenAI(base_url=settings.aoai_v1_base_url, api_key=settings.aoai_api_key)
 
 
-def embed_texts(texts: list[str], settings: Settings, *, batch_size: int = 32, client: OpenAI | None = None) -> list[list[float]]:
+def embed_texts(texts: list[str], settings: Settings, *, batch_size: int = 32, client: OpenAI | None = None, on_progress=None) -> list[list[float]]:
     client = client or make_openai_client(settings)
     out: list[list[float]] = []
     for i in range(0, len(texts), batch_size):
@@ -27,6 +27,8 @@ def embed_texts(texts: list[str], settings: Settings, *, batch_size: int = 32, c
                         f"embedding dims {len(vectors[0])} != EMBED_DIMS {settings.embed_dims}; fix .env or the index"
                     )
                 out.extend(vectors)
+                if on_progress:
+                    on_progress(len(out), len(texts))
                 break
             except (RateLimitError, APIStatusError) as e:  # retry on 429/5xx
                 status = getattr(e, "status_code", 0) or 0

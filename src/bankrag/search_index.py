@@ -118,7 +118,7 @@ def index_stats(settings: Settings) -> dict:
     return {k: getattr(stats, k, None) for k in ("document_count", "storage_size", "vector_index_size")}
 
 
-def upload_chunks(settings: Settings, docs: Iterable[dict], batch_size: int = 100) -> int:
+def upload_chunks(settings: Settings, docs: Iterable[dict], batch_size: int = 100, on_progress=None) -> int:
     client = search_client(settings)
     docs = list(docs)
     n = 0
@@ -128,6 +128,8 @@ def upload_chunks(settings: Settings, docs: Iterable[dict], batch_size: int = 10
         if failed:
             raise RuntimeError(f"{len(failed)} documents failed to upload, first: {failed[0].error_message}")
         n += len(results)
+        if on_progress:
+            on_progress(n, len(docs))
     return n
 
 

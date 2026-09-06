@@ -28,7 +28,7 @@ B.settext(s, 30, [("Top bar and composer", 0), ("History icon: past conversation
 s = B.slide(prs, LAY, "Title only", title="Studio at a glance", footer=FOOT,
             lead="Five tabs: author skills, grow knowledge, evaluate, review, configure.")
 B.flow(s, ["Skills", "Knowledge", "Evals", "Conversations", "Settings"], y=3.05, h=0.95, accent=0)
-B.label(s, 0.37, 4.55, 12.5, 1.2, "Every long action (sync, ingest, crawl, eval) runs as a job with a live log at the bottom of the tab. Changes to skills reach the assistant only after 'Save & sync'.", sz=12)
+B.label(s, 0.37, 4.55, 12.5, 1.2, "Every long action (sync, ingest, crawl, eval) runs as a job. The Knowledge tab shows it in the Ingestion panel: phase stepper, progress bar, counters, log and recent runs. Changes to skills reach the assistant only after 'Save & sync'.", sz=12)
 
 s = B.slide(prs, LAY, "Title only", title="Skills tab: edit a skill and publish it", footer=FOOT,
             lead="A skill = one product family: description, keywords, model, follow-ups, instructions.")
@@ -47,7 +47,7 @@ s = B.slide(prs, LAY, "Title only", title="Knowledge tab: add documents", footer
             lead="Documents live in knowledge/<category>/; a skill answers only from its own category.")
 B.process_steps(s, [("Choose a category", "Pick an existing one or type a new id (it becomes the product_category of a skill)."),
                     ("Add content", "Drag .md/.pdf/.txt onto the drop zone, paste single URLs, or crawl a site section (start URL, prefix, max pages, PDFs)."),
-                    ("Run ingest", "Only new or changed files are chunked and embedded. The log shows counts; the table shows chunks per file."),
+                    ("Run ingest", "Only new or changed files are chunked and embedded. The Ingestion panel shows Scan, Embed, Upload progress with counts; the table shows chunks per file."),
                     ("Sync skills", "Go to Skills and 'Sync all' so the skill gets its knowledge base (Free tier allows three; extra categories share the general base).")], y=3.25, accent_upto=1)
 
 s = B.slide(prs, LAY, "Three column", title="Knowledge tab: inspect and search", footer=FOOT,
@@ -78,7 +78,7 @@ for hidx, bidx, head, body in [(14, 48, "Usage & prices", "Sessions, answers, to
     B.settext(s, hidx, [(head, 0)]); B.settext(s, bidx, [(body, 0)])
 
 s = B.slide(prs, LAY, "Title and content", title="When something looks wrong", footer=FOOT)
-B.settext(s, 13, [("The answer says 'no information in the knowledge base'", 0), ("Expected when the category has no documents or the retrieved text does not cover the question. Add documents, ingest, sync.", 1),
+B.settext(s, 13, [("The answer says it has no details on a topic yet", 0), ("Expected when the category has no documents or the retrieved text does not cover the question. Add documents, ingest, sync.", 1),
                   ("A skill shows 'outdated' or 'missing' in Foundry", 0), ("Run 'Save & sync' on the skill, or 'Sync all'. The log shows any error.", 1),
                   ("'knowledge-source quota exceeded' in the sync log", 0), ("Free search tier allows three; the skill still works through the shared general base with a scoping note.", 1),
                   ("'Model deployment rate limit exceeded'", 0), ("The model's quota is too small for the traffic; use a smaller model on the skill or raise the deployment capacity.", 1),

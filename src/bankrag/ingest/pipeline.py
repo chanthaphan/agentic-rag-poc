@@ -17,6 +17,7 @@ from ..models import Chunk, IngestDocReport, IngestReport
 from . import clean as C
 from .chunk import chunk_markdown
 from .embed import embed_texts
+from .progress import report as progress
 
 MANIFEST = "ingest_manifest.json"
 IGNORED_NAMES = {"README.md", "readme.md", "doc.yaml", ".DS_Store"}
@@ -153,24 +154,37 @@ def ingest(settings: Settings, *, category: Optional[str] = None, full: bool = F
     to_delete: list[str] = []
 
     only = set(only_paths or [])
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "skipped": 0, "deleted": 0, "chunks": 0}
+    targets = [(c, p) for c, p in found if not only or p.relative_to(settings.knowledge_dir).as_posix() in only]
+    log(f"scanning {len(targets)} file(s) in {category or 'all categories'}{' (full re-ingest)' if full else ''}")
+    progress(log, "scan", 0, len(targets), message="", **counts)
+    scanned = 0
     for cat, path in found:
         rel = path.relative_to(settings.knowledge_dir).as_posix()
         doc_id = rel
         seen_ids.add(doc_id)
         if only and rel not in only:
             continue
+        scanned += 1
+        progress(log, "scan", scanned, len(targets), message=rel, **counts)
         content_hash = _sha256(path.read_bytes())
         prev = docs_state.get(doc_id)
         if prev and prev.get("sha256") == content_hash and not full:
             report.docs.append(IngestDocReport(doc_id=doc_id, action="unchanged", chunks=len(prev.get("chunk_ids", []))))
+            counts["unchanged"] += 1
             continue
         try:
             text, meta = _read_document(cat, path, settings.knowledge_dir)
         except Exception as e:  # noqa: BLE001
             report.docs.append(IngestDocReport(doc_id=doc_id, action="skipped", note=f"read error: {e}"))
+            counts["skipped"] += 1
+            log(f"skipped {rel}: read error: {str(e)[:120]}")
             continue
         if meta.get("_skip") or not text.strip():
-            report.docs.append(IngestDocReport(doc_id=doc_id, action="skipped", note=str(meta.get("_skip") or "empty after cleaning")))
+            note = str(meta.get("_skip") or "empty after cleaning")
+            report.docs.append(IngestDocReport(doc_id=doc_id, action="skipped", note=note))
+            counts["skipped"] += 1
+            log(f"skipped {rel}: {note}")
             continue
         chunks = build_chunks(cat, doc_id, text, meta, content_hash)
         new_ids = [c.id for c in chunks]
@@ -178,8 +192,12 @@ def ingest(settings: Settings, *, category: Optional[str] = None, full: bool = F
         to_delete.extend(sorted(old_ids - set(new_ids)))
         pending.extend(chunks)
         docs_state[doc_id] = {"sha256": content_hash, "chunk_ids": new_ids, "category": cat, "title": meta["title"], "doc_type": meta["doc_type"]}
-        report.docs.append(IngestDocReport(doc_id=doc_id, action="updated" if prev else "added", chunks=len(chunks), note=meta["title"][:60]))
+        action = "updated" if prev else "added"
+        report.docs.append(IngestDocReport(doc_id=doc_id, action=action, chunks=len(chunks), note=meta["title"][:60]))
         report.per_category[cat] = report.per_category.get(cat, 0) + len(chunks)
+        counts[action] += 1
+        counts["chunks"] += len(chunks)
+        log(f"{action} {rel} -> {len(chunks)} chunks ({meta['title'][:50]})")
 
     # documents removed from disk (within the selected category scope)
     for doc_id, st in list(docs_state.items()):
@@ -189,26 +207,40 @@ def ingest(settings: Settings, *, category: Optional[str] = None, full: bool = F
             continue
         to_delete.extend(st.get("chunk_ids", []))
         report.docs.append(IngestDocReport(doc_id=doc_id, action="deleted", chunks=len(st.get("chunk_ids", []))))
+        counts["deleted"] += 1
+        log(f"deleted {doc_id} (file removed from disk; {len(st.get('chunk_ids', []))} chunks will be dropped)")
         del docs_state[doc_id]
 
+    progress(log, "scan", len(targets), len(targets), message="", **counts)
     log(f"documents: {report.summary()}  new/updated chunks: {len(pending)}  chunks to delete: {len(to_delete)}")
     if dry_run:
         return report
 
     if pending:
         log(f"embedding {len(pending)} chunks with {settings.embed_deployment} ...")
-        vectors = embed_texts([c.content for c in pending], settings)
+        progress(log, "embed", 0, len(pending), message=settings.embed_deployment)
+
+        def on_embed(done: int, total: int) -> None:
+            progress(log, "embed", done, total)
+            if done % 128 == 0 or done == total:
+                log(f"embedded {done}/{total}")
+
+        vectors = embed_texts([c.content for c in pending], settings, on_progress=on_embed)
         docs = []
         for c, v in zip(pending, vectors):
             d = c.model_dump()
             d["content_vector"] = v
             docs.append(d)
         log("uploading to index ...")
-        report.uploaded_chunks = SI.upload_chunks(settings, docs)
+        progress(log, "upload", 0, len(docs), message="")
+        report.uploaded_chunks = SI.upload_chunks(settings, docs, on_progress=lambda d, n: progress(log, "upload", d, n))
     if to_delete:
+        progress(log, "upload", len(to_delete), len(to_delete), message=f"deleting {len(to_delete)} old chunks")
         report.deleted_chunks = SI.delete_chunks(settings, to_delete)
     manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
     save_manifest(settings, manifest)
+    counts["uploaded"], counts["deleted_chunks"] = report.uploaded_chunks, report.deleted_chunks
+    progress(log, "done", None, None, message="", **counts)
     log(f"uploaded {report.uploaded_chunks}, deleted {report.deleted_chunks}; manifest saved")
     return report
 

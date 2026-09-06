@@ -10,6 +10,7 @@ import frontmatter
 
 from ..config import Settings
 from . import clean as C
+from .progress import report as progress
 
 Log = Callable[[str], None]
 
@@ -53,8 +54,9 @@ def import_urls(settings: Settings, category: str, urls: list[str], log: Log = p
     target = settings.knowledge_dir / category / "_imports"
     target.mkdir(parents=True, exist_ok=True)
     saved: list[str] = []
-    for url in urls:
-        url = url.strip()
+    todo = [u.strip() for u in urls if u.strip()]
+    for i, url in enumerate(todo):
+        progress(log, "import", i, len(todo), message=url, imported=len(saved))
         if not url.startswith("http"):
             log(f"skip (not a URL): {url}")
             continue
@@ -86,4 +88,5 @@ def import_urls(settings: Settings, category: str, urls: list[str], log: Log = p
             log(f"imported {url} -> {dest.relative_to(settings.knowledge_dir)} ({len(text)} chars)")
         except Exception as e:  # noqa: BLE001
             log(f"ERROR {url}: {type(e).__name__}: {str(e)[:200]}")
+    progress(log, "import", len(todo), len(todo), message="", imported=len(saved))
     return saved
