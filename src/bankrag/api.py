@@ -963,12 +963,10 @@ def _asset_version() -> str:
     return hashlib.sha1(stamps.encode()).hexdigest()[:10]
 
 
-ASSET_VERSION = _asset_version()
-
-
 def _page(name: str) -> Response:
+    version = _asset_version()  # per request: a handful of stat() calls, so local edits show up without a restart
     html = (WEB_DIR / name).read_text(encoding="utf-8")
-    html = re.sub(r'(/static/[^"\s?]+\.(?:js|css))"', lambda m: f'{m.group(1)}?v={ASSET_VERSION}"', html)
+    html = re.sub(r'(/static/[^"\s?]+\.(?:js|css))"', lambda m: f'{m.group(1)}?v={version}"', html)
     return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
