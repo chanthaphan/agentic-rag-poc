@@ -135,7 +135,27 @@ function updateSend() { $("#btn-send").classList.toggle("on", !!$("#input").valu
 $("#input").addEventListener("input", updateSend);
 $("#input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
 $("#btn-send").addEventListener("click", () => send());
-$("#btn-mic").addEventListener("click", () => $("#btn-mic").classList.toggle("on"));
+// ---------- voice input (browser Web Speech API; Thai/English; needs HTTPS or localhost) ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+function speechLang() {
+  const last = [...state.turns].reverse().find((t) => t.role === "user");
+  const th = last ? /[\u0e00-\u0e7f]/.test(last.text) : TH;
+  return th ? "th-TH" : "en-US";
+}
+function stopListening() { if (rec) { try { rec.stop(); } catch {} } }
+function startListening() {
+  if (!SR) { $("#input").placeholder = TH ? "เบราว์เซอร์นี้ไม่รองรับการพูด (ใช้ Chrome หรือ Safari)" : "Voice input not supported in this browser (use Chrome or Safari)"; return; }
+  rec = new SR(); rec.lang = speechLang(); rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  let finalText = "";
+  rec.onstart = () => { listening = true; $("#btn-mic").classList.add("on"); $("#input").placeholder = TH ? "กำลังฟัง… พูดได้เลย" : "Listening… speak now"; $("#input").value = ""; };
+  rec.onresult = (e) => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) finalText += t; else interim += t; } $("#input").value = (finalText + interim).trim(); updateSend(); };
+  rec.onerror = (e) => { $("#input").placeholder = (TH ? "ไม่สามารถฟังได้: " : "Could not listen: ") + e.error; };
+  rec.onend = () => { listening = false; $("#btn-mic").classList.remove("on"); const q = $("#input").value.trim(); $("#input").placeholder = "Ask anything"; if (q && finalText) send(q); };
+  try { rec.start(); } catch (e) { $("#input").placeholder = "Could not start microphone: " + e.message; }
+}
+$("#btn-mic").addEventListener("click", () => (listening ? stopListening() : startListening()));
+if (!SR) $("#btn-mic").title = "Voice input needs Chrome or Safari";
 
 // ---------- sheets ----------
 function openSheet(html) { $("#sheet").innerHTML = '<div class="grab"></div>' + html; $("#sheet-bg").classList.add("on"); }
