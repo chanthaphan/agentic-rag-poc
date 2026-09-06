@@ -32,9 +32,9 @@ B.label(s, 0.37, 4.55, 12.5, 1.2, "Every long action (sync, ingest, crawl, eval)
 
 s = B.slide(prs, LAY, "Title only", title="Skills tab: edit a skill and publish it", footer=FOOT,
             lead="A skill = one product family: description, keywords, model, follow-ups, instructions.")
-B.process_steps(s, [("Open", "Click a row. Lint findings show at the top of the editor (keyword overlap, missing Thai/English follow-ups, model not deployed)."),
-                    ("Edit", "Form on the left, markdown instructions on the right. Cmd/Ctrl+S saves; an 'unsaved' badge warns before you leave."),
-                    ("Save & sync", "Creates a new agent version in Foundry and shows 'version N -> N+1'. 'Save' alone only writes the file."),
+B.process_steps(s, [("Open", "Click a skill card (dot = Foundry state: in sync, outdated, not deployed). Lint findings sit above the instructions (keyword overlap, missing Thai/English follow-ups, model not deployed)."),
+                    ("Edit", "Routing and answering settings on the left, markdown instructions on the right. Cmd/Ctrl+S saves; an 'unsaved' badge warns before you leave."),
+                    ("Save & sync", "Creates a new agent version in Foundry; the Foundry sync panel shows progress per skill and the result rows. 'Save' alone only writes the file."),
                     ("Test", "Playground pane: ask the deployed agent; the answer streams with sources and a trace card.")], y=3.25, accent_upto=2)
 B.notes(s, "Other actions: New skill (form scaffolds a folder), Upload zip, Download zip, Delete skill (also removes its Foundry agent and knowledge base), Sync all. 'Try routing' in the form sends a sample question to the router only.")
 
