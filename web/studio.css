@@ -117,3 +117,5 @@ h4 { margin:12px 0 6px; font:var(--label-sm); font-weight:600; color:var(--gray-
 .form .row label { display:inline-flex; align-items:center; gap:6px; margin:0; white-space:nowrap; }
 .form .row label input[type=checkbox] { width:auto; margin:0; } .form .row label input[type=number] { margin:0; }
 @media (max-width: 1100px) { .kn-grid .kn-side { order:-1; position:static; } }
+.kn-filter { margin-left:auto; width:220px; padding:5px 9px; font-size:13px; }
+.pager { display:flex; align-items:center; justify-content:center; gap:12px; margin-top:10px; } .pager button { padding:5px 10px; } .pager button:disabled { opacity:.4; cursor:default; }

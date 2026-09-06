@@ -26,27 +26,44 @@ async function loadKnowledge() {
 }
 S.loaders.knowledge = loadKnowledge;
 
+const FILES = { all: [], page: 0, size: 15 };
 async function loadFiles() {
-  const cat = category(); const tb = $("#kn-files-table tbody"); tb.innerHTML = "";
+  const cat = category();
   $$(".kn-cat-name").forEach((el) => el.textContent = cat || "…");
-  let files = []; try { files = await api(`/knowledge/files?category=${encodeURIComponent(cat)}`); } catch (e) { $("#kn-status").textContent = e.message; }
-  let pending = 0, imageOnly = 0;
-  for (const f of files) {
+  try { FILES.all = await api(`/knowledge/files?category=${encodeURIComponent(cat)}`); } catch (e) { FILES.all = []; $("#kn-status").textContent = e.message; }
+  FILES.page = 0;
+  renderFiles();
+  const pending = FILES.all.filter((f) => !f.indexed).length;
+  $("#kn-status").textContent = "";
+  if (!IG.job || IG.job.status !== "running") $("#ig-hint").textContent = pending ? `${pending} file(s) in ${cat} are waiting to be ingested.` : FILES.all.length ? `Everything in ${cat} is indexed. Run ingest after adding or editing files; full re-ingest re-embeds every file.` : "";
+}
+
+function renderFiles() {
+  const q = $("#kn-filter").value.trim().toLowerCase();
+  const files = q ? FILES.all.filter((f) => (f.path + " " + (f.title || "")).toLowerCase().includes(q)) : FILES.all;
+  const pages = Math.max(1, Math.ceil(files.length / FILES.size)); FILES.page = Math.min(FILES.page, pages - 1);
+  const start = FILES.page * FILES.size; const slice = files.slice(start, start + FILES.size);
+  const tb = $("#kn-files-table tbody"); tb.innerHTML = "";
+  for (const f of slice) {
     const kind = f.kind || (f.path.endsWith(".pdf") ? "pdf" : "md");
-    if (!f.indexed) pending++; if (f.image_based) imageOnly++;
     const status = kind === "pdf" ? (f.image_based ? '<span class="pill warn">image-only PDF (no text)</span>' : f.text_chars != null ? `<span class="pill ok">text ${(f.text_chars / 1000).toFixed(1)}k chars</span>` : "") : "";
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><a href="#" class="chunks" data-path="${esc(f.path)}">${esc(f.path)}</a><br><span class="muted">${esc(f.title || "")}</span></td><td>${esc(kind)} ${status}</td><td>${(f.size / 1024).toFixed(1)} KB</td><td>${f.chunks}${f.indexed ? "" : ' <span class="pill info">not ingested</span>'}</td><td><button class="btn-secondary reingest" data-path="${esc(f.path)}">re-ingest</button> <button class="btn-danger del" data-path="${esc(f.path)}">delete</button></td>`;
     tb.appendChild(tr);
   }
-  if (!files.length) tb.innerHTML = `<tr><td colspan="5" class="muted">no files yet — upload, crawl or import above</td></tr>`;
+  if (!slice.length) tb.innerHTML = `<tr><td colspan="5" class="muted">${FILES.all.length ? "no file matches the filter" : "no files yet — upload, crawl or import above"}</td></tr>`;
   tb.querySelectorAll(".del").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`Delete ${b.dataset.path}? Run ingest afterwards to drop its chunks.`)) return; await api(`/knowledge/files?path=${encodeURIComponent(b.dataset.path)}`, { method: "DELETE" }); loadFiles(); }));
   tb.querySelectorAll(".reingest").forEach((b) => b.addEventListener("click", async () => { const j = await api(`/knowledge/reingest?path=${encodeURIComponent(b.dataset.path)}`, { method: "POST" }); watchJob(j.job_id); }));
   tb.querySelectorAll(".chunks").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); showChunks(a.dataset.path); }));
-  $("#kn-files-hint").textContent = `${files.length} file(s)` + (pending ? ` · ${pending} not ingested` : "") + (imageOnly ? ` · ${imageOnly} image-only PDF` : "");
-  $("#kn-status").textContent = "";
-  if (!IG.job || IG.job.status !== "running") $("#ig-hint").textContent = pending ? `${pending} file(s) in ${cat} are waiting to be ingested.` : files.length ? `Everything in ${cat} is indexed. Run ingest after adding or editing files; full re-ingest re-embeds every file.` : "";
+  const pending = FILES.all.filter((f) => !f.indexed).length, imageOnly = FILES.all.filter((f) => f.image_based).length;
+  $("#kn-files-hint").textContent = `${FILES.all.length} file(s)` + (pending ? ` · ${pending} not ingested` : "") + (imageOnly ? ` · ${imageOnly} image-only PDF` : "");
+  const pager = $("#kn-pager"); pager.hidden = files.length <= FILES.size;
+  $("#kn-page-info").textContent = `${files.length ? start + 1 : 0}–${Math.min(start + FILES.size, files.length)} of ${files.length}`;
+  $("#kn-prev").disabled = FILES.page === 0; $("#kn-next").disabled = FILES.page >= pages - 1;
 }
+$("#kn-filter").addEventListener("input", () => { FILES.page = 0; renderFiles(); });
+$("#kn-prev").addEventListener("click", () => { FILES.page--; renderFiles(); });
+$("#kn-next").addEventListener("click", () => { FILES.page++; renderFiles(); });
 $("#kn-category").addEventListener("change", () => { $("#kn-newcat").value = ""; loadFiles(); });
 $("#kn-newcat").addEventListener("input", () => { $$(".kn-cat-name").forEach((el) => el.textContent = category() || "…"); });
 $("#kn-refresh").addEventListener("click", loadKnowledge);
