@@ -23,3 +23,9 @@
 | 19 | Model comparison uses temporary agents `bank-<skill>-cmp-<model>` deleted after the run | Foundry agents pin one model per version; no per-request model override | A failed run may leave a temp agent; `skills sync --prune` does not touch them (tag `bankrag-compare`) |
 | 20 | Azure Container Apps (consumption) + Azure Files for files; SQLite on local disk with minute backups to the share | Cheapest always-on option with persistence; SQLite cannot lock reliably over SMB (WAL and rollback modes both failed with 'database is locked') | Up to one minute of session history can be lost on a crash; single replica only |
 | 21 | Entra ID sign-in (Container Apps built-in auth) in front of the app; Studio password kept as a second gate | Public URL must not expose the assistant or Studio | Only users of the personal tenant can open it; add guests or switch tenant for broader testing |
+
+## 22. Customer-facing tone instead of "not in the knowledge base"
+The base rules (`skills/_base/SKILL.md`) now carry a Tone section: the assistant speaks like bank staff, never mentions
+documents, sources, knowledge base or tools, phrases gaps as "I don't have the details on that yet" plus a next step,
+uses one consistent Thai voice (ค่ะ/คะ), and does not fill gaps with generic explanations. Grounding stays mandatory;
+only the wording the customer sees changed. Product skills were rephrased to match.
