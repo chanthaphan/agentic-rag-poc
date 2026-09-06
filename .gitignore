@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.state/
+.pytest_cache/
+*.egg-info/
+dist/
+.DS_Store
+uploads/
+*.db
+*.db-wal
+*.db-shm
+knowledge/**/*.pdf

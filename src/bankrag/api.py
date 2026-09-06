@@ -1,0 +1,866 @@
+"""FastAPI backend: mobile customer app (/), tester Studio (/studio, basic auth), legacy debug page (/legacy)."""
+from __future__ import annotations
+
+import secrets
+import threading
+import uuid
+from collections import OrderedDict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import json
+
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import sessions as SESS
+from .config import Settings
+from .models import Answer, SessionRecord
+from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills, load_base, load_skills, read_base, skill_to_zip,
+                     validate_skill, write_base, write_skill)
+
+app = FastAPI(title="bankrag POC", version="0.2.0")
+settings = Settings.load()
+WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+_sessions: "OrderedDict[str, object]" = OrderedDict()  # live ChatSession cache (LRU)
+_MAX_LIVE = 50
+_jobs: dict[str, dict] = {}
+_lock = threading.Lock()
+security = HTTPBasic(auto_error=False)
+
+
+def _skills():
+    return load_skills(settings.skills_dir), load_base(settings.skills_dir)
+
+
+# ---------------- auth (Studio) ----------------
+STUDIO_COOKIE = "bankrag_studio"
+TESTER_COOKIE = "bankrag_tester"
+
+
+def _studio_authed(request: Request, creds: Optional[HTTPBasicCredentials]) -> bool:
+    return bool(settings.studio_password) and ((creds is not None and _pw_ok(creds.password)) or _pw_ok(request.cookies.get(STUDIO_COOKIE)))
+
+
+def _pw_ok(value: Optional[str]) -> bool:
+    pw = settings.studio_password
+    return bool(pw and value) and secrets.compare_digest(value.encode(), pw.encode())
+
+
+def require_studio(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)) -> None:
+    """Studio access: HTTP basic auth (any username) OR the cookie set by /studio?key=<password>."""
+    if not settings.studio_password:
+        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env")
+    if creds is not None and _pw_ok(creds.password):
+        return
+    if _pw_ok(request.cookies.get(STUDIO_COOKIE)):
+        return
+    raise HTTPException(401, "Studio password required", headers={"WWW-Authenticate": 'Basic realm="bankrag studio"'})
+
+
+studio = APIRouter(dependencies=[Depends(require_studio)])
+
+
+# ---------------- models ----------------
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    force_skill: Optional[str] = None
+    with_sources: bool = True
+    source: str = "app"  # app | studio
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    title: str
+    answer: Answer
+
+
+class SkillForm(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    product_category: Optional[str] = None
+    keywords: Optional[list[str] | str] = None
+    model: Optional[str] = None
+    top_k: Optional[int] = None
+    filter: Optional[str] = None
+    suggestions: Optional[list[str] | str] = None
+    body: Optional[str] = None
+
+
+# ---------------- jobs ----------------
+def _start_job(kind: str, fn) -> str:
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"id": job_id, "kind": kind, "status": "running", "log": [], "started": datetime.now(timezone.utc).isoformat(), "result": None}
+
+    def log(msg: str) -> None:
+        _jobs[job_id]["log"].append(msg)
+
+    def run() -> None:
+        try:
+            _jobs[job_id]["result"] = fn(log)
+            _jobs[job_id]["status"] = "done"
+        except Exception as e:  # noqa: BLE001
+            log(f"ERROR {type(e).__name__}: {e}")
+            _jobs[job_id]["status"] = "error"
+
+    threading.Thread(target=run, daemon=True).start()
+    return job_id
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    return job
+
+
+# ---------------- health / app config ----------------
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "project_endpoint": settings.project_endpoint,
+        "search_endpoint": settings.search_endpoint,
+        "index": settings.search_index,
+        "kb_reasoning_effort": settings.kb_reasoning_effort,
+        "kb_mcp_auth": settings.kb_mcp_auth,
+        "studio_enabled": bool(settings.studio_password),
+        "configured": bool(settings.project_endpoint and settings.search_endpoint and settings.search_admin_key),
+    }
+
+
+@app.get("/app/config")
+def app_config():
+    from .chat import suggestion_language
+
+    skills, _ = _skills()
+    ordered = ([skills["general"]] if "general" in skills else []) + [s for k, s in skills.items() if k != "general"]
+    by_lang: dict[str, list[str]] = {"th": [], "en": []}
+    for sk in ordered:
+        for x in sk.suggestions:
+            lang = suggestion_language(x)
+            if x not in by_lang[lang] and len(by_lang[lang]) < 3:
+                by_lang[lang].append(x)
+    starters = by_lang["th"][:3] if by_lang["th"] else by_lang["en"][:3]
+    return {
+        "starter_prompts_by_lang": by_lang,
+        "user_name": settings.app_user_name,
+        "user_initials": settings.app_user_initials,
+        "assistant_name": settings.assistant_name,
+        "starter_prompts": starters[:3],
+        "skills": [{"id": s.id, "name": s.name, "product_category": s.product_category} for s in skills.values()],
+    }
+
+
+# ---------------- sessions + chat ----------------
+def _get_session(sid: Optional[str], skills):
+    """Return (session_id, ChatSession, SessionRecord); rehydrates from disk or creates a new one."""
+    from .chat import ChatSession
+
+    if sid and sid in _sessions:
+        _sessions.move_to_end(sid)
+        rec = SESS.load_session(settings, sid) or SESS.new_record(sid)
+        cs = _sessions[sid]
+        cs.skills = skills
+        return sid, cs, rec
+    rec = SESS.load_session(settings, sid) if sid else None
+    if rec is None:
+        rec = SESS.new_record(sid if sid and SESS.ID_RE.match(sid) else None)
+        cs = ChatSession(settings, skills)
+    else:
+        cs = ChatSession.from_record(settings, skills, rec)
+    _sessions[rec.id] = cs
+    while len(_sessions) > _MAX_LIVE:
+        _sessions.popitem(last=False)
+    return rec.id, cs, rec
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    skills, _ = _skills()
+    if req.session_id and not SESS.ID_RE.match(req.session_id):
+        raise HTTPException(400, "bad session id")
+    with _lock:
+        sid, session, rec = _get_session(req.session_id, skills)
+    try:
+        ans = session.ask(req.message, force_skill=req.force_skill, with_sources=req.with_sources)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:500]}") from e
+    with _lock:
+        SESS.append_turns(rec, req.message, ans)
+        session.to_record(rec)
+        SESS.save_session(settings, rec)
+    return ChatResponse(session_id=sid, title=rec.title, answer=ans)
+
+
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest):
+    """Server-sent events: route, delta*, tool*, done(answer) | error. Persists the session on done."""
+    skills, _ = _skills()
+    if req.session_id and not SESS.ID_RE.match(req.session_id):
+        raise HTTPException(400, "bad session id")
+    with _lock:
+        sid, session, rec = _get_session(req.session_id, skills)
+    if not rec.turns and req.source:
+        rec.source = req.source
+
+    def gen():
+        yield f"data: {json.dumps({'type': 'session', 'session_id': sid}, ensure_ascii=False)}\n\n"
+        try:
+            for ev in session.ask_stream(req.message, force_skill=req.force_skill, with_sources=req.with_sources):
+                if ev["type"] == "done":
+                    ans: Answer = ev["answer"]
+                    with _lock:
+                        SESS.append_turns(rec, req.message, ans)
+                        session.to_record(rec)
+                        SESS.save_session(settings, rec)
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'title': rec.title, 'answer': ans.model_dump()}, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:  # noqa: BLE001
+            yield f"data: {json.dumps({'type': 'error', 'message': f'{type(e).__name__}: {str(e)[:400]}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/sessions")
+def list_sessions():
+    return SESS.list_sessions(settings)
+
+
+@app.get("/sessions/stats")
+def sessions_stats():
+    return SESS.stats(settings)
+
+
+@app.get("/app/pricing")
+def get_pricing():
+    from .pricing import load_pricing
+
+    return load_pricing(settings)
+
+
+@studio.put("/app/pricing")
+def put_pricing(data: dict):
+    from .pricing import save_pricing
+
+    return save_pricing(settings, data)
+
+
+@app.get("/sessions/review", dependencies=[Depends(require_studio)])
+def sessions_review(skill: str = "", rating: str = ""):
+    return SESS.review_list(settings, skill=skill, rating=rating)
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    if not SESS.ID_RE.match(session_id):
+        raise HTTPException(400, "bad session id")
+    rec = SESS.load_session(settings, session_id)
+    if rec is None:
+        raise HTTPException(404, "session not found")
+    return rec
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session_endpoint(session_id: str):
+    if not SESS.ID_RE.match(session_id):
+        raise HTTPException(400, "bad session id")
+    with _lock:
+        s = _sessions.pop(session_id, None)
+    if s is not None:
+        s.reset()
+    return {"ok": SESS.delete_session(settings, session_id)}
+
+
+@app.post("/chat/{session_id}/reset")
+def chat_reset(session_id: str):
+    return delete_session_endpoint(session_id)
+
+
+# ---------------- base rules, settings, models ----------------
+@app.get("/skills/_base")
+def get_base():
+    return read_base(settings.skills_dir)
+
+
+@studio.put("/skills/_base")
+def put_base(data: dict):
+    try:
+        return write_base(settings.skills_dir, str(data.get("body", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+_models_cache: dict = {"at": 0.0, "items": []}
+
+
+@app.get("/app/models")
+def list_models(refresh: bool = False):
+    """Live model deployments of the Foundry project (cached 120 s)."""
+    import time
+
+    if not refresh and _models_cache["items"] and time.time() - _models_cache["at"] < 120:
+        return _models_cache["items"]
+    items = []
+    try:
+        from .foundry import project_client
+
+        for d in project_client(settings).deployments.list():
+            items.append({"name": getattr(d, "name", ""), "model": getattr(d, "model_name", "") or "", "publisher": getattr(d, "model_publisher", "") or "", "type": getattr(d, "type", "") or ""})
+        items = [i for i in items if i["name"] and not any(x in i["name"] for x in ("embedding", "audio", "realtime", "image"))]
+        _models_cache.update(at=time.time(), items=items)
+    except Exception as e:  # noqa: BLE001
+        if not _models_cache["items"]:
+            return [{"name": settings.default_chat_model, "model": settings.default_chat_model, "publisher": "", "type": "", "error": f"{type(e).__name__}"}]
+        return _models_cache["items"]
+    return items
+
+
+@studio.get("/app/settings")
+def get_app_settings():
+    from .config import OVERLAY_KEYS, load_overlay
+
+    eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
+           "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
+           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment}
+    return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
+
+
+@studio.put("/app/settings")
+def put_app_settings(data: dict):
+    from .config import save_overlay
+
+    saved = save_overlay(settings.root, {k: ("" if v is None else str(v)) for k, v in data.items()})
+    fresh = Settings.load(settings.root)
+    settings.__dict__.update(fresh.__dict__)  # hot-reload for this process
+    return {"overlay": saved, "note": "applied; run skills sync to update agents that use ROUTER_MODEL / DEFAULT_CHAT_MODEL / KB settings"}
+
+
+@app.post("/route")
+def route_only(data: dict):
+    """Router-only check (no answer): which skill would this message go to?"""
+    from . import router as R
+    from .foundry import project_client
+
+    skills, _ = _skills()
+    msg = str(data.get("message", "")).strip()
+    if not msg:
+        raise HTTPException(400, "message required")
+    d = R.route(project_client(settings).get_openai_client(), msg, [], data.get("prev_skill"), skills)
+    return d.model_dump()
+
+
+@app.get("/skills/lint")
+def skills_lint():
+    skills, _ = _skills()
+    models = [m["name"] for m in list_models()] or None
+    from .foundry_sync import plan_kb_owners
+
+    owners = plan_kb_owners(settings, skills)
+    has_docs = {sid: owners[sid].id == sid or skills[sid].product_category in ("all", "*", "") for sid in skills}
+    return lint_skills(skills, settings.knowledge_dir, models, has_docs)
+
+
+@app.get("/skills/{skill_id}/versions")
+def skill_versions(skill_id: str):
+    from .foundry import project_client
+
+    skills, _ = _skills()
+    spec = skills.get(skill_id)
+    if not spec:
+        raise HTTPException(404, "skill not found")
+    out = []
+    try:
+        for v in project_client(settings).agents.list_versions(agent_name=spec.agent_name):
+            d = v.definition.as_dict() if getattr(v, "definition", None) else {}
+            out.append({"version": str(v.version), "created_at": getattr(v, "created_at", None), "model": d.get("model", ""), "metadata": dict(v.metadata or {}), "description": getattr(v, "description", "") or "", "tools": [t.get("type") for t in d.get("tools", [])]})
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"{type(e).__name__}: {str(e)[:300]}") from e
+    out.sort(key=lambda r: int(r["version"]) if r["version"].isdigit() else 0, reverse=True)
+    return out
+
+
+@app.get("/skills/{skill_id}/versions/{version}")
+def skill_version(skill_id: str, version: str):
+    from .foundry import project_client
+    from .foundry_sync import desired_definition, plan_kb_owners
+
+    skills, base = _skills()
+    spec = skills.get(skill_id)
+    if not spec:
+        raise HTTPException(404, "skill not found")
+    try:
+        v = project_client(settings).agents.get_version(agent_name=spec.agent_name, agent_version=version)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(404, f"version not found: {type(e).__name__}") from e
+    d = v.definition.as_dict()
+    local = desired_definition(settings, spec, base, plan_kb_owners(settings, skills)[skill_id]).as_dict()
+    return {"version": str(v.version), "model": d.get("model"), "instructions": d.get("instructions", ""), "tools": d.get("tools", []), "metadata": dict(v.metadata or {}),
+            "local_instructions": local.get("instructions", ""), "local_model": local.get("model")}
+
+
+# ---------------- skills (read: open; write: studio) ----------------
+@app.get("/skills")
+def list_skills(remote: bool = True):
+    from .foundry_sync import status
+
+    skills, base = _skills()
+    if remote:
+        return status(settings, skills, base)
+    return [{"id": s.id, "name": s.name, "product_category": s.product_category, "model": s.model or settings.default_chat_model, "state": "-"} for s in skills.values()]
+
+
+@app.get("/skills/{skill_id}")
+def get_skill(skill_id: str):
+    import frontmatter
+
+    skills, base = _skills()
+    spec = skills.get(skill_id)
+    if not spec:
+        raise HTTPException(404, "skill not found")
+    errors, warnings = validate_skill(spec, settings.knowledge_dir)
+    post = frontmatter.load(spec.path / "SKILL.md")
+    return {"spec": spec.model_dump(exclude={"path"}), "frontmatter": dict(post.metadata), "body": post.content.strip(),
+            "skill_md": (spec.path / "SKILL.md").read_text(encoding="utf-8"), "errors": errors, "warnings": warnings}
+
+
+@studio.put("/skills/{skill_id}")
+def update_skill(skill_id: str, form: SkillForm):
+    try:
+        spec = write_skill(settings.skills_dir, skill_id, form.model_dump(exclude_none=True, exclude={"body", "id"}), form.body or "")
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    errors, warnings = validate_skill(spec, settings.knowledge_dir)
+    return {"spec": spec.model_dump(exclude={"path"}), "errors": errors, "warnings": warnings}
+
+
+@studio.post("/skills")
+def create_skill_endpoint(form: SkillForm):
+    try:
+        spec = create_skill(settings.skills_dir, form.model_dump(exclude_none=True))
+    except FileExistsError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    errors, warnings = validate_skill(spec, settings.knowledge_dir)
+    return {"spec": spec.model_dump(exclude={"path"}), "errors": errors, "warnings": warnings}
+
+
+@studio.delete("/skills/{skill_id}")
+def delete_skill_endpoint(skill_id: str, prune: bool = True):
+    try:
+        delete_skill(settings.skills_dir, skill_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    job_id = None
+    if prune:
+        from .foundry_sync import sync_skills
+
+        def run(log):
+            skills, base = _skills()
+            return sync_skills(settings, skills, base, prune=True, log=log).model_dump()
+
+        job_id = _start_job("prune", run)
+    return {"ok": True, "job_id": job_id}
+
+
+@studio.get("/skills/{skill_id}/zip")
+def download_skill(skill_id: str):
+    skills, _ = _skills()
+    spec = skills.get(skill_id)
+    if not spec:
+        raise HTTPException(404, "skill not found")
+    return Response(skill_to_zip(spec), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{skill_id}.zip"'})
+
+
+@studio.post("/skills/upload")
+async def upload_skill(file: UploadFile = File(...)):
+    data = await file.read()
+    try:
+        spec = install_skill_zip(data, settings.skills_dir)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"invalid skill zip: {e}") from e
+    errors, warnings = validate_skill(spec, settings.knowledge_dir)
+    return {"id": spec.id, "name": spec.name, "errors": errors, "warnings": warnings}
+
+
+@studio.post("/skills/sync")
+def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, register_native: bool = False):
+    from .foundry_sync import sync_skills
+
+    def run(log):
+        skills, base = _skills()
+        return sync_skills(settings, skills, base, only=only, prune=prune, register_native=register_native, log=log).model_dump()
+
+    return {"job_id": _start_job("sync", run)}
+
+
+# ---------------- knowledge ----------------
+@app.get("/knowledge/stats")
+def knowledge_stats():
+    from . import search_index as SI
+    from .ingest.pipeline import local_counts
+
+    local = local_counts(settings)
+    facets, stats, err = {}, {}, None
+    try:
+        facets = SI.facet_counts(settings)
+        stats = SI.index_stats(settings)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {str(e)[:200]}"
+    cats = sorted(set(local) | set(facets) | {s.product_category for s in _skills()[0].values() if s.product_category not in ("all", "*", "")})
+    rows = [{"category": c, "files": local.get(c, {}).get("files", 0), "manifest_chunks": local.get(c, {}).get("chunks", 0), "indexed_chunks": facets.get(c, 0)} for c in cats]
+    return {"rows": rows, "index": stats, "error": err}
+
+
+@studio.get("/knowledge/files")
+def knowledge_files(category: str):
+    from .ingest.pipeline import list_knowledge_files
+
+    return list_knowledge_files(settings, category)
+
+
+@studio.delete("/knowledge/files")
+def delete_knowledge_file_endpoint(path: str):
+    from .ingest.pipeline import delete_knowledge_file
+
+    try:
+        delete_knowledge_file(settings, path)
+    except FileNotFoundError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "note": "run ingest to remove its chunks from the index"}
+
+
+@studio.post("/knowledge/upload")
+async def upload_knowledge(category: str, files: list[UploadFile] = File(...)):
+    if not category or "/" in category or category.startswith((".", "_")):
+        raise HTTPException(400, "bad category")
+    target = settings.knowledge_dir / category / "_uploads"
+    target.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for f in files:
+        name = Path(f.filename or "upload").name
+        if Path(name).suffix.lower() not in (".md", ".pdf", ".txt"):
+            raise HTTPException(400, f"unsupported file type: {name}")
+        if name.lower().endswith(".txt"):
+            name = name[:-4] + ".md"
+        (target / name).write_bytes(await f.read())
+        saved.append(str((target / name).relative_to(settings.knowledge_dir)))
+    return {"saved": saved}
+
+
+@studio.post("/knowledge/ingest")
+def ingest_endpoint(category: Optional[str] = None, full: bool = False):
+    from .ingest.pipeline import ingest
+
+    def run(log):
+        rep = ingest(settings, category=category, full=full, log=log)
+        return {"summary": rep.summary(), "uploaded": rep.uploaded_chunks, "deleted": rep.deleted_chunks, "per_category": rep.per_category}
+
+    return {"job_id": _start_job("ingest", run)}
+
+
+@app.get("/knowledge/retrieve")
+def retrieve_endpoint(q: str, skill: str = "credit-card", max_docs: int = 5):
+    from . import knowledge_base as KB
+    from .foundry_sync import plan_kb_owners
+
+    skills, _ = _skills()
+    if skill not in skills:
+        raise HTTPException(404, "skill not found")
+    spec = plan_kb_owners(settings, skills)[skill]
+    try:
+        return [r.model_dump() for r in KB.retrieve(settings, spec.kb_name, q, ks_name=spec.ks_name, max_docs=max_docs)]
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:500]}") from e
+
+
+# ---------------- knowledge: chunks, search, reingest, import, bundle ----------------
+@studio.get("/knowledge/chunks")
+def knowledge_chunks(path: str):
+    from . import search_index as SI
+    from .chat import _tokens
+
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(400, "bad path")
+    try:
+        rows = SI.chunks_for_doc(settings, path)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+    return [{"id": r.get("id"), "chunk_index": r.get("chunk_index"), "breadcrumb": r.get("breadcrumb", ""), "content": r.get("content", ""), "tokens": _tokens(r.get("content", ""))} for r in rows]
+
+
+@studio.get("/knowledge/search")
+def knowledge_search(q: str, category: Optional[str] = None, k: int = 5):
+    from . import search_index as SI
+
+    try:
+        return SI.hybrid_search(settings, q, category=category or None, k=max(1, min(k, 20)))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+
+
+@studio.post("/knowledge/reingest")
+def knowledge_reingest(path: str):
+    from .ingest.pipeline import ingest
+
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(400, "bad path")
+    category = path.split("/", 1)[0]
+
+    def run(log):
+        rep = ingest(settings, category=category, full=True, only_paths=[path], log=log)
+        return {"summary": rep.summary(), "uploaded": rep.uploaded_chunks}
+
+    return {"job_id": _start_job("reingest", run)}
+
+
+class ImportRequest(BaseModel):
+    category: str
+    urls: list[str]
+    ingest: bool = True
+
+
+@studio.post("/knowledge/import-url")
+def knowledge_import_url(req: ImportRequest):
+    from .ingest.import_url import import_urls
+    from .ingest.pipeline import ingest
+
+    if not req.category or "/" in req.category or req.category.startswith((".", "_")):
+        raise HTTPException(400, "bad category")
+
+    def run(log):
+        saved = import_urls(settings, req.category, req.urls, log=log)
+        out = {"saved": saved}
+        if req.ingest and saved:
+            rep = ingest(settings, category=req.category, log=log)
+            out["ingest"] = rep.summary()
+        return out
+
+    return {"job_id": _start_job("import", run)}
+
+
+class CrawlRequest(BaseModel):
+    category: str
+    start_urls: list[str]
+    include_prefixes: list[str] = []
+    max_pages: int = 30
+    include_pdfs: bool = True
+    ingest: bool = True
+
+
+@studio.post("/knowledge/crawl")
+def knowledge_crawl(req: CrawlRequest):
+    from .ingest.crawler import crawl
+    from .ingest.pipeline import ingest
+
+    if not req.category or "/" in req.category or req.category.startswith((".", "_")):
+        raise HTTPException(400, "bad category")
+    if not any(u.strip().startswith("http") for u in req.start_urls):
+        raise HTTPException(400, "start_urls must contain at least one http(s) URL")
+
+    def run(log):
+        stats = crawl(settings, req.category, [u for u in req.start_urls if u.strip()], include_prefixes=req.include_prefixes or None,
+                      max_pages=max(1, min(req.max_pages, 300)), include_pdfs=req.include_pdfs, log=log)
+        out = {"crawl": {k: v for k, v in stats.items() if k != "files"}, "files": stats["files"][:50]}
+        if req.ingest and (stats["pages"] or stats["pdfs"]):
+            rep = ingest(settings, category=req.category, log=log)
+            out["ingest"] = rep.summary()
+        return out
+
+    return {"job_id": _start_job("crawl", run)}
+
+
+@studio.get("/bundle.zip")
+def bundle_export():
+    from .bundle import export_bundle
+
+    return Response(export_bundle(settings), media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="bankrag-bundle.zip"'})
+
+
+@studio.post("/bundle")
+async def bundle_import(mode: str = "merge", file: UploadFile = File(...)):
+    from .bundle import import_bundle
+
+    log: list[str] = []
+    try:
+        counts = import_bundle(settings, await file.read(), mode=mode if mode in ("merge", "replace") else "merge", log=log.append)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}") from e
+    return {"counts": counts, "log": log}
+
+
+# ---------------- evals ----------------
+@studio.get("/evals/runs")
+def eval_runs():
+    return SESS.list_eval_runs(settings)
+
+
+@studio.get("/evals/runs/{run_id}")
+def eval_run(run_id: str):
+    r = SESS.get_eval_run(settings, run_id)
+    if not r:
+        raise HTTPException(404, "run not found")
+    return r
+
+
+@studio.get("/evals/{set_name}")
+def get_eval_set(set_name: str):
+    from .evals import load_cases
+
+    try:
+        return load_cases(settings, set_name)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@studio.put("/evals/{set_name}")
+def put_eval_set(set_name: str, cases: list[dict]):
+    from .evals import save_cases
+
+    try:
+        return save_cases(settings, set_name, cases)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@studio.post("/evals/run")
+def run_eval(set: str):
+    from .evals import load_cases, run_rag, run_routing
+
+    if set not in ("routing", "rag"):
+        raise HTTPException(400, "set must be routing or rag")
+
+    def run(log):
+        skills, _ = _skills()
+        cases = load_cases(settings, set)
+        r = run_routing(settings, skills, cases, log=log) if set == "routing" else run_rag(settings, skills, cases, log=log)
+        SESS.save_eval_run(settings, r)
+        return r
+
+    return {"job_id": _start_job(f"eval-{set}", run)}
+
+
+class CompareRequest(BaseModel):
+    skill: str
+    models: list[str]
+    questions: list[str]
+
+
+@studio.post("/evals/compare")
+def run_compare_endpoint(req: CompareRequest):
+    from .evals import run_compare
+
+    skills, base = _skills()
+    if req.skill not in skills:
+        raise HTTPException(404, "skill not found")
+    if len(req.models) < 2 or not req.questions:
+        raise HTTPException(400, "need at least 2 models and 1 question")
+
+    def run(log):
+        r = run_compare(settings, skills, base, req.skill, req.models[:3], req.questions[:10], log=log)
+        SESS.save_eval_run(settings, r)
+        return r
+
+    return {"job_id": _start_job("compare", run)}
+
+
+# ---------------- feedback + review ----------------
+class FeedbackRequest(BaseModel):
+    session_id: str
+    idx: int
+    rating: Optional[str] = None
+    comment: str = ""
+
+
+@app.post("/feedback")
+def post_feedback(req: FeedbackRequest, request: Request):
+    if not SESS.ID_RE.match(req.session_id):
+        raise HTTPException(400, "bad session id")
+    try:
+        return SESS.save_feedback(settings, req.session_id, req.idx, req.rating, req.comment[:1000], request.cookies.get(TESTER_COOKIE, ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/feedback")
+def get_feedback(session_id: Optional[str] = None):
+    return SESS.list_feedback(settings, session_id)
+
+
+@studio.get("/feedback.csv")
+def feedback_csv():
+    return Response(SESS.feedback_csv(settings), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="feedback.csv"'})
+
+
+# ---------------- pages ----------------
+@app.get("/")
+def mobile_page():
+    return FileResponse(WEB_DIR / "mobile.html")
+
+
+@app.get("/legacy")
+def legacy_page():
+    return FileResponse(WEB_DIR / "index.html")
+
+
+def _login_ok_response(password: str, tester: str = "", to: str = "/studio") -> RedirectResponse:
+    resp = RedirectResponse(to, status_code=303)
+    resp.set_cookie(STUDIO_COOKIE, password, httponly=True, samesite="lax", max_age=12 * 3600)
+    if tester:
+        resp.set_cookie(TESTER_COOKIE, tester[:40], samesite="lax", max_age=30 * 24 * 3600)
+    return resp
+
+
+@app.get("/studio")
+def studio_page(request: Request, key: Optional[str] = None, creds: Optional[HTTPBasicCredentials] = Depends(security)):
+    """Open with the login page, basic auth, or once with ?key=<STUDIO_PASSWORD> (sets the cookie)."""
+    if key is not None:
+        if not _pw_ok(key):
+            return RedirectResponse("/studio/login?error=1", status_code=303)
+        return _login_ok_response(key)
+    if not settings.studio_password:
+        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env")
+    if not _studio_authed(request, creds):
+        return RedirectResponse("/studio/login", status_code=303)
+    return FileResponse(WEB_DIR / "studio.html")
+
+
+@app.get("/studio/login")
+def studio_login_page():
+    return FileResponse(WEB_DIR / "login.html")
+
+
+@app.post("/studio/login")
+def studio_login(password: str = Form(...), tester: str = Form("")):
+    if not _pw_ok(password):
+        return RedirectResponse("/studio/login?error=1", status_code=303)
+    return _login_ok_response(password, tester)
+
+
+@app.post("/studio/logout")
+def studio_logout():
+    resp = RedirectResponse("/studio/login", status_code=303)
+    resp.delete_cookie(STUDIO_COOKIE)
+    return resp
+
+
+@app.get("/studio/me")
+def studio_me(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)):
+    return {"authed": _studio_authed(request, creds), "tester": request.cookies.get(TESTER_COOKIE, "")}
+
+
+app.include_router(studio)
+app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")

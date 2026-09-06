@@ -1,0 +1,301 @@
+"""Sync skills/<id>/SKILL.md to Foundry: knowledge source + knowledge base + project connection + agent version."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Callable, Optional
+
+from azure.core.exceptions import ResourceNotFoundError
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import MCPTool, PromptAgentDefinition, SkillInlineContent
+
+from . import connections as CONN
+from . import knowledge_base as KB
+from .config import Settings
+from .foundry import credential, project_client
+from .models import ROUTER_AGENT, SkillSpec, SyncReport, SyncRow
+from .router import build_router_definition
+from .search_index import index_client
+from .skills import compose_instructions
+
+Log = Callable[[str], None]
+SOURCE_TAG = "bankrag"
+STATE_FILE = "foundry_state.json"
+
+
+# ---------- definitions ----------
+def kb_tool(settings: Settings, spec: SkillSpec, kb_owner: Optional[SkillSpec] = None) -> MCPTool:
+    """MCP tool for the skill's knowledge base; `kb_owner` overrides which skill's KB/connection is used (shared KB)."""
+    owner = kb_owner or spec
+    common = dict(
+        server_label="knowledge-base",
+        server_url=settings.kb_mcp_url(owner.kb_name),
+        require_approval="never",
+        allowed_tools=["knowledge_base_retrieve"],
+    )
+    if settings.kb_mcp_auth == "apikey":  # POC-only fallback: query key travels in the agent definition
+        settings.require("search_query_key")
+        return MCPTool(headers={"api-key": settings.search_query_key}, **common)
+    return MCPTool(project_connection_id=owner.connection_name, **common)
+
+
+SHARED_KB_NOTE = (
+    "\n\n# Knowledge base status\n"
+    "The search service quota did not allow a dedicated knowledge base for '{category}', so your knowledge base tool searches ALL product "
+    "documents. Only use retrieved documents whose product family is '{category}'; ignore documents about other product families even if "
+    "they look relevant. If nothing matches '{category}', reply with the 'no information in the knowledge base' sentence."
+)
+EMPTY_KB_NOTE = (
+    "\n\n# Knowledge base status\n"
+    "No documents have been uploaded for the '{category}' product family yet, so you have NO knowledge base tool and no "
+    "facts to work from. For ANY product question, reply only with the 'no information in the knowledge base' sentence "
+    "from the grounding rules (in the user's language) and add one short line that documents for {category} can be "
+    "uploaded in Studio. Never answer from memory."
+)
+
+
+def desired_definition(settings: Settings, spec: SkillSpec, base_body: str, kb_owner: Optional[SkillSpec] = None, *, shared_by_quota: bool = False) -> PromptAgentDefinition:
+    """Skills whose category has documents get their own KB tool; `general` (no filter) always has one.
+    A skill without documents gets NO tool and must say its knowledge base is empty (keeps the POC honest).
+    `shared_by_quota`: documents exist but the search tier has no knowledge-source quota left -> use the shared base with a scoping note."""
+    instructions = compose_instructions(base_body, spec)
+    tools = [kb_tool(settings, spec)]
+    if kb_owner is not None and kb_owner.id != spec.id:
+        if shared_by_quota:
+            instructions += SHARED_KB_NOTE.format(category=spec.product_category)
+            tools = [kb_tool(settings, spec, kb_owner)]
+        else:
+            instructions += EMPTY_KB_NOTE.format(category=spec.product_category)
+            tools = []
+    return PromptAgentDefinition(
+        model=spec.model or settings.default_chat_model,
+        instructions=instructions,
+        tools=tools,
+    )
+
+
+def plan_kb_owners(settings: Settings, skills: dict[str, SkillSpec], facets: Optional[dict[str, int]] = None) -> dict[str, SkillSpec]:
+    """Which skill's knowledge base each skill uses: its own when its category has documents, else the shared one."""
+    shared = KB.shared_kb_spec(skills)
+    owners: dict[str, SkillSpec] = {}
+    for spec in skills.values():
+        if KB.category_has_documents(settings, spec, facets):
+            owners[spec.id] = spec
+        elif shared is not None:
+            owners[spec.id] = shared
+        else:
+            owners[spec.id] = spec
+    return owners
+
+
+def spec_hash(definition: PromptAgentDefinition) -> str:
+    data = definition.as_dict() if hasattr(definition, "as_dict") else dict(definition)
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------- remote state ----------
+def remote_latest(client: AIProjectClient, agent_name: str):
+    try:
+        details = client.agents.get(agent_name)
+    except ResourceNotFoundError:
+        return None
+    return details.versions.latest if details.versions else None
+
+
+def remote_hash(client: AIProjectClient, agent_name: str) -> Optional[str]:
+    latest = remote_latest(client, agent_name)
+    if latest is None:
+        return None
+    return (latest.metadata or {}).get("spec_hash")
+
+
+def _load_state(settings: Settings) -> dict:
+    p = settings.state_dir / STATE_FILE
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def _save_state(settings: Settings, state: dict) -> None:
+    settings.state_dir.mkdir(parents=True, exist_ok=True)
+    (settings.state_dir / STATE_FILE).write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+# ---------- sync ----------
+def ensure_agent(client: AIProjectClient, name: str, definition: PromptAgentDefinition, metadata: dict[str, str], description: str, *, keep: int = 0) -> tuple[str, str]:
+    """Create a new version only when the spec hash differs. Returns (action, version)."""
+    h = spec_hash(definition)
+    latest = remote_latest(client, name)
+    if latest is not None and (latest.metadata or {}).get("spec_hash") == h:
+        return "unchanged", str(latest.version)
+    created = client.agents.create_version(agent_name=name, definition=definition, metadata={**metadata, "spec_hash": h}, description=description)
+    if keep and keep > 0:
+        try:
+            versions = list(client.agents.list_versions(agent_name=name))
+            versions.sort(key=lambda v: int(str(v.version)) if str(v.version).isdigit() else 0, reverse=True)
+            for old in versions[keep:]:
+                client.agents.delete_version(agent_name=name, agent_version=str(old.version), force=True)
+        except Exception:  # noqa: BLE001 - pruning old versions is best effort
+            pass
+    return ("created" if latest is None else "updated"), str(created.version)
+
+
+def register_native_skill(client: AIProjectClient, spec: SkillSpec, base_body: str, state: dict, log: Log) -> str:
+    """Optional: publish the skill as a native Foundry Skill (portal visibility). Hash-guarded via local state."""
+    body = compose_instructions(base_body, spec)
+    h = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    if state.get("native_skills", {}).get(spec.id) == h:
+        return "unchanged"
+    version = client.beta.skills.create(
+        name=spec.id,
+        inline_content=SkillInlineContent(description=spec.description[:1000], instructions=body, metadata={"source": SOURCE_TAG, "spec_hash": h}),
+    )
+    state.setdefault("native_skills", {})[spec.id] = h
+    log(f"  native skill {spec.id} version {version.version}")
+    return "created"
+
+
+def sync_skills(
+    settings: Settings,
+    skills: dict[str, SkillSpec],
+    base_body: str,
+    *,
+    only: Optional[str] = None,
+    prune: bool = False,
+    keep: int = 0,
+    register_native: bool = False,
+    skip_kb: bool = False,
+    skip_connections: bool = False,
+    log: Log = print,
+) -> SyncReport:
+    settings.require("project_endpoint", "search_endpoint", "search_admin_key")
+    report = SyncReport()
+    client = project_client(settings)
+    sic = index_client(settings)
+    cred = credential()
+    state = _load_state(settings)
+    state.setdefault("agents", {})
+    owners = plan_kb_owners(settings, skills)
+    shared = KB.shared_kb_spec(skills)
+    ordered = sorted(skills.values(), key=lambda s: (0 if shared and s.id == shared.id else 1, s.id))
+
+    for spec in ordered:
+        if only and spec.id != only and not (shared and spec.id == shared.id and owners.get(only) is shared):
+            continue
+        owner = owners[spec.id]
+        row = SyncRow(skill_id=spec.id, agent=spec.agent_name)
+        shared_by_quota = False
+        try:
+            if owner.id == spec.id:
+                if not skip_kb:
+                    try:
+                        row.knowledge_source, row.knowledge_base = KB.ensure_knowledge_objects(settings, spec, client=sic)
+                        log(f"[{spec.id}] knowledge source {row.knowledge_source} + knowledge base {row.knowledge_base} ok")
+                    except Exception as e:  # noqa: BLE001
+                        if "quota" not in str(e).lower() or shared is None or shared.id == spec.id:
+                            raise
+                        shared_by_quota = True
+                        owner = shared
+                        row.knowledge_base, row.connection = f"{shared.kb_name} (shared: quota)", shared.connection_name
+                        row.note = "knowledge-source quota exceeded (Free tier = 3); agent uses the shared base with a scoping note"
+                        log(f"[{spec.id}] {row.note}")
+                if not shared_by_quota and settings.kb_mcp_auth != "apikey" and not skip_connections:
+                    CONN.ensure_kb_connection(settings, spec, cred)
+                    row.connection = spec.connection_name
+                    log(f"[{spec.id}] project connection {row.connection} ok")
+            else:
+                row.knowledge_base, row.connection = "(none: no documents yet)", ""
+                row.note = f"no documents for '{spec.product_category}' yet; agent has no retrieval tool"
+                log(f"[{spec.id}] {row.note}")
+                if not skip_kb:
+                    KB.delete_knowledge_objects(settings, spec, client=sic)
+                if settings.kb_mcp_auth != "apikey" and not skip_connections:
+                    CONN.delete_connection(settings, spec.connection_name, cred)
+            definition = desired_definition(settings, spec, base_body, owner, shared_by_quota=shared_by_quota)
+            row.action, row.version = ensure_agent(
+                client, spec.agent_name, definition, {"source": SOURCE_TAG, "skill_id": spec.id, "skill_version": str(spec.version)},
+                f"bankrag skill '{spec.name}' ({spec.product_category})", keep=keep,
+            )
+            state["agents"][spec.agent_name] = {"skill_id": spec.id, "version": row.version, "spec_hash": spec_hash(definition), "kb": owner.kb_name}
+            log(f"[{spec.id}] agent {spec.agent_name}: {row.action} (version {row.version})")
+            if register_native:
+                row.note = f"native skill: {register_native_skill(client, spec, base_body, state, log)}"
+        except Exception as e:  # noqa: BLE001
+            row.action = "error"
+            row.note = f"{type(e).__name__}: {str(e)[:300]}"
+            log(f"[{spec.id}] ERROR {row.note}")
+        report.rows.append(row)
+
+    if True:  # the router enum lists every skill id, so reconcile it on every sync (cheap: hash-guarded)
+        row = SyncRow(skill_id="(router)", agent=ROUTER_AGENT)
+        try:
+            row.action, row.version = ensure_agent(
+                client, ROUTER_AGENT, build_router_definition(settings, skills), {"source": SOURCE_TAG, "skill_id": "router"},
+                "bankrag router: picks the product skill for a user message", keep=keep,
+            )
+            log(f"[router] agent {ROUTER_AGENT}: {row.action} (version {row.version})")
+        except Exception as e:  # noqa: BLE001
+            row.action, row.note = "error", f"{type(e).__name__}: {str(e)[:300]}"
+            log(f"[router] ERROR {row.note}")
+        report.rows.append(row)
+
+    if prune:
+        for details in client.agents.list():
+            latest = details.versions.latest if details.versions else None
+            meta = (latest.metadata or {}) if latest else {}
+            if meta.get("source") != SOURCE_TAG or meta.get("skill_id") in ("router", None):
+                continue
+            sid = meta.get("skill_id")
+            if sid in skills:
+                continue
+            log(f"[prune] deleting agent {details.name} (skill '{sid}' no longer exists)")
+            client.agents.delete(details.name, force=True)
+            ghost = SkillSpec(id=sid, name=sid, description="", product_category=sid)
+            KB.delete_knowledge_objects(settings, ghost, client=sic)
+            if settings.kb_mcp_auth != "apikey":
+                CONN.delete_connection(settings, ghost.connection_name, cred)
+            state["agents"].pop(details.name, None)
+            report.rows.append(SyncRow(skill_id=sid, agent=details.name, action="pruned"))
+
+    _save_state(settings, state)
+    return report
+
+
+def status(settings: Settings, skills: dict[str, SkillSpec], base_body: str) -> list[dict]:
+    """Local vs remote hash per skill (for the Skills panel). Never raises on auth problems."""
+    rows: list[dict] = []
+    client = None
+    auth_error = ""
+    try:
+        credential().get_token("https://ai.azure.com/.default")  # one probe instead of one failure per skill
+        client = project_client(settings)
+    except Exception as e:  # noqa: BLE001
+        auth_error = f"error: {type(e).__name__}"
+    owners = plan_kb_owners(settings, skills)
+    latest_by_name: dict = {}
+    list_error = ""
+    if client is not None:
+        try:
+            for details in client.agents.list():
+                latest_by_name[details.name] = details.versions.latest if details.versions else None
+        except Exception as e:  # noqa: BLE001
+            list_error = f"error: {type(e).__name__}"
+    for spec in sorted(skills.values(), key=lambda s: s.id):
+        local = spec_hash(desired_definition(settings, spec, base_body, owners[spec.id]))
+        remote, version, state = None, "", auth_error or list_error or "unknown"
+        if client is not None and not list_error:
+            latest = latest_by_name.get(spec.agent_name)
+            if latest is None:
+                state = "missing"
+            else:
+                remote = (latest.metadata or {}).get("spec_hash")
+                version = str(latest.version)
+                state = "in-sync" if remote == local else "outdated"
+        rows.append(
+            {
+                "id": spec.id, "name": spec.name, "product_category": spec.product_category, "model": spec.model or settings.default_chat_model,
+                "top_k": spec.top_k, "filter": spec.effective_filter, "agent": spec.agent_name, "knowledge_base": owners[spec.id].kb_name if owners[spec.id].id == spec.id else "(none: upload documents + sync)",
+                "local_hash": local, "remote_hash": remote, "version": version, "state": state, "path": str(spec.path) if spec.path else "",
+            }
+        )
+    return rows

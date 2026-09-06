@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bankrag Studio</title>
+<link rel="stylesheet" href="/static/mobile.css">
+<link rel="stylesheet" href="/static/studio.css">
+</head>
+<body class="studio">
+<header class="top">
+  <div><b>bankrag Studio</b> <span class="muted">tester workbench for the product assistant</span></div>
+  <nav>
+    <button data-view="skills" class="on">Skills</button>
+    <button data-view="knowledge">Knowledge</button>
+    <button data-view="evals">Evals</button>
+    <button data-view="conversations">Conversations</button>
+    <button data-view="settings">Settings</button>
+    <a href="/" target="_blank">Open app ↗</a>
+  </nav>
+  <span id="health" class="muted"></span>
+  <span id="who" class="muted" style="margin-left:auto"></span>
+  <form method="post" action="/studio/logout" style="margin:0"><button class="btn-secondary" type="submit">Logout</button></form>
+</header>
+
+<main>
+<!-- ================= SKILLS ================= -->
+<section id="view-skills" class="view on">
+  <div class="toolbar">
+    <button id="sk-new">New skill</button>
+    <label class="btn-secondary">Upload zip <input type="file" id="sk-zip" accept=".zip" hidden></label>
+    <button id="sk-sync-all" class="btn-secondary">Sync all to Foundry</button>
+    <button id="sk-refresh" class="btn-secondary">Refresh</button>
+    <span id="sk-status" class="muted"></span>
+  </div>
+  <div class="split">
+    <div>
+      <table class="list" id="sk-table"><thead><tr><th>id</th><th>category</th><th>model</th><th>knowledge base</th><th>Foundry</th><th>ver</th><th>lint</th></tr></thead><tbody></tbody></table>
+      <pre id="sk-log" class="log"></pre>
+    </div>
+    <div class="editor" id="sk-editor" hidden>
+      <div class="ed-head"><h2 id="ed-title"></h2><span id="ed-state" class="muted"></span><span id="ed-dirty" class="pill warn" hidden>unsaved</span></div>
+      <div class="subtabs"><button data-pane="edit" class="on">Edit</button><button data-pane="preview">Preview</button><button data-pane="versions">Versions</button><button data-pane="playground">Playground</button></div>
+
+      <div class="pane on" id="pane-edit">
+        <div id="ed-lint" class="lint"></div>
+        <div class="ed-grid">
+          <div class="form">
+            <label>Name <input id="f-name"></label>
+            <label>Description <small>(the router reads this; Thai + English)</small><textarea id="f-description" rows="4"></textarea></label>
+            <label>Product category <small>(= knowledge/&lt;category&gt;)</small><input id="f-category"></label>
+            <label>Keywords <small>(comma separated)</small><textarea id="f-keywords" rows="3"></textarea></label>
+            <div class="two">
+              <label>Model <select id="f-model"></select></label>
+              <label>Top K <input id="f-topk" type="number" min="1" max="50"></label>
+            </div>
+            <label>Suggested follow-ups <small>(one per line; give 3 Thai + 3 English)</small><textarea id="f-suggestions" rows="6"></textarea></label>
+            <div class="try"><label>Try routing <small>(router only, no answer)</small><div class="row"><input id="try-q" placeholder="type a customer question"><button id="try-run" class="btn-secondary">Route</button></div></label><div id="try-out" class="muted"></div></div>
+          </div>
+          <label class="bodylab">Instructions <small>(markdown, appended after skills/_base/SKILL.md · Cmd/Ctrl+S saves)</small><textarea id="f-body" rows="30" spellcheck="false"></textarea><span id="f-lines" class="muted"></span></label>
+        </div>
+        <div id="ed-msgs"></div>
+        <div class="toolbar">
+          <button id="ed-save">Save</button>
+          <button id="ed-save-sync">Save &amp; sync to Foundry</button>
+          <a id="ed-zip" class="btn-secondary" href="#">Download zip</a>
+          <button id="ed-delete" class="btn-danger">Delete skill</button>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-preview"><div class="md-preview" id="md-preview"></div></div>
+
+      <div class="pane" id="pane-versions">
+        <div class="toolbar"><button id="ver-refresh" class="btn-secondary">Load versions</button><span id="ver-status" class="muted"></span></div>
+        <div class="split-narrow">
+          <table class="list" id="ver-table"><thead><tr><th>ver</th><th>created</th><th>model</th><th>hash</th></tr></thead><tbody></tbody></table>
+          <div>
+            <div class="toolbar"><span id="ver-title" class="muted">Select a version to diff it against the local SKILL.md (local = green, deployed = red)</span><button id="ver-restore" class="btn-secondary" hidden>Restore this version's body into the editor</button></div>
+            <pre id="ver-diff" class="diff"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-playground">
+        <div class="toolbar"><span id="pg-banner" class="muted"></span><button id="pg-new" class="btn-secondary">New conversation</button></div>
+        <div class="row"><input id="pg-q" placeholder="ask this skill a test question (Thai or English)" style="flex:1"><button id="pg-send">Ask</button></div>
+        <div id="pg-thread" class="pg-thread"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= KNOWLEDGE ================= -->
+<section id="view-knowledge" class="view">
+  <div class="toolbar">
+    <label>Category <select id="kn-category"></select></label>
+    <input id="kn-newcat" placeholder="or new category id (e.g. mortgage)">
+    <label class="btn-secondary">Upload documents (.md/.pdf/.txt) <input type="file" id="kn-files" multiple accept=".md,.pdf,.txt" hidden></label>
+    <button id="kn-ingest">Run ingest</button>
+    <button id="kn-ingest-full" class="btn-secondary">Full re-ingest</button>
+    <button id="kn-refresh" class="btn-secondary">Refresh</button>
+    <span id="kn-status" class="muted"></span>
+  </div>
+  <div id="kn-drop" class="dropzone">Drop .md / .pdf / .txt files here to upload into the selected category</div>
+  <div class="cards" id="kn-cards"></div>
+  <div class="split-narrow">
+    <div>
+      <table class="list" id="kn-files-table"><thead><tr><th>file</th><th>kind</th><th>size</th><th>chunks</th><th></th></tr></thead><tbody></tbody></table>
+      <h3>Crawl a website section <span class="muted">(built in, no external service)</span></h3>
+      <div class="form">
+        <label>Start URL(s) <small>(one per line)</small><textarea id="cr-start" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards"></textarea></label>
+        <label>Stay under prefix(es) <small>(one per line; default = the start URLs)</small><textarea id="cr-prefix" rows="2"></textarea></label>
+        <div class="row"><label>Max pages <input id="cr-max" type="number" value="30" min="1" max="300" style="width:90px"></label><label><input type="checkbox" id="cr-pdf" checked> download linked PDFs</label><label><input type="checkbox" id="cr-ingest" checked> ingest after crawl</label><button id="cr-run">Crawl into category</button></div>
+      </div>
+      <h3>Import single URLs <span class="muted">(pages or PDFs; one per line)</span></h3>
+      <textarea id="kn-urls" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards/..."></textarea>
+      <div class="toolbar"><button id="kn-import" class="btn-secondary">Import URLs</button><label><input type="checkbox" id="kn-import-ingest" checked> ingest after import</label></div>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Search the index <span class="muted">(hybrid, filtered by the selected category)</span></h3>
+      <div class="row"><input id="kn-q" placeholder="question or keywords" style="flex:1"><select id="kn-skill"></select><button id="kn-retrieve">Search</button></div>
+      <div id="kn-refs"></div>
+    </div>
+  </div>
+  <div id="kn-chunks" class="drawer" hidden><div class="toolbar"><b id="kn-chunks-title"></b><button id="kn-chunks-close" class="btn-secondary">Close</button></div><div id="kn-chunks-body"></div></div>
+  <pre id="kn-log" class="log"></pre>
+</section>
+
+<!-- ================= EVALS ================= -->
+<section id="view-evals" class="view">
+  <div class="subtabs"><button data-epane="routing" class="on">Routing</button><button data-epane="rag">Grounded answers</button><button data-epane="compare">Model comparison</button><button data-epane="runs">Run history</button></div>
+  <div class="pane on" id="epane-routing">
+    <div class="toolbar"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span id="ev-status-routing" class="muted"></span></div>
+    <table class="list" id="ev-routing"><thead><tr><th>question</th><th>expected skill</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="ev-result-routing"></div>
+  </div>
+  <div class="pane" id="epane-rag">
+    <div class="toolbar"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span id="ev-status-rag" class="muted"></span></div>
+    <table class="list" id="ev-rag"><thead><tr><th>question</th><th>skill (optional)</th><th>expected substrings (comma)</th><th>needs source</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="ev-result-rag"></div>
+  </div>
+  <div class="pane" id="epane-compare">
+    <div class="form">
+      <div class="two"><label>Skill <select id="cmp-skill"></select></label><label>Models <small>(choose 2 or 3)</small><select id="cmp-models" multiple size="5"></select></label></div>
+      <label>Questions <small>(one per line)</small><textarea id="cmp-qs" rows="4"></textarea></label>
+      <div class="toolbar"><button id="cmp-run">Run comparison</button><span id="cmp-status" class="muted"></span></div>
+    </div>
+    <div id="cmp-result"></div>
+  </div>
+  <div class="pane" id="epane-runs"><table class="list" id="ev-runs"><thead><tr><th>started</th><th>set</th><th>summary</th><th></th></tr></thead><tbody></tbody></table><div id="ev-run-detail"></div></div>
+  <pre id="ev-log" class="log"></pre>
+</section>
+
+<!-- ================= CONVERSATIONS ================= -->
+<section id="view-conversations" class="view">
+  <div class="toolbar"><button id="cv-refresh" class="btn-secondary">Refresh</button><label>Skill <select id="cv-skill"><option value="">all</option></select></label><label>Rating <select id="cv-rating"><option value="">all</option><option value="up">👍</option><option value="down">👎</option></select></label><a class="btn-secondary" href="/feedback.csv">Export feedback CSV</a><span id="cv-status" class="muted"></span></div>
+  <div class="split-narrow">
+    <table class="list" id="cv-table"><thead><tr><th>started</th><th>title</th><th>turns</th><th>skills</th><th>cost</th><th>👍/👎</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="cv-transcript" class="transcript"></div>
+  </div>
+</section>
+
+<!-- ================= SETTINGS ================= -->
+<section id="view-settings" class="view">
+  <div class="subtabs"><button data-spane="usage" class="on">Usage &amp; prices</button><button data-spane="base">Base rules</button><button data-spane="runtime">Runtime settings</button><button data-spane="bundle">Export / import</button></div>
+  <div class="pane on" id="spane-usage">
+    <h3>Usage (from .state/bankrag.db)</h3>
+    <div class="cards" id="us-cards"></div>
+    <table class="list" id="us-days"><thead><tr><th>day</th><th>answers</th><th>input tokens</th><th>cost</th></tr></thead><tbody></tbody></table>
+    <h3>Model prices <span class="muted">(USD per 1M tokens; saved to pricing.yaml; unknown models use "default")</span></h3>
+    <table class="list" id="pr-table"><thead><tr><th>model</th><th>input</th><th>cached input</th><th>output</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="toolbar"><button id="pr-add" class="btn-secondary">Add model</button><label>Retrieval cost per call $ <input id="pr-retrieval" type="number" step="0.0001" style="width:110px"></label><button id="pr-save">Save prices</button><span id="pr-status" class="muted"></span></div>
+  </div>
+  <div class="pane" id="spane-base">
+    <p class="muted">Shared persona, language, grounding and compliance rules prepended to every skill (skills/_base/SKILL.md). Saving and syncing creates a new version of every agent.</p>
+    <textarea id="base-body" rows="26" spellcheck="false"></textarea>
+    <div class="toolbar"><button id="base-save">Save</button><button id="base-save-sync">Save &amp; sync all agents</button><span id="base-status" class="muted"></span></div>
+  </div>
+  <div class="pane" id="spane-runtime">
+    <p class="muted">Overrides saved to .state/settings.json (they win over .env). Model changes apply to agents after a sync.</p>
+    <div class="form" id="rt-form">
+      <div class="two"><label>Router model <select id="rt-ROUTER_MODEL"></select></label><label>Default skill model <select id="rt-DEFAULT_CHAT_MODEL"></select></label></div>
+      <div class="two"><label>Knowledge base reasoning <select id="rt-KB_REASONING_EFFORT"><option>minimal</option><option>low</option><option>medium</option></select></label><label>KB LLM deployment (for low/medium) <select id="rt-KB_LLM_DEPLOYMENT"></select></label></div>
+      <div class="two"><label>Assistant name <input id="rt-ASSISTANT_NAME"></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
+      <div class="toolbar"><button id="rt-save">Save settings</button><button id="rt-save-sync" class="btn-secondary">Save &amp; sync all agents</button><span id="rt-status" class="muted"></span></div>
+    </div>
+  </div>
+  <div class="pane" id="spane-bundle">
+    <p class="muted">A bundle contains skills/, knowledge/, evals/, pricing.yaml and runtime settings. Import merges by default; "replace" removes existing skills and knowledge first.</p>
+    <div class="toolbar"><a class="btn-secondary" href="/bundle.zip">Download bundle.zip</a><label class="btn-secondary">Import bundle (merge) <input type="file" id="bd-merge" accept=".zip" hidden></label><label class="btn-danger">Import bundle (replace) <input type="file" id="bd-replace" accept=".zip" hidden></label><span id="bd-status" class="muted"></span></div>
+    <pre id="bd-log" class="log"></pre>
+  </div>
+  <pre id="st-log" class="log"></pre>
+</section>
+</main>
+
+<dialog id="dlg-new">
+  <form method="dialog" class="form">
+    <h2>New skill</h2>
+    <label>Skill id <small>(lowercase, dashes; also the product category)</small><input id="n-id" required pattern="[a-z0-9][a-z0-9-]*"></label>
+    <label>Name<input id="n-name"></label>
+    <label>Description<textarea id="n-description" rows="3"></textarea></label>
+    <label>Keywords (comma separated)<input id="n-keywords"></label>
+    <div class="toolbar"><button value="ok">Create</button><button value="cancel" class="btn-secondary" formnovalidate>Cancel</button></div>
+  </form>
+</dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/7.0.0/diff.min.js"></script>
+<script src="/static/trace.js"></script>
+<script src="/static/studio.js"></script>
+<script src="/static/studio-skills.js"></script>
+<script src="/static/studio-knowledge.js"></script>
+<script src="/static/studio-evals.js"></script>
+<script src="/static/studio-conversations.js"></script>
+<script src="/static/studio-settings.js"></script>
+</body>
+</html>

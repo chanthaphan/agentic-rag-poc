@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bank Product Agent POC</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Bank Product Agent <span class="muted">Foundry agents + Azure AI Search (Foundry IQ)</span></h1>
+  <nav>
+    <button data-tab="chat" class="active">Chat</button>
+    <button data-tab="skills">Skills</button>
+    <button data-tab="knowledge">Knowledge</button>
+  </nav>
+  <span id="health" class="muted"></span>
+</header>
+
+<main>
+  <section id="tab-chat" class="tab active">
+    <div class="chat-layout">
+      <div class="chat-main">
+        <div id="messages"></div>
+        <form id="chat-form">
+          <select id="force-skill"><option value="">auto-route</option></select>
+          <input id="chat-input" placeholder="ถามเกี่ยวกับผลิตภัณฑ์ธนาคาร เช่น บัตรอินฟินิทเข้าเลานจ์ได้กี่ครั้ง" autocomplete="off">
+          <button type="submit">Send</button>
+          <button type="button" id="chat-reset" class="secondary">New chat</button>
+        </form>
+      </div>
+      <aside class="chat-side">
+        <h3>Last turn</h3>
+        <div id="turn-info" class="muted">Routing, tool calls and sources appear here.</div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="tab-skills" class="tab">
+    <div class="toolbar">
+      <button id="skills-refresh">Refresh</button>
+      <button id="skills-sync">Sync all to Foundry</button>
+      <label class="upload">Upload skill zip <input type="file" id="skill-zip" accept=".zip"></label>
+      <span id="skills-status" class="muted"></span>
+    </div>
+    <table id="skills-table"><thead><tr><th>id</th><th>name</th><th>category</th><th>model</th><th>agent</th><th>state</th><th>version</th><th></th></tr></thead><tbody></tbody></table>
+    <pre id="skill-view" class="muted">Select a skill to view its SKILL.md</pre>
+    <pre id="skills-log" class="log"></pre>
+  </section>
+
+  <section id="tab-knowledge" class="tab">
+    <div class="toolbar">
+      <button id="kn-refresh">Refresh</button>
+      <select id="kn-category"></select>
+      <label class="upload">Upload documents (.md/.pdf) <input type="file" id="kn-files" multiple accept=".md,.pdf,.txt"></label>
+      <button id="kn-ingest">Run ingest</button>
+      <span id="kn-status" class="muted"></span>
+    </div>
+    <table id="kn-table"><thead><tr><th>category</th><th>files on disk</th><th>chunks (manifest)</th><th>chunks (index)</th></tr></thead><tbody></tbody></table>
+    <div id="kn-index" class="muted"></div>
+    <div class="toolbar"><input id="kn-q" placeholder="test retrieval against a knowledge base"><select id="kn-skill"></select><button id="kn-retrieve">Retrieve</button></div>
+    <div id="kn-refs"></div>
+    <pre id="kn-log" class="log"></pre>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

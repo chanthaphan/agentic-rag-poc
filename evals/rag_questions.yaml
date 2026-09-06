@@ -1,0 +1,16 @@
+# q: question, skill: optional forced skill, expect: substrings that must appear in the answer, require_source: default true
+- q: "บัตรอินฟินิท ธนาคารกรุงเทพ ค่าธรรมเนียมรายปีเท่าไหร่"
+  skill: credit-card
+  expect: ["บาท"]
+- q: "บัตรอินฟินิทเข้าใช้ห้องรับรองสนามบินได้กี่ครั้ง"
+  skill: credit-card
+  expect: ["ครั้ง"]
+- q: "What documents do I need to apply for a Bangkok Bank credit card as a salaried employee?"
+  skill: credit-card
+  expect: []
+- q: "บัตรเครดิตโรงพยาบาลศิริราชได้สิทธิพิเศษอะไรบ้าง"
+  expect: ["ศิริราช"]
+- q: "ประกันสุขภาพแบบไหนดี"
+  skill: insurance
+  expect: []
+  require_source: false

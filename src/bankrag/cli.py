@@ -1,0 +1,317 @@
+"""bankrag command line."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich import print as rprint
+from rich.console import Console
+from rich.table import Table
+
+from .config import ConfigError, Settings
+
+app = typer.Typer(help="Bangkok Bank product agent POC: Foundry agents + Azure AI Search (Foundry IQ)", no_args_is_help=True)
+setup_app = typer.Typer(help="Provision search index, knowledge bases, project connections")
+skills_app = typer.Typer(help="Validate, list and sync skills to Foundry")
+eval_app = typer.Typer(help="Evaluate routing and answers")
+app.add_typer(setup_app, name="setup")
+app.add_typer(skills_app, name="skills")
+app.add_typer(eval_app, name="eval")
+console = Console()
+
+
+def _settings() -> Settings:
+    return Settings.load()
+
+
+def _skills(settings: Settings):
+    from .skills import load_base, load_skills
+
+    return load_skills(settings.skills_dir), load_base(settings.skills_dir)
+
+
+# ---------------- setup ----------------
+@setup_app.command("index")
+def setup_index(delete: bool = typer.Option(False, help="delete and recreate the index (drops all documents)")):
+    """Create or update the search index (fields, vectorizer, semantic config)."""
+    from . import search_index as SI
+
+    s = _settings()
+    if delete:
+        SI.delete_index(s)
+        rprint(f"[yellow]deleted index {s.search_index}[/]")
+    idx = SI.ensure_index(s)
+    rprint(f"[green]index '{idx.name}' ready[/] with {len(idx.fields)} fields, vectorizer -> {s.embed_deployment}")
+
+
+@setup_app.command("kb")
+def setup_kb(skill: Optional[str] = typer.Option(None, help="only this skill id")):
+    """Create or update knowledge sources and knowledge bases for every skill."""
+    from . import knowledge_base as KB
+    from .foundry_sync import plan_kb_owners
+
+    s = _settings()
+    skills, _ = _skills(s)
+    owners = plan_kb_owners(s, skills)
+    for spec in skills.values():
+        if skill and spec.id != skill:
+            continue
+        if owners[spec.id].id != spec.id:
+            rprint(f"[yellow]{spec.id}[/]: no documents for '{spec.product_category}' yet -> shares {owners[spec.id].kb_name} (Free tier allows 3 knowledge sources)")
+            continue
+        ks, kb = KB.ensure_knowledge_objects(s, spec)
+        rprint(f"[green]{spec.id}[/]: knowledge source {ks}, knowledge base {kb} (filter: {spec.effective_filter or '(none)'})")
+
+
+@setup_app.command("connections")
+def setup_connections(skill: Optional[str] = typer.Option(None, help="only this skill id")):
+    """Create the RemoteTool project connections (project managed identity -> KB MCP endpoint)."""
+    from . import connections as CONN
+    from .foundry import credential
+    from .foundry_sync import plan_kb_owners
+
+    s = _settings()
+    skills, _ = _skills(s)
+    owners = plan_kb_owners(s, skills)
+    for spec in skills.values():
+        if skill and spec.id != skill:
+            continue
+        if owners[spec.id].id != spec.id:
+            rprint(f"[yellow]{spec.id}[/]: shares {owners[spec.id].connection_name}")
+            continue
+        res = CONN.ensure_kb_connection(s, spec, credential())
+        rprint(f"[green]{spec.id}[/]: connection {res.get('name')} -> {res.get('properties', {}).get('target')}")
+
+
+@setup_app.command("all")
+def setup_all():
+    """index + kb + connections + skills sync."""
+    setup_index(delete=False)
+    setup_kb(skill=None)
+    if _settings().kb_mcp_auth != "apikey":
+        setup_connections(skill=None)
+    skills_sync(only=None, prune=False, keep=0, register_native=False)
+
+
+# ---------------- skills ----------------
+@skills_app.command("validate")
+def skills_validate():
+    from .skills import validate_skill
+
+    s = _settings()
+    skills, _ = _skills(s)
+    bad = 0
+    for spec in skills.values():
+        errors, warnings = validate_skill(spec, s.knowledge_dir)
+        bad += len(errors)
+        for e in errors:
+            rprint(f"[red]{spec.id}: {e}[/]")
+        for w in warnings:
+            rprint(f"[yellow]{spec.id}: {w}[/]")
+        if not errors:
+            rprint(f"[green]{spec.id}: ok[/] ({len(spec.keywords)} keywords, filter: {spec.effective_filter or '(none)'})")
+    raise typer.Exit(code=1 if bad else 0)
+
+
+@skills_app.command("list")
+def skills_list(remote: bool = typer.Option(True, help="compare with Foundry agent versions")):
+    from .foundry_sync import status
+
+    s = _settings()
+    skills, base = _skills(s)
+    rows = status(s, skills, base) if remote else [
+        {"id": k.id, "name": k.name, "product_category": k.product_category, "model": k.model or s.default_chat_model, "agent": k.agent_name, "state": "-", "version": ""}
+        for k in skills.values()
+    ]
+    t = Table("id", "name", "category", "model", "agent", "state", "version")
+    for r in rows:
+        t.add_row(r["id"], r["name"], r["product_category"], r["model"], r["agent"], r["state"], str(r["version"]))
+    console.print(t)
+
+
+@skills_app.command("sync")
+def skills_sync(
+    only: Optional[str] = typer.Option(None, help="sync a single skill id"),
+    prune: bool = typer.Option(False, help="delete Foundry agents/KBs for skills whose folder was removed"),
+    keep: int = typer.Option(0, help="keep only the N newest agent versions (0 = keep all)"),
+    register_native: bool = typer.Option(False, help="also publish as native Foundry Skills (beta)"),
+):
+    """Create/update knowledge sources, knowledge bases, connections and agent versions for every skill."""
+    from .foundry_sync import sync_skills
+
+    s = _settings()
+    skills, base = _skills(s)
+    report = sync_skills(s, skills, base, only=only, prune=prune, keep=keep, register_native=register_native, log=lambda m: rprint(f"[dim]{m}[/]"))
+    t = Table("skill", "knowledge base", "connection", "agent", "action", "version", "note")
+    for r in report.rows:
+        color = {"created": "green", "updated": "green", "unchanged": "cyan", "error": "red", "pruned": "yellow"}.get(r.action, "white")
+        t.add_row(r.skill_id, r.knowledge_base, r.connection, r.agent, f"[{color}]{r.action}[/]", r.version, r.note[:80])
+    console.print(t)
+
+
+@skills_app.command("install")
+def skills_install(zip_path: Path):
+    """Install a skill from a zip (SKILL.md at the root or in one folder)."""
+    from .skills import install_skill_zip, validate_skill
+
+    s = _settings()
+    spec = install_skill_zip(zip_path, s.skills_dir)
+    errors, warnings = validate_skill(spec, s.knowledge_dir)
+    rprint(f"installed skill [green]{spec.id}[/] -> {spec.path}")
+    for w in warnings:
+        rprint(f"[yellow]{w}[/]")
+    for e in errors:
+        rprint(f"[red]{e}[/]")
+
+
+# ---------------- knowledge ----------------
+@app.command("seed")
+def seed(
+    src: Path = typer.Option(None, "--from", help="crawler data/products/th-TH/Personal/Cards folder"),
+    include_promotions: bool = typer.Option(False),
+    clear: bool = typer.Option(False, help="remove knowledge/credit-card first"),
+):
+    """Seed knowledge/credit-card from the bblwebsite_crawler output."""
+    from .seed import DEFAULT_CRAWLER_DATA, seed_credit_cards
+
+    s = _settings()
+    seed_credit_cards(src or DEFAULT_CRAWLER_DATA, s.knowledge_dir, include_promotions=include_promotions, clear=clear)
+
+
+@app.command("ingest")
+def ingest_cmd(
+    category: Optional[str] = typer.Option(None, help="only this product category folder"),
+    full: bool = typer.Option(False, help="re-embed everything even if unchanged"),
+    dry_run: bool = typer.Option(False, help="only report what would change"),
+):
+    """Chunk, embed and upload knowledge/<category>/** into the search index."""
+    from . import search_index as SI
+    from .ingest.pipeline import ingest
+
+    s = _settings()
+    report = ingest(s, category=category, full=full, dry_run=dry_run, log=lambda m: rprint(f"[dim]{m}[/]"))
+    t = Table("action", "count")
+    for k, v in report.summary().items():
+        t.add_row(k, str(v))
+    console.print(t)
+    if not dry_run:
+        try:
+            rprint("index facets:", SI.facet_counts(s))
+            st = SI.index_stats(s)
+            rprint(f"index documents: {st.get('document_count')}, storage bytes: {st.get('storage_size')}, vector bytes: {st.get('vector_index_size')}")
+        except Exception as e:  # noqa: BLE001
+            rprint(f"[yellow]could not read index stats: {e}[/]")
+
+
+@app.command("retrieve")
+def retrieve_cmd(question: str, skill: str = typer.Option("credit-card"), max_docs: int = typer.Option(5)):
+    """Query a skill's knowledge base directly (no agent) and print references."""
+    from . import knowledge_base as KB
+
+    s = _settings()
+    skills, _ = _skills(s)
+    from .foundry_sync import plan_kb_owners
+
+    spec = plan_kb_owners(s, skills)[skill]
+    refs = KB.retrieve(s, spec.kb_name, question, ks_name=spec.ks_name, max_docs=max_docs)
+    for r in refs:
+        rprint(f"[bold]{r.title}[/] ({r.doc_type}, score={r.score}) {r.source_url}\n  {r.snippet[:200]}")
+    if not refs:
+        rprint("[yellow]no references returned[/]")
+
+
+# ---------------- chat ----------------
+@app.command("chat")
+def chat_cmd(
+    question: Optional[str] = typer.Argument(None, help="one question; omit for an interactive loop"),
+    skill: Optional[str] = typer.Option(None, help="force a skill id"),
+    debug: bool = typer.Option(False, help="print routing, tool calls and sources"),
+):
+    """Ask the agents (routes to a skill, answers with citations)."""
+    from .chat import ChatSession
+
+    s = _settings()
+    skills, _ = _skills(s)
+    session = ChatSession(s, skills)
+
+    def show(ans):
+        rprint(f"[cyan]skill={ans.skill_id} confidence={ans.confidence:.2f}[/] [dim]{ans.route_reason}[/]")
+        rprint(ans.text)
+        if ans.citations:
+            rprint("[dim]citations:[/]", [c.url for c in ans.citations])
+        if debug:
+            for tc in ans.tool_calls:
+                rprint(f"[dim]{json.dumps(tc, ensure_ascii=False)[:600]}[/]")
+            for r in ans.references:
+                rprint(f"[dim]source: {r.title} | {r.source_url} | score={r.score}[/]")
+
+    if question:
+        show(session.ask(question, force_skill=skill))
+        return
+    rprint("[dim]interactive chat; type /quit to exit, /reset to start a new conversation[/]")
+    while True:
+        q = console.input("[bold]you> [/]").strip()
+        if not q:
+            continue
+        if q == "/quit":
+            break
+        if q == "/reset":
+            session.reset()
+            continue
+        show(session.ask(q, force_skill=skill))
+
+
+@app.command("serve")
+def serve(port: Optional[int] = typer.Option(None), reload: bool = typer.Option(False)):
+    """Run the FastAPI app + web page."""
+    import uvicorn
+
+    s = _settings()
+    uvicorn.run("bankrag.api:app", host="127.0.0.1", port=port or s.api_port, reload=reload)
+
+
+# ---------------- eval ----------------
+@eval_app.command("routing")
+def eval_routing(file: Optional[Path] = typer.Option(None, help="defaults to evals/routing_questions.yaml")):
+    """Routing accuracy on a labelled question set (uses the router agent)."""
+    import yaml
+
+    from .evals import load_cases, run_routing
+    from .sessions import save_eval_run
+
+    s = _settings()
+    skills, _ = _skills(s)
+    cases = yaml.safe_load(file.read_text(encoding="utf-8")) if file else load_cases(s, "routing")
+    run = run_routing(s, skills, cases, log=lambda m: rprint(("[green]" if m.startswith("ok") else "[red]") + m.replace("[", "\\[") + "[/]"))
+    save_eval_run(s, run)
+    rprint(f"\naccuracy: {run['summary']['passed']}/{run['summary']['questions']} = {run['summary']['accuracy']:.0%}  cost ${run['summary']['total_cost_usd']:.4f}  run {run['id']}")
+
+
+@eval_app.command("rag")
+def eval_rag(file: Optional[Path] = typer.Option(None, help="defaults to evals/rag_questions.yaml")):
+    """Answer questions and check expected substrings + citation presence."""
+    import yaml
+
+    from .evals import load_cases, run_rag
+    from .sessions import save_eval_run
+
+    s = _settings()
+    skills, _ = _skills(s)
+    cases = yaml.safe_load(file.read_text(encoding="utf-8")) if file else load_cases(s, "rag")
+    run = run_rag(s, skills, cases, log=lambda m: rprint(("[green]" if m.startswith("ok") else "[red]") + m.replace("[", "\\[") + "[/]"))
+    save_eval_run(s, run)
+    rprint(f"\npassed: {run['summary']['passed']}/{run['summary']['questions']}  cost ${run['summary']['total_cost_usd']:.4f}  run {run['id']}")
+
+
+def main() -> None:
+    try:
+        app()
+    except ConfigError as e:
+        rprint(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+
+
+if __name__ == "__main__":
+    main()
