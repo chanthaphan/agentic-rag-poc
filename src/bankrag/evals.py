@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 import yaml
 
 from .config import Settings
+from .ingest.progress import report as progress
 from .models import SkillSpec
 
 Log = Callable[[str], None]
@@ -67,7 +68,9 @@ def run_routing(settings: Settings, skills: dict[str, SkillSpec], cases: list[di
     pricing = load_pricing(settings)
     run = new_run("routing")
     ok = 0
-    for c in cases:
+    progress(log, "questions", 0, len(cases), message="", passed=0, failed=0)
+    for i, c in enumerate(cases):
+        progress(log, "questions", i, len(cases), message=c["q"][:80], passed=ok, failed=i - ok)
         t0 = time.perf_counter()
         d = R.route(openai_client, c["q"], [], None, skills)
         ms = int((time.perf_counter() - t0) * 1000)
@@ -77,6 +80,7 @@ def run_routing(settings: Settings, skills: dict[str, SkillSpec], cases: list[di
         run["rows"].append({"q": c["q"], "expected": c["skill"], "got": d.skill_id, "pass": hit, "confidence": d.confidence, "ms": ms, "cost_usd": cost, "detail": d.reason[:160]})
         log(f"{'ok ' if hit else 'BAD'} expected={c['skill']} got={d.skill_id} conf={d.confidence:.2f} {c['q'][:60]}")
     n = len(cases)
+    progress(log, "questions", n, n, message="", passed=ok, failed=n - ok)
     run["summary"] = {"questions": n, "passed": ok, "accuracy": (ok / n) if n else 0.0, "total_cost_usd": sum(r["cost_usd"] for r in run["rows"]), "avg_ms": int(sum(r["ms"] for r in run["rows"]) / n) if n else 0}
     run["finished_at"] = _now()
     return run
@@ -88,7 +92,9 @@ def run_rag(settings: Settings, skills: dict[str, SkillSpec], cases: list[dict],
     factory = session_factory or (lambda: ChatSession(settings, skills))
     run = new_run("rag")
     passed = 0
-    for c in cases:
+    progress(log, "questions", 0, len(cases), message="", passed=0, failed=0)
+    for i, c in enumerate(cases):
+        progress(log, "questions", i, len(cases), message=c["q"][:80], passed=passed, failed=i - passed)
         session = factory()
         t0 = time.perf_counter()
         try:
@@ -110,6 +116,7 @@ def run_rag(settings: Settings, skills: dict[str, SkillSpec], cases: list[dict],
         except Exception:  # noqa: BLE001
             pass
     n = len(cases)
+    progress(log, "questions", n, n, message="", passed=passed, failed=n - passed)
     run["summary"] = {"questions": n, "passed": passed, "pass_rate": (passed / n) if n else 0.0, "total_cost_usd": sum(r["cost_usd"] for r in run["rows"]), "avg_ms": int(sum(r["ms"] for r in run["rows"]) / n) if n else 0}
     run["finished_at"] = _now()
     return run
@@ -135,7 +142,9 @@ def run_compare(settings: Settings, skills: dict[str, SkillSpec], base_body: str
     run["summary"] = {"skill": skill_id, "models": models, "questions": len(questions)}
     temp_agents: list[str] = []
     try:
+        progress(log, "agents", 0, len(models), message="")
         for m in models:
+            progress(log, "agents", models.index(m), len(models), message=m)
             name = f"{spec.agent_name}-cmp-{re.sub(r'[^a-z0-9]+', '-', m.lower()).strip('-')}"[:60]
             spec_m = spec.model_copy(update={"model": m})
             definition = desired_definition(settings, spec_m, base_body, owner)
@@ -143,8 +152,13 @@ def run_compare(settings: Settings, skills: dict[str, SkillSpec], base_body: str
             temp_agents.append(name)
             log(f"[{m}] agent {name} {action} v{version}")
         rows = [{"q": q, "by_model": {}} for q in questions]
+        total = len(models) * len(questions)
+        done = 0
+        progress(log, "questions", 0, total, message="")
         for m, name in zip(models, temp_agents):
             for row in rows:
+                progress(log, "questions", done, total, message=f"{m}: {row['q'][:60]}")
+                done += 1
                 t0 = time.perf_counter()
                 try:
                     conv = openai_client.conversations.create()
@@ -163,6 +177,7 @@ def run_compare(settings: Settings, skills: dict[str, SkillSpec], base_body: str
                     row["by_model"][m] = {"error": f"{type(e).__name__}: {str(e)[:200]}", "ms": int((time.perf_counter() - t0) * 1000), "cost_usd": 0.0}
                     log(f"[{m}] ERROR {row['by_model'][m]['error']}")
         run["rows"] = rows
+        progress(log, "cleanup", total, total, message="deleting temporary agents")
         for m in models:
             vals = [r["by_model"].get(m, {}) for r in rows]
             run["summary"][f"{m} avg_ms"] = int(sum(v.get("ms", 0) for v in vals) / max(1, len(vals)))

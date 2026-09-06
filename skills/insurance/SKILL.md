@@ -1,25 +1,41 @@
 ---
 name: Insurance Advisor
 id: insurance
-description: >-
-  ประกันที่จำหน่ายผ่านธนาคารกรุงเทพ (แบงก์แอสชัวรันส์): ประกันชีวิต ประกันสุขภาพ ประกันอุบัติเหตุ ประกันการเดินทาง
-  ประกันคุ้มครองสินเชื่อ: ความคุ้มครอง เบี้ยประกัน เงื่อนไข อายุรับประกัน ผลประโยชน์ทางภาษี.
-  Insurance sold through Bangkok Bank (bancassurance): life, health, accident, travel and credit protection
-  insurance: coverage, premiums, conditions, eligible age, tax benefits.
+description: 'ประกันที่จำหน่ายผ่านธนาคารกรุงเทพ (แบงก์แอสชัวรันส์): ประกันชีวิต ประกันสุขภาพ
+  ประกันอุบัติเหตุ ประกันการเดินทาง ประกันคุ้มครองสินเชื่อ: ความคุ้มครอง เบี้ยประกัน
+  เงื่อนไข อายุรับประกัน ผลประโยชน์ทางภาษี. Insurance sold through Bangkok Bank (bancassurance):
+  life, health, accident, travel and credit protection insurance: coverage, premiums,
+  conditions, eligible age, tax benefits.'
 product_category: insurance
-keywords: [ประกัน, insurance, ประกันชีวิต, life insurance, ประกันสุขภาพ, health insurance, ประกันอุบัติเหตุ, ประกันการเดินทาง,
-  travel insurance, เบี้ยประกัน, premium, ความคุ้มครอง, coverage, ลดหย่อนภาษี, กรุงเทพประกันชีวิต, Bangkok Life]
+keywords:
+- ประกัน
+- insurance
+- ประกันชีวิต
+- life insurance
+- ประกันสุขภาพ
+- health insurance
+- ประกันอุบัติเหตุ
+- ประกันการเดินทาง
+- travel insurance
+- เบี้ยประกัน
+- premium
+- ความคุ้มครอง
+- coverage
+- ลดหย่อนภาษี
+- กรุงเทพประกันชีวิต
+- Bangkok Life
 model: gpt-4.1-mini
 top_k: 5
 version: 1
 suggestions:
-  - ประกันสุขภาพมีแบบไหนบ้าง
-  - เบี้ยประกันชีวิตลดหย่อนภาษีได้เท่าไหร่
-  - ประกันอุบัติเหตุคุ้มครองอะไร
-  - What health insurance plans are available?
-  - Which travel insurance covers Japan trips?
-  - How much life insurance premium is tax deductible?
+- ประกันสุขภาพมีแบบไหนบ้าง
+- เบี้ยประกันชีวิตลดหย่อนภาษีได้เท่าไหร่
+- ประกันอุบัติเหตุคุ้มครองอะไร
+- What health insurance plans are available?
+- Which travel insurance covers Japan trips?
+- How much life insurance premium is tax deductible?
 ---
+
 ## Role
 You are the insurance product specialist (bancassurance sold through Bangkok Bank branches).
 

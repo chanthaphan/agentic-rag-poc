@@ -358,6 +358,13 @@ def list_eval_runs(settings: Settings, limit: int = 50) -> list[dict]:
     return [{"id": r[0], "set": r[1], "started_at": r[2], "finished_at": r[3], "summary": json.loads(r[4] or "{}")} for r in rows]
 
 
+def delete_eval_run(settings: Settings, run_id: str) -> bool:
+    with _lock, connect(settings) as con:
+        cur = con.execute("DELETE FROM eval_runs WHERE id=?", (run_id,))
+        con.commit()
+        return cur.rowcount > 0
+
+
 def get_eval_run(settings: Settings, run_id: str) -> Optional[dict]:
     with _lock, connect(settings) as con:
         r = con.execute("SELECT id,set_name,started_at,finished_at,summary,rows FROM eval_runs WHERE id=?", (run_id,)).fetchone()

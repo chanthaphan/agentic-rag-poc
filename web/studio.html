@@ -192,27 +192,71 @@
 
 <!-- ================= EVALS ================= -->
 <section id="view-evals" class="view">
-  <div class="subtabs"><button data-epane="routing" class="on">Routing</button><button data-epane="rag">Grounded answers</button><button data-epane="compare">Model comparison</button><button data-epane="runs">Run history</button></div>
-  <div class="pane on" id="epane-routing">
-    <div class="toolbar"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span id="ev-status-routing" class="muted"></span></div>
-    <table class="list" id="ev-routing"><thead><tr><th>question</th><th>expected skill</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="ev-result-routing"></div>
-  </div>
-  <div class="pane" id="epane-rag">
-    <div class="toolbar"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span id="ev-status-rag" class="muted"></span></div>
-    <table class="list" id="ev-rag"><thead><tr><th>question</th><th>skill (optional)</th><th>expected substrings (comma)</th><th>needs source</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="ev-result-rag"></div>
-  </div>
-  <div class="pane" id="epane-compare">
-    <div class="form">
-      <div class="two"><label>Skill <select id="cmp-skill"></select></label><label>Models <small>(choose 2 or 3)</small><select id="cmp-models" multiple size="5"></select></label></div>
-      <label>Questions <small>(one per line)</small><textarea id="cmp-qs" rows="4"></textarea></label>
-      <div class="toolbar"><button id="cmp-run">Run comparison</button><span id="cmp-status" class="muted"></span></div>
+  <div class="ev-grid">
+    <div class="ev-main">
+      <div class="subtabs"><button data-epane="routing" class="on">Routing</button><button data-epane="rag">Grounded answers</button><button data-epane="compare">Model comparison</button></div>
+
+      <div class="pane on" id="epane-routing">
+        <div class="panel">
+          <div class="panel-head"><h3>Routing questions</h3><span class="muted">the router alone must pick the expected skill (or <code>offtopic</code>)</span><span id="ev-status-routing" class="muted ev-status"></span></div>
+          <table class="list ev-qs" id="ev-routing"><thead><tr><th>question</th><th style="width:180px">expected skill</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="row wrap ev-actions"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span class="muted">Run saves the questions first. The routing eval costs only router tokens.</span></div>
+        </div>
+        <div class="panel ev-result-panel" id="ev-result-routing-panel" hidden>
+          <div class="panel-head"><h3 id="ev-result-routing-title">Result</h3><span id="ev-result-routing-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="routing"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-routing" href="#">Export .xlsx</a></div>
+          <div id="ev-result-routing"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="epane-rag">
+        <div class="panel">
+          <div class="panel-head"><h3>Grounded-answer questions</h3><span class="muted">the full pipeline answers; pass = every expected substring appears and a source is cited</span><span id="ev-status-rag" class="muted ev-status"></span></div>
+          <table class="list ev-qs" id="ev-rag"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected substrings (comma)</th><th style="width:70px">needs source</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="row wrap ev-actions"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span class="muted">Each question is a full answer with retrieval, so this costs real model tokens.</span></div>
+        </div>
+        <div class="panel ev-result-panel" id="ev-result-rag-panel" hidden>
+          <div class="panel-head"><h3 id="ev-result-rag-title">Result</h3><span id="ev-result-rag-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="rag"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-rag" href="#">Export .xlsx</a></div>
+          <div id="ev-result-rag"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="epane-compare">
+        <div class="panel">
+          <div class="panel-head"><h3>Model comparison</h3><span class="muted">same skill and knowledge base, different model; temporary agents are deleted afterwards</span><span id="cmp-status" class="muted ev-status"></span></div>
+          <div class="form">
+            <div class="two"><label>Skill <select id="cmp-skill"></select></label><label>Models <small>(choose 2 or 3)</small><select id="cmp-models" multiple size="5"></select></label></div>
+            <label>Questions <small>(one per line, up to 10)</small><textarea id="cmp-qs" rows="4"></textarea></label>
+            <div class="row wrap ev-actions"><button id="cmp-run">Run comparison</button></div>
+          </div>
+        </div>
+        <div class="panel ev-result-panel" id="ev-result-compare-panel" hidden>
+          <div class="panel-head"><h3 id="ev-result-compare-title">Result</h3><span id="ev-result-compare-when" class="muted"></span><span class="spacer"></span><a class="btn-secondary ev-xlsx" id="ev-xlsx-compare" href="#">Export .xlsx</a></div>
+          <div id="ev-result-compare"></div>
+        </div>
+      </div>
     </div>
-    <div id="cmp-result"></div>
+
+    <aside class="ev-side">
+      <div class="panel" id="ev-jobpanel">
+        <div class="panel-head"><h3>Eval run</h3><span id="ev-state" class="pill">idle</span></div>
+        <div id="ev-job" hidden>
+          <div id="ev-job-what" class="muted"></div>
+          <div class="bar"><div id="ev-bar" class="fill"></div></div>
+          <div class="ig-line"><span id="ev-pct"></span><span id="ev-count" class="muted"></span><span id="ev-elapsed" class="muted"></span></div>
+          <div id="ev-msg" class="ig-msg muted"></div>
+          <div id="ev-chips" class="igchips"></div>
+          <details id="ev-logwrap"><summary class="muted">log</summary><pre id="ev-log" class="log"></pre></details>
+        </div>
+        <div id="ev-idle" class="muted">Start a routing eval, a grounded eval or a model comparison. Progress and the log show here; the result opens on the left and is kept in the history.</div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Run history</h3><span id="ev-runs-count" class="muted"></span><span class="spacer"></span><a class="btn-secondary" id="ev-runs-xlsx" href="/evals/runs.xlsx" title="Every stored run: one overview sheet plus one sheet per run">Export all .xlsx</a></div>
+        <div id="ev-trend" class="trend"></div>
+        <div class="row wrap"><select id="ev-runs-filter"><option value="">all sets</option><option value="routing">routing</option><option value="rag">grounded</option><option value="compare">compare</option></select></div>
+        <div id="ev-runs" class="runs muted">no runs yet</div>
+      </div>
+    </aside>
   </div>
-  <div class="pane" id="epane-runs"><table class="list" id="ev-runs"><thead><tr><th>started</th><th>set</th><th>summary</th><th></th></tr></thead><tbody></tbody></table><div id="ev-run-detail"></div></div>
-  <pre id="ev-log" class="log"></pre>
 </section>
 
 <!-- ================= CONVERSATIONS ================= -->

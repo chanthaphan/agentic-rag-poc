@@ -1,29 +1,56 @@
-# q: user message, skill: expected skill id
-- {q: "บัตรอินฟินิทเข้าเลานจ์สนามบินได้กี่ครั้งต่อปี", skill: credit-card}
-- {q: "How much is the annual fee of the Bangkok Bank Visa Platinum credit card?", skill: credit-card}
-- {q: "สมัครบัตรเครดิตต้องมีรายได้ขั้นต่ำเท่าไหร่", skill: credit-card}
-- {q: "บัตรเครดิตใบไหนเหมาะกับคนเดินทางต่างประเทศบ่อย", skill: credit-card}
-- {q: "M Live card benefits", skill: credit-card}
-- {q: "บัตรโตโยต้าได้ส่วนลดอะไรบ้าง", skill: credit-card}
-- {q: "แลกคะแนน Thank You Rewards ยังไง", skill: credit-card}
-- {q: "บัตรเครดิตโรงพยาบาลบำรุงราษฎร์ ลดค่ารักษาเท่าไร", skill: credit-card}
-- {q: "Which card gives AirAsia points?", skill: credit-card}
-- {q: "Pinnacle card ต่างจาก Infinite ยังไง", skill: credit-card}
-- {q: "บัตรบีเฟิสต์ถอนเงินต่างประเทศเสียค่าธรรมเนียมเท่าไหร่", skill: debit-card}
-- {q: "Be1st Smart debit card daily withdrawal limit", skill: debit-card}
-- {q: "บัตรเดบิตหายต้องทำยังไง", skill: debit-card}
-- {q: "ทำบัตร ATM ใหม่ค่าธรรมเนียมเท่าไหร่", skill: debit-card}
-- {q: "ประกันสุขภาพที่ซื้อผ่านธนาคารกรุงเทพมีแบบไหนบ้าง", skill: insurance}
-- {q: "travel insurance coverage for a trip to Japan", skill: insurance}
-- {q: "เบี้ยประกันชีวิตลดหย่อนภาษีได้เท่าไหร่", skill: insurance}
-- {q: "ประกันอุบัติเหตุส่วนบุคคลคุ้มครองอะไร", skill: insurance}
-- {q: "กองทุน RMF ของบัวหลวงมีอะไรบ้าง", skill: wealth}
-- {q: "What are the Bualuang Exclusive privileges and minimum assets?", skill: wealth}
-- {q: "หุ้นกู้ที่ธนาคารกรุงเทพขายตอนนี้ดอกเบี้ยเท่าไหร่", skill: wealth}
-- {q: "เงินฝากประจำพิเศษดอกเบี้ยสูงสุดเท่าไหร่", skill: wealth}
-- {q: "บัตรเครดิตกับบัตรเดบิตต่างกันยังไง ควรใช้อันไหน", skill: general}
-- {q: "ธนาคารกรุงเทพมีผลิตภัณฑ์อะไรบ้างสำหรับนักศึกษา", skill: general}
-- {q: "I want to start using Bangkok Bank, what products should I look at first?", skill: general}
-- {q: "วันนี้อากาศเป็นยังไง", skill: offtopic}
-- {q: "write me a python function to sort a list", skill: offtopic}
-- {q: "เล่าเรื่องตลกให้ฟังหน่อย", skill: offtopic}
+- q: บัตรอินฟินิทเข้าเลานจ์สนามบินได้กี่ครั้งต่อปี
+  skill: credit-card
+- q: How much is the annual fee of the Bangkok Bank Visa Platinum credit card?
+  skill: credit-card
+- q: สมัครบัตรเครดิตต้องมีรายได้ขั้นต่ำเท่าไหร่
+  skill: credit-card
+- q: บัตรเครดิตใบไหนเหมาะกับคนเดินทางต่างประเทศบ่อย
+  skill: credit-card
+- q: M Live card benefits
+  skill: credit-card
+- q: บัตรโตโยต้าได้ส่วนลดอะไรบ้าง
+  skill: credit-card
+- q: แลกคะแนน Thank You Rewards ยังไง
+  skill: credit-card
+- q: บัตรเครดิตโรงพยาบาลบำรุงราษฎร์ ลดค่ารักษาเท่าไร
+  skill: credit-card
+- q: Which card gives AirAsia points?
+  skill: credit-card
+- q: Pinnacle card ต่างจาก Infinite ยังไง
+  skill: credit-card
+- q: บัตรบีเฟิสต์ถอนเงินต่างประเทศเสียค่าธรรมเนียมเท่าไหร่
+  skill: debit-card
+- q: Be1st Smart debit card daily withdrawal limit
+  skill: debit-card
+- q: บัตรเดบิตหายต้องทำยังไง
+  skill: debit-card
+- q: ทำบัตร ATM ใหม่ค่าธรรมเนียมเท่าไหร่
+  skill: debit-card
+- q: ประกันสุขภาพที่ซื้อผ่านธนาคารกรุงเทพมีแบบไหนบ้าง
+  skill: insurance
+- q: travel insurance coverage for a trip to Japan
+  skill: insurance
+- q: เบี้ยประกันชีวิตลดหย่อนภาษีได้เท่าไหร่
+  skill: insurance
+- q: ประกันอุบัติเหตุส่วนบุคคลคุ้มครองอะไร
+  skill: insurance
+- q: กองทุน RMF ของบัวหลวงมีอะไรบ้าง
+  skill: wealth
+- q: What are the Bualuang Exclusive privileges and minimum assets?
+  skill: wealth
+- q: หุ้นกู้ที่ธนาคารกรุงเทพขายตอนนี้ดอกเบี้ยเท่าไหร่
+  skill: wealth
+- q: เงินฝากประจำพิเศษดอกเบี้ยสูงสุดเท่าไหร่
+  skill: wealth
+- q: บัตรเครดิตกับบัตรเดบิตต่างกันยังไง ควรใช้อันไหน
+  skill: general
+- q: ธนาคารกรุงเทพมีผลิตภัณฑ์อะไรบ้างสำหรับนักศึกษา
+  skill: general
+- q: I want to start using Bangkok Bank, what products should I look at first?
+  skill: general
+- q: วันนี้อากาศเป็นยังไง
+  skill: offtopic
+- q: write me a python function to sort a list
+  skill: offtopic
+- q: เล่าเรื่องตลกให้ฟังหน่อย
+  skill: offtopic

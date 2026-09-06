@@ -151,3 +151,25 @@ h4 { margin:12px 0 6px; font:var(--label-sm); font-weight:600; color:var(--gray-
 .lintwrap { margin-bottom:8px; font-size:13px; } .lintwrap summary { cursor:pointer; } .lintwrap .lint { margin:6px 0 0 14px; }
 .lint-warn { color:#bb4f10; } .lint-info { color:var(--gray-70); } .lint-ok { color:#067f5d; }
 .pill.st-in-sync { background:#e4f7e8; color:#067f5d; } .pill.st-outdated { background:#fff1e8; color:#bb4f10; } .pill.st-missing, .pill.st-error { background:#fde8ec; color:var(--red-70); }
+
+/* ---- evals tab redesign ---- */
+.ev-grid { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:16px; align-items:start; }
+@media (max-width: 1100px) { .ev-grid { grid-template-columns:1fr; } .ev-grid .ev-side { order:-1; position:static; } }
+.ev-side { position:sticky; top:12px; }
+.panel-head .spacer { flex:1; }
+.ev-status { margin-left:auto; }
+.ev-qs input[type=text], .ev-qs input:not([type]) { width:100%; padding:5px 8px; font-size:13px; }
+.ev-qs td { padding:5px 8px; } .ev-qs .rm { padding:3px 8px; }
+.ev-actions { margin-top:10px; }
+.ev-result-panel .cards { margin-bottom:10px; } .ev-result-panel .card { min-width:120px; }
+.ev-kpi-bar { height:8px; border-radius:999px; background:#fde8ec; overflow:hidden; margin:2px 0 12px; } .ev-kpi-bar .p { height:100%; background:#16a873; }
+.ev-result-panel table.list td { vertical-align:top; font-size:13px; } .ev-result-panel tr.fail td { background:#fff7f8; }
+.cmp-a { font-size:13px; max-width:520px; } .cmp-a table { border-collapse:collapse; } .cmp-a th, .cmp-a td { border:1px solid var(--gray-20); padding:2px 6px; }
+.cmp-sum { margin-bottom:10px; }
+.trend { display:flex; gap:14px; margin:4px 0 10px; flex-wrap:wrap; }
+.trend .t { font-size:11px; color:var(--gray-60); } .trend .bars { display:flex; align-items:flex-end; gap:2px; height:28px; margin-top:2px; }
+.trend .bars i { display:block; width:8px; background:var(--bbl-30, #9dbcf5); border-radius:2px 2px 0 0; min-height:2px; } .trend .bars i.last { background:var(--bbl-60); }
+#ev-runs-filter { margin:0 0 6px; padding:5px 8px; font-size:13px; }
+.runs .run .acts { display:flex; gap:4px; } .runs .run .acts button, .runs .run .acts a { padding:2px 7px; font-size:11px; }
+.runs .run.sel { background:var(--bbl-10); }
+#ev-runs .run { grid-template-columns: auto 1fr auto auto; }

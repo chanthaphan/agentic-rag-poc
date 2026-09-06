@@ -754,12 +754,39 @@ def eval_runs():
     return SESS.list_eval_runs(settings)
 
 
+@studio.get("/evals/runs.xlsx")
+def eval_runs_xlsx(limit: int = 30):
+    from .eval_report import history_workbook
+
+    runs = [SESS.get_eval_run(settings, r["id"]) for r in SESS.list_eval_runs(settings, limit=max(1, min(limit, 100)))]
+    data = history_workbook([r for r in runs if r])
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": 'attachment; filename="bankrag-eval-runs.xlsx"'})
+
+
+@studio.get("/evals/runs/{run_id}.xlsx")
+def eval_run_xlsx(run_id: str):
+    from .eval_report import run_workbook
+
+    r = SESS.get_eval_run(settings, run_id)
+    if not r:
+        raise HTTPException(404, "run not found")
+    return Response(run_workbook(r), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="bankrag-eval-{r["set"]}-{run_id}.xlsx"'})
+
+
 @studio.get("/evals/runs/{run_id}")
 def eval_run(run_id: str):
     r = SESS.get_eval_run(settings, run_id)
     if not r:
         raise HTTPException(404, "run not found")
     return r
+
+
+@studio.delete("/evals/runs/{run_id}")
+def delete_eval_run(run_id: str):
+    if not SESS.delete_eval_run(settings, run_id):
+        raise HTTPException(404, "run not found")
+    return {"ok": True}
 
 
 @studio.get("/evals/{set_name}")
@@ -796,7 +823,7 @@ def run_eval(set: str):
         SESS.save_eval_run(settings, r)
         return r
 
-    return {"job_id": _start_job(f"eval-{set}", run)}
+    return {"job_id": _start_job(f"eval-{set}", run, {"set": set})}
 
 
 class CompareRequest(BaseModel):
@@ -820,7 +847,7 @@ def run_compare_endpoint(req: CompareRequest):
         SESS.save_eval_run(settings, r)
         return r
 
-    return {"job_id": _start_job("compare", run)}
+    return {"job_id": _start_job("compare", run, {"set": "compare", "skill": req.skill, "models": req.models[:3]})}
 
 
 # ---------------- feedback + review ----------------
