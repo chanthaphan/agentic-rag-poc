@@ -305,6 +305,49 @@ def sessions_review(skill: str = "", rating: str = ""):
     return SESS.review_list(settings, skill=skill, rating=rating)
 
 
+@studio.get("/conversations/questions")
+def conversation_questions(skill: str = "", rating: str = "", q: str = "", source: str = "", limit: int = 300):
+    return SESS.question_rows(settings, skill=skill, rating=rating, q=q[:200], source=source, limit=limit)
+
+
+class QuestionItems(BaseModel):
+    items: list[dict]  # [{session_id, idx}]
+
+
+def _question_items(req: QuestionItems) -> list[tuple[str, int]]:
+    items = [(str(i.get("session_id", "")), int(i.get("idx", -1))) for i in req.items[:2000]]
+    items = [(s, i) for s, i in items if SESS.ID_RE.match(s) and i >= 0]
+    if not items:
+        raise HTTPException(400, "no questions selected")
+    return items
+
+
+@studio.post("/conversations/export.xlsx")
+def conversation_questions_xlsx(req: QuestionItems):
+    from .eval_report import questions_workbook
+
+    items = _question_items(req)
+    rows = SESS.question_rows(settings, items=items, limit=len(items))
+    order = {k: n for n, k in enumerate(items)}
+    rows.sort(key=lambda r: order.get((r["session_id"], r["idx"]), 1e9))
+    return Response(questions_workbook(rows), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="bankrag-questions.xlsx"'})
+
+
+class AppendCases(BaseModel):
+    cases: list[dict]
+
+
+@studio.post("/evals/{set_name}/append")
+def append_eval_cases(set_name: str, req: AppendCases):
+    from .evals import append_cases
+
+    try:
+        return append_cases(settings, set_name, req.cases[:500])
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
 @app.get("/sessions/{session_id}")
 def get_session(session_id: str):
     if not SESS.ID_RE.match(session_id):

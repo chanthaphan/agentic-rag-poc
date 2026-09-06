@@ -185,3 +185,22 @@ h4 { margin:12px 0 6px; font:var(--label-sm); font-weight:600; color:var(--gray-
 .q-ans { font-size:12.5px; color:var(--gray-80); max-height:5.4em; overflow:hidden; position:relative; } .q-ans.open { max-height:none; }
 .q-more { font-size:11px; color:var(--bbl-link); cursor:pointer; }
 .ev-result-panel .avg { display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 10px; }
+
+/* ---- conversations tab redesign ---- */
+.cv-grid { display:grid; grid-template-columns: minmax(0,1fr) 340px; gap:16px; align-items:start; }
+@media (max-width: 1100px) { .cv-grid { grid-template-columns:1fr; } .cv-grid .cv-side { order:-1; position:static; } }
+.cv-side { position:sticky; top:12px; }
+.cv-filters { margin-bottom:6px; } .cv-filters select { padding:6px 8px; font-size:13px; }
+.cv-bulk { margin:0 0 6px; font-size:12px; }
+#cv-qtable td { vertical-align:top; font-size:13px; } #cv-qtable .qtext { cursor:pointer; } #cv-qtable .qtext:hover { color:var(--bbl-70); }
+#cv-qtable tr.sel td { background:var(--bbl-10); } #cv-qtable .ans { color:var(--gray-60); font-size:12px; display:block; margin-top:2px; }
+#cv-qtable td:last-child button { padding:3px 8px; font-size:11px; }
+.box-list { max-height:320px; overflow:auto; margin:8px 0 4px; }
+.box-list .bi { display:grid; grid-template-columns: 1fr auto; gap:6px; align-items:start; padding:5px 0; border-top:1px solid #eef0f3; font-size:12px; }
+.box-list .bi:first-child { border-top:none; } .box-list .bi .q { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .box-list .bi .s { color:var(--gray-60); }
+.box-list .bi button { padding:1px 6px; font-size:11px; }
+#cv-box h4 { font:var(--label-sm); color:var(--gray-70); margin:12px 0 6px; }
+#cv-box button:disabled { opacity:.45; cursor:default; }
+.cv-hint { margin-top:8px; font-size:11px; }
+.tr-user { position:relative; } .tr-pick { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#fff; opacity:.9; margin-right:8px; }
+.transcript .tr-row { display:flex; align-items:flex-start; gap:8px; justify-content:flex-end; } .transcript .tr-row label { margin-top:10px; font-size:11px; color:var(--gray-60); white-space:nowrap; }

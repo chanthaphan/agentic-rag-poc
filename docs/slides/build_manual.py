@@ -69,8 +69,11 @@ B.settext(s, 30, [("Quality (DeepEval) and model comparison", 0), ("Quality: a j
 
 s = B.slide(prs, LAY, "Two columns", title="Conversations tab: review and give feedback", footer=FOOT,
             lead="Everything customers and testers asked, and what the system did.")
-B.settext(s, 29, [("List", 0), ("Filter by skill or rating; see turns, cost and 👍/👎 counts per conversation", 1), ("Delete a conversation you no longer need", 1), ("'Export feedback CSV' downloads all ratings with question, answer, skill and cost", 1)])
-B.settext(s, 30, [("Transcript", 0), ("Rate each answer 👍/👎 and add a comment for the real-app team (your name is attached)", 1), ("Expand 'trace' to see routing, retrieval and cost for that answer", 1), ("Ratings given in the customer app appear here too", 1)])
+B.settext(s, 29, [("Questions and selection box", 0), ("Search question or answer text; filter by skill, rating and source; every customer question is one row", 1),
+                  ("Tick questions (or 'select all shown', or all questions of one conversation) to fill the selection box", 1),
+                  ("Export the box to .xlsx (question, answer, skill, rating, comment, cost, latency)", 1),
+                  ("Send the box to the Routing, Grounded or Quality eval set; duplicates are skipped", 1)])
+B.settext(s, 30, [("Transcript and feedback", 0), ("Rate each answer 👍/👎 and add a comment for the real-app team (your name is attached)", 1), ("Expand 'trace' to see routing, retrieval and cost for that answer", 1), ("Ratings given in the customer app appear here too; 'Feedback CSV' exports them all", 1)])
 
 s = B.slide(prs, LAY, "Four column with fotnot/data source", title="Settings tab", footer=FOOT,
             footnote="Overrides live in .state/settings.json and win over .env; model changes need a sync.")

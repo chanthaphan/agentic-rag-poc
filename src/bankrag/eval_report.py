@@ -164,3 +164,31 @@ def history_workbook(runs: list[dict], max_sheets: int = 30) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def questions_workbook(rows: list[dict]) -> bytes:
+    """Selected customer questions with the answer, skill, feedback and cost, one row each."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Questions"
+    cols = ["#", "Asked at", "Question", "Answer", "Skill", "Language", "Confidence", "Rating", "Comment", "Tester", "Cost USD", "Latency ms", "Retrieved docs", "Input tokens", "Output tokens", "Source", "Session", "Session id", "Turn"]
+    ws.append(cols)
+    _header(ws, cols)
+    for i, r in enumerate(rows, 1):
+        ws.append([i, r.get("at"), r.get("question"), r.get("answer"), r.get("skill_id"), r.get("language"), r.get("confidence"), r.get("rating"), r.get("comment"), r.get("tester"),
+                   r.get("cost_usd"), r.get("total_ms"), r.get("retrieved_docs"), r.get("input_tokens"), r.get("output_tokens"), r.get("source"), r.get("session_title"), r.get("session_id"), r.get("idx")])
+        row = ws.max_row
+        for c in (3, 4, 9):
+            ws.cell(row=row, column=c).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(row=row, column=7).number_format = "0%"
+        ws.cell(row=row, column=11).number_format = "$0.0000"
+        if r.get("rating") == "up":
+            ws.cell(row=row, column=8).fill = PASS_FILL
+        elif r.get("rating") == "down":
+            ws.cell(row=row, column=8).fill = FAIL_FILL
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(1, ws.max_row)}"
+    _widths(ws, {1: 5, 2: 22, 3: 45, 4: 70, 5: 12, 6: 9, 7: 10, 8: 8, 9: 30, 10: 12, 11: 10, 12: 10, 13: 9, 14: 10, 15: 10, 16: 8, 17: 30, 18: 14, 19: 6})
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+

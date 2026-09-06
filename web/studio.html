@@ -278,10 +278,45 @@
 
 <!-- ================= CONVERSATIONS ================= -->
 <section id="view-conversations" class="view">
-  <div class="toolbar"><button id="cv-refresh" class="btn-secondary">Refresh</button><label>Skill <select id="cv-skill"><option value="">all</option></select></label><label>Rating <select id="cv-rating"><option value="">all</option><option value="up">👍</option><option value="down">👎</option></select></label><a class="btn-secondary" href="/feedback.csv">Export feedback CSV</a><span id="cv-status" class="muted"></span></div>
-  <div class="split-narrow">
-    <table class="list" id="cv-table"><thead><tr><th>started</th><th>title</th><th>turns</th><th>skills</th><th>cost</th><th>👍/👎</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="cv-transcript" class="transcript"></div>
+  <div class="cv-grid">
+    <div class="cv-main">
+      <div class="panel">
+        <div class="panel-head"><h3>Customer questions</h3><span id="cv-status" class="muted"></span><span class="spacer"></span><a class="btn-secondary" href="/feedback.csv" title="All ratings and comments as CSV">Feedback CSV</a></div>
+        <div class="row wrap cv-filters">
+          <input id="cv-q" placeholder="search question or answer text" style="flex:1;min-width:220px">
+          <label>Skill <select id="cv-skill"><option value="">all</option></select></label>
+          <label>Rating <select id="cv-rating"><option value="">all</option><option value="up">👍 only</option><option value="down">👎 only</option><option value="any">rated</option></select></label>
+          <label>Source <select id="cv-source"><option value="">all</option><option value="app">app</option><option value="studio">studio</option></select></label>
+          <button id="cv-refresh" class="btn-secondary">Refresh</button>
+        </div>
+        <div class="subtabs"><button data-cpane="questions" class="on">Questions</button><button data-cpane="sessions">Conversations</button></div>
+        <div class="pane on" id="cpane-questions">
+          <div class="row wrap cv-bulk"><label class="muted"><input type="checkbox" id="cv-check-all"> select all shown</label><span class="muted" id="cv-shown"></span></div>
+          <table class="list" id="cv-qtable"><thead><tr><th style="width:28px"></th><th>question</th><th style="width:110px">skill</th><th style="width:70px">rating</th><th style="width:70px">cost</th><th style="width:130px">asked</th><th style="width:60px"></th></tr></thead><tbody></tbody></table>
+          <div class="pager" id="cv-pager" hidden><button class="btn-secondary" id="cv-prev">‹ prev</button><span id="cv-page-info" class="muted"></span><button class="btn-secondary" id="cv-next">next ›</button></div>
+        </div>
+        <div class="pane" id="cpane-sessions">
+          <table class="list" id="cv-table"><thead><tr><th>started</th><th>title</th><th>turns</th><th>skills</th><th>cost</th><th>👍/👎</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="panel" id="cv-transcript-panel" hidden>
+        <div class="panel-head"><h3 id="cv-transcript-title">Transcript</h3><span id="cv-transcript-sub" class="muted"></span><span class="spacer"></span><button id="cv-select-session" class="btn-secondary">Select all questions here</button><button id="cv-transcript-close" class="btn-secondary">Close</button></div>
+        <div id="cv-transcript" class="transcript"></div>
+      </div>
+    </div>
+    <aside class="cv-side">
+      <div class="panel" id="cv-box">
+        <div class="panel-head"><h3>Selection box</h3><span id="cv-box-count" class="pill">0</span><span class="spacer"></span><button id="cv-box-clear" class="btn-secondary" title="Empty the box">Clear</button></div>
+        <div class="muted">Tick questions on the left. The box keeps them until you export or send them to an eval set.</div>
+        <div id="cv-box-list" class="box-list"></div>
+        <h4>Export</h4>
+        <button id="cv-box-xlsx" class="btn-secondary" disabled>Export selected .xlsx</button>
+        <h4>Send to an eval set</h4>
+        <div class="row wrap"><button id="cv-to-routing" disabled>Routing</button><button id="cv-to-rag" disabled>Grounded</button><button id="cv-to-quality" disabled>Quality</button></div>
+        <div class="muted cv-hint">Routing uses the skill that answered as the expected skill. Grounded and Quality carry the question and skill; add expected substrings or an expected answer in the Evals tab. Duplicates are skipped.</div>
+        <div id="cv-box-status" class="muted"></div>
+      </div>
+    </aside>
   </div>
 </section>
 

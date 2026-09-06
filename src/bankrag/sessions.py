@@ -311,6 +311,37 @@ def review_list(settings: Settings, *, skill: str = "", rating: str = "", limit:
     return out
 
 
+def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", limit: int = 500,
+                  items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
+    """Flat customer-question / answer pairs across sessions (newest first) with feedback, for review, selection and export.
+    `items` = [(session_id, user_turn_idx)] restricts the result to those questions (any order), e.g. an export selection."""
+    sql = ("SELECT u.session_id, u.idx, u.at, u.text, a.text, a.skill_id, a.language, a.confidence, a.cost_usd, a.total_ms, a.retrieved_docs, a.agent_name, "
+           "f.rating, f.comment, f.tester, s.title, s.source, a.input_tokens, a.output_tokens "
+           "FROM turns u JOIN turns a ON a.session_id=u.session_id AND a.idx=u.idx+1 AND a.role='assistant' "
+           "JOIN sessions s ON s.id=u.session_id LEFT JOIN feedback f ON f.session_id=a.session_id AND f.idx=a.idx WHERE u.role='user'")
+    args: list = []
+    if skill:
+        sql += " AND a.skill_id=?"; args.append(skill)
+    if rating in ("up", "down"):
+        sql += " AND f.rating=?"; args.append(rating)
+    elif rating == "any":
+        sql += " AND f.rating IS NOT NULL"
+    if q:
+        sql += " AND (u.text LIKE ? OR a.text LIKE ?)"; args += [f"%{q}%", f"%{q}%"]
+    if source:
+        sql += " AND COALESCE(s.source,'app')=?"; args.append(source)
+    if items:
+        sql += " AND (" + " OR ".join("(u.session_id=? AND u.idx=?)" for _ in items) + ")"
+        for sid, idx in items:
+            args += [sid, idx]
+    sql += " ORDER BY u.at DESC LIMIT ?"; args.append(max(1, min(limit, 5000)))
+    with _lock, connect(settings) as con:
+        rows = con.execute(sql, args).fetchall()
+    return [{"session_id": r[0], "idx": r[1], "at": r[2], "question": r[3], "answer": r[4], "skill_id": r[5] or "", "language": r[6] or "", "confidence": r[7],
+             "cost_usd": r[8], "total_ms": r[9], "retrieved_docs": r[10], "agent_name": r[11] or "", "rating": r[12], "comment": r[13] or "", "tester": r[14] or "",
+             "session_title": r[15] or "", "source": r[16] or "app", "input_tokens": r[17], "output_tokens": r[18]} for r in rows]
+
+
 def save_feedback(settings: Settings, session_id: str, idx: int, rating: Optional[str], comment: str, tester: str) -> dict:
     if rating not in (None, "", "up", "down"):
         raise ValueError("rating must be up, down or empty")

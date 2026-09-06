@@ -60,6 +60,22 @@ def save_cases(settings: Settings, set_name: str, cases: list[dict]) -> list[dic
     return clean
 
 
+def append_cases(settings: Settings, set_name: str, cases: list[dict]) -> dict:
+    """Add questions to a set, skipping any whose text already exists (case-insensitive). Returns counts."""
+    existing = load_cases(settings, set_name)
+    seen = {str(c.get("q", "")).strip().lower() for c in existing}
+    added = 0
+    for c in cases:
+        q = str(c.get("q", "")).strip()
+        if not q or q.lower() in seen:
+            continue
+        existing.append(c)
+        seen.add(q.lower())
+        added += 1
+    saved = save_cases(settings, set_name, existing)
+    return {"added": added, "skipped": len(cases) - added, "total": len(saved)}
+
+
 def new_run(set_name: str) -> dict:
     return {"id": uuid.uuid4().hex[:10], "set": set_name, "started_at": _now(), "rows": [], "summary": {}}
 
