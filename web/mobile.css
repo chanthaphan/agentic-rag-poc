@@ -16,7 +16,7 @@
 @keyframes sheetUp { from { transform:translateY(100%); } to { transform:none; } }
 * { box-sizing:border-box; }
 html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md); color:var(--bbl-ink); -webkit-font-smoothing:antialiased; }
-.stage { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; gap:28px; }
+.stage { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:64px 24px 24px; gap:28px; }
 .phone-col { flex:none; }
 .devpanel { width:420px; max-width:40vw; height:874px; max-height:calc(100vh - 48px); background:#101b2b; border:1px solid rgba(255,255,255,.08); border-radius:16px; color:#d5dce8; display:flex; flex-direction:column; overflow:hidden; font:var(--caption-lg); font-size:12.5px; line-height:1.5; }
 .devpanel.hidden { display:none; }
@@ -149,8 +149,9 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .fb { margin-left:auto; display:inline-flex; gap:2px; } .fb button { background:none; border:1px solid transparent; border-radius:var(--radius-full); padding:1px 5px; cursor:pointer; font-size:13px; opacity:.55; } .fb button.on, .fb button:hover { opacity:1; background:var(--bbl-10); border-color:var(--bbl-20); }
 
 /* top-right navigation */
-.topnav { position:fixed; top:14px; right:16px; z-index:100; display:flex; gap:8px; }
+.topnav { position:fixed; top:0; left:0; right:0; height:52px; z-index:100; display:flex; gap:8px; align-items:center; justify-content:flex-end; padding:0 16px; background:linear-gradient(#0c1622, rgba(12,22,34,.0)); }
 .tn-btn { display:inline-block; padding:7px 14px; border-radius:var(--radius-full); background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.22); font:var(--label-sm); text-decoration:none; backdrop-filter:blur(10px); }
 .tn-btn:hover { background:rgba(255,255,255,.2); }
 .tn-user { color:rgba(255,255,255,.6); font:var(--caption-lg); align-self:center; margin-right:4px; }
 @media (max-width: 900px) { .stage-note { display:none; } }
+[hidden] { display:none !important; }
