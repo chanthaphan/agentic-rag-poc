@@ -18,4 +18,16 @@ az containerapp secret set -g "$RG" -n "$APP" --secrets easyauth-secret="$SECRET
 az containerapp auth microsoft update -g "$RG" -n "$APP" --client-id "$CLIENT_ID" --client-secret-name easyauth-secret --tenant-id "$AZURE_TENANT_ID" \
   --allowed-token-audiences "api://$CLIENT_ID" --yes -o none
 az containerapp auth update -g "$RG" -n "$APP" --enabled true --unauthenticated-client-action RedirectToLoginPage --redirect-provider azureactivedirectory -o none
+# the CLI cannot set the provider's boolean `enabled` flag; patch the auth config through ARM
+APPID=$(az containerapp show -g "$RG" -n "$APP" --query id -o tsv)
+az rest --method get --url "https://management.azure.com$APPID/authConfigs/current?api-version=2024-03-01" -o json > /tmp/auth.json
+python3 - <<'PY'
+import json
+d = json.load(open("/tmp/auth.json")); p = d["properties"]
+p.setdefault("identityProviders", {}).setdefault("azureActiveDirectory", {})["enabled"] = True
+p.setdefault("globalValidation", {}).update({"unauthenticatedClientAction": "RedirectToLoginPage", "redirectToProvider": "azureactivedirectory", "excludedPaths": ["/health"]})
+p.setdefault("platform", {})["enabled"] = True
+json.dump({"properties": p}, open("/tmp/auth-put.json", "w"))
+PY
+az rest --method put --url "https://management.azure.com$APPID/authConfigs/current?api-version=2024-03-01" --body @/tmp/auth-put.json -o none
 echo "Entra sign-in enabled for https://$FQDN (app registration $APPREG, client $CLIENT_ID)"

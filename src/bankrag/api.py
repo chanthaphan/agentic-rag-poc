@@ -30,6 +30,8 @@ _backup_dest = Path(os.environ["SQLITE_DB_BACKUP"]) if os.environ.get("SQLITE_DB
 if _backup_dest is not None:
     if SESS.restore_db(settings, _backup_dest):
         print(f"restored session database from {_backup_dest}")
+    with SESS.connect(settings):  # create the DB/schema now so the first backup happens even before any chat
+        pass
     SESS.start_backup_thread(settings, _backup_dest, int(os.environ.get("SQLITE_DB_BACKUP_INTERVAL", "60")))
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 _sessions: "OrderedDict[str, object]" = OrderedDict()  # live ChatSession cache (LRU)

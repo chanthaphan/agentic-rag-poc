@@ -64,19 +64,32 @@ def backup_db(settings: Settings, dest: Path) -> bool:
     src = db_path(settings)
     if not src.exists():
         return False
+    import shutil
+    import tempfile
+
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    with _lock:
-        con = sqlite3.connect(src, timeout=30)
-        try:
-            bck = sqlite3.connect(tmp)
+    # 1) consistent snapshot on LOCAL disk (SQLite must not write onto an SMB share), 2) plain byte copy to the share
+    fd, local_tmp = tempfile.mkstemp(prefix="bankrag-", suffix=".db", dir=str(src.parent))
+    os.close(fd)
+    try:
+        with _lock:
+            con = sqlite3.connect(src, timeout=30)
             try:
-                con.backup(bck)
+                bck = sqlite3.connect(local_tmp)
+                try:
+                    con.backup(bck)
+                finally:
+                    bck.close()
             finally:
-                bck.close()
-        finally:
-            con.close()
-    os.replace(tmp, dest)
+                con.close()
+        share_tmp = dest.with_suffix(dest.suffix + ".tmp")
+        shutil.copyfile(local_tmp, share_tmp)
+        os.replace(share_tmp, dest)
+    finally:
+        try:
+            os.remove(local_tmp)
+        except OSError:
+            pass
     return True
 
 
