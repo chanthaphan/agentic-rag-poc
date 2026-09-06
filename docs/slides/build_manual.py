@@ -62,8 +62,10 @@ B.settext(s, 29, [("Routing and grounded answers", 0), ("Edit questions in the t
                   ("Routing: expected skill per question; reports accuracy and confusion", 1), ("Grounded: optional forced skill, expected substrings, whether a source is required", 1),
                   ("The Eval run panel shows progress with pass/fail counts; the result opens with KPI cards and a failed-only filter", 1),
                   ("Export .xlsx per run, or 'Export all' for every stored run (one sheet each); run history shows a trend", 1)])
-B.settext(s, 30, [("Model comparison", 0), ("Pick a skill, two or three models and a few questions", 1), ("Temporary agents are created per model and deleted after the run", 1),
-                  ("Side-by-side answers with latency, tokens and cost per model", 1), ("Use it to justify a model change before editing the skill", 1)])
+B.settext(s, 30, [("Quality (DeepEval) and model comparison", 0), ("Quality: a judge model (your Foundry deployment) scores each answer on RAG metrics (faithfulness, relevancy, context) and agentic metrics (tool use, task completion, language & tone, no advice)", 1),
+                  ("Hover a score for the judge's reason; tune the threshold and the metric set; export .xlsx", 1),
+                  ("Comparison: pick a skill, two or three models and a few questions; temporary agents are deleted after the run", 1),
+                  ("Side-by-side answers with latency, tokens and cost per model", 1)])
 
 s = B.slide(prs, LAY, "Two columns", title="Conversations tab: review and give feedback", footer=FOOT,
             lead="Everything customers and testers asked, and what the system did.")

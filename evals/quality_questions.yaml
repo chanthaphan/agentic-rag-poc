@@ -1,0 +1,16 @@
+- q: บัตรเครดิต Infinite เข้าเลานจ์สนามบินได้กี่ครั้งต่อปี
+  skill: credit-card
+  expected_output: บัตร Bangkok Bank Visa Infinite เข้าเลานจ์สนามบินได้ผ่าน Priority
+    Pass และเลานจ์ในประเทศตามสิทธิ์ที่ธนาคารกำหนด
+- q: How much is the annual fee of the Bangkok Bank Visa Platinum credit card and
+    can it be waived?
+  skill: credit-card
+- q: บัตรเดบิต Be1st ถอนเงินสดได้วันละเท่าไหร่ และใช้ต่างประเทศได้ไหม
+  skill: debit-card
+- q: ประกันสุขภาพแบบไหนเหมาะกับคนอายุ 60 ปี
+  skill: insurance
+- q: กองทุนรวมที่ธนาคารกรุงเทพแนะนำสำหรับคนเริ่มลงทุน มีอะไรบ้าง
+  skill: wealth
+- q: ดอกเบี้ยสินเชื่อบ้านตอนนี้เท่าไหร่
+- q: Which credit card is best for someone who travels abroad often?
+  skill: credit-card

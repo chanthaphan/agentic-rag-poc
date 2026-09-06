@@ -376,7 +376,7 @@ def get_app_settings():
 
     eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
            "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
-           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment}
+           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model}
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
 
 
@@ -787,6 +787,41 @@ def delete_eval_run(run_id: str):
     if not SESS.delete_eval_run(settings, run_id):
         raise HTTPException(404, "run not found")
     return {"ok": True}
+
+
+class QualityRequest(BaseModel):
+    metrics: list[str] = []
+    threshold: float = 0.7
+    judge_model: Optional[str] = None
+    limit: int = 0
+
+
+@studio.get("/evals/quality/metrics")
+def quality_metrics():
+    from .quality_eval import DEFAULT_METRICS, METRICS
+
+    return {"metrics": [{"key": k, "group": g, "label": lbl, "needs_expected": ne, "description": d} for k, (g, lbl, ne, d) in METRICS.items()], "default": DEFAULT_METRICS, "judge_model": settings.judge_model}
+
+
+@studio.post("/evals/quality")
+def run_quality_endpoint(req: QualityRequest):
+    from .evals import load_cases
+    from .quality_eval import METRICS, run_quality
+
+    keys = [k for k in req.metrics if k in METRICS]
+    if req.metrics and not keys:
+        raise HTTPException(400, "unknown metrics")
+
+    def run(log):
+        skills, _ = _skills()
+        cases = load_cases(settings, "quality")
+        if req.limit:
+            cases = cases[: req.limit]
+        r = run_quality(settings, skills, cases, metric_keys=keys or None, threshold=max(0.0, min(req.threshold, 1.0)), judge_model=req.judge_model or None, log=log)
+        SESS.save_eval_run(settings, r)
+        return r
+
+    return {"job_id": _start_job("eval-quality", run, {"set": "quality", "judge": req.judge_model or settings.judge_model})}
 
 
 @studio.get("/evals/{set_name}")

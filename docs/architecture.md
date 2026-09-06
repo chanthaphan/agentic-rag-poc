@@ -59,3 +59,8 @@ Long actions run as in-memory jobs (`api._start_job`). Besides a log, each job c
 ## Eval reports
 
 `eval_report.py` turns a stored run into an Excel workbook (Summary + Results sheets; PASS/FAIL colouring, filters, frozen header) and the run history into one workbook with a `Runs` overview sheet plus one sheet per run. Routes: `GET /evals/runs/{id}.xlsx`, `GET /evals/runs.xlsx`, `DELETE /evals/runs/{id}`.
+
+## Quality evals (DeepEval, LLM-as-judge)
+
+`quality_eval.py` runs each question through the real pipeline, then scores the answer with DeepEval metrics judged by a Foundry / Azure OpenAI deployment (`JUDGE_MODEL`, default gpt-4.1-mini, key from `.env`). The retrieval context is the full text the agent received from the knowledge-base tool (`Answer.retrieval_context`, never persisted). RAG metrics: faithfulness, answer relevancy, contextual relevancy, contextual precision and recall (the last two need an expected answer). Agentic metrics: tool correctness (the `knowledge_base_retrieve` call must happen), task completion, and two G-Eval rubrics for language & customer tone and for no personal advice. A question passes when every scored metric reaches the threshold. Runs are stored like the other sets and export to xlsx with one score and one reason column per metric. Question set: `evals/quality_questions.yaml`; route `POST /evals/quality`.
+

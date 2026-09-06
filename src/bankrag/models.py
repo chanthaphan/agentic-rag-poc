@@ -107,6 +107,7 @@ class Answer(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     conversation_id: str = ""
     trace: dict[str, Any] = Field(default_factory=dict)  # timings, token usage, retrieval stats, reasoning
+    retrieval_context: list[str] = Field(default_factory=list, exclude=True)  # full knowledge-base tool outputs; evals only, never stored
 
 
 class IngestDocReport(BaseModel):

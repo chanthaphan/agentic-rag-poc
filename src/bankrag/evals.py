@@ -14,7 +14,7 @@ from .ingest.progress import report as progress
 from .models import SkillSpec
 
 Log = Callable[[str], None]
-SETS = {"routing": "routing_questions.yaml", "rag": "rag_questions.yaml"}
+SETS = {"routing": "routing_questions.yaml", "rag": "rag_questions.yaml", "quality": "quality_questions.yaml"}
 
 
 def _now() -> str:
@@ -40,6 +40,13 @@ def save_cases(settings: Settings, set_name: str, cases: list[dict]) -> list[dic
             continue
         if set_name == "routing":
             clean.append({"q": q, "skill": str(c.get("skill", "")).strip()})
+        elif set_name == "quality":
+            row = {"q": q}
+            if c.get("skill"):
+                row["skill"] = str(c["skill"])
+            if str(c.get("expected_output") or "").strip():
+                row["expected_output"] = str(c["expected_output"]).strip()
+            clean.append(row)
         else:
             row = {"q": q, "expect": [str(x) for x in (c.get("expect") or []) if str(x).strip()]}
             if c.get("skill"):

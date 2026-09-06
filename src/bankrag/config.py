@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT")
+OVERLAY_KEYS = ("ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL")
 _overlay: dict[str, str] = {}
 
 
@@ -79,6 +79,7 @@ class Settings:
     # Knowledge base behaviour
     kb_reasoning_effort: str
     kb_llm_deployment: str
+    judge_model: str
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -121,6 +122,7 @@ class Settings:
             search_api_version=_env("SEARCH_API_VERSION", "2026-08-01-preview"),
             kb_reasoning_effort=_env("KB_REASONING_EFFORT", "minimal"),
             kb_llm_deployment=_env("KB_LLM_DEPLOYMENT", "gpt-4.1-mini"),
+            judge_model=_env("JUDGE_MODEL", "gpt-4.1-mini"),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),

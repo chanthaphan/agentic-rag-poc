@@ -194,7 +194,7 @@
 <section id="view-evals" class="view">
   <div class="ev-grid">
     <div class="ev-main">
-      <div class="subtabs"><button data-epane="routing" class="on">Routing</button><button data-epane="rag">Grounded answers</button><button data-epane="compare">Model comparison</button></div>
+      <div class="subtabs"><button data-epane="routing" class="on">Routing</button><button data-epane="rag">Grounded answers</button><button data-epane="quality">Quality (DeepEval)</button><button data-epane="compare">Model comparison</button></div>
 
       <div class="pane on" id="epane-routing">
         <div class="panel">
@@ -217,6 +217,23 @@
         <div class="panel ev-result-panel" id="ev-result-rag-panel" hidden>
           <div class="panel-head"><h3 id="ev-result-rag-title">Result</h3><span id="ev-result-rag-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="rag"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-rag" href="#">Export .xlsx</a></div>
           <div id="ev-result-rag"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="epane-quality">
+        <div class="panel">
+          <div class="panel-head"><h3>Quality questions</h3><span class="muted">the full pipeline answers, then a judge model scores each answer with DeepEval RAG and agentic metrics</span><span id="ev-status-quality" class="muted ev-status"></span></div>
+          <table class="list ev-qs" id="ev-quality"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected answer <span class="muted">(optional; enables precision / recall)</span></th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="row wrap ev-actions"><button id="ev-add-quality" class="btn-secondary">Add question</button><button id="ev-save-quality" class="btn-secondary">Save questions</button></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Metrics and judge</h3><span class="muted">LLM-as-judge through your Foundry deployment (Azure OpenAI key from .env)</span></div>
+          <div class="qm-grid"><div><h4 class="qm-h">RAG</h4><div id="qm-rag" class="qm-list"></div></div><div><h4 class="qm-h">Agentic</h4><div id="qm-agentic" class="qm-list"></div></div></div>
+          <div class="row wrap ev-actions"><label>Judge model <select id="qm-judge"></select></label><label>Pass threshold <input id="qm-threshold" type="number" min="0" max="1" step="0.05" value="0.7" style="width:80px"></label><label>Only first <input id="qm-limit" type="number" min="0" max="100" value="0" style="width:70px" title="0 = all questions"></label><button id="ev-run-quality">Run quality eval</button><span class="muted">Each question costs one answer plus several judge calls (roughly 5 to 10 s and a few cents per metric on gpt-4.1-mini).</span></div>
+        </div>
+        <div class="panel ev-result-panel" id="ev-result-quality-panel" hidden>
+          <div class="panel-head"><h3 id="ev-result-quality-title">Result</h3><span id="ev-result-quality-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="quality"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-quality" href="#">Export .xlsx</a></div>
+          <div id="ev-result-quality"></div>
         </div>
       </div>
 
@@ -252,7 +269,7 @@
       <div class="panel">
         <div class="panel-head"><h3>Run history</h3><span id="ev-runs-count" class="muted"></span><span class="spacer"></span><a class="btn-secondary" id="ev-runs-xlsx" href="/evals/runs.xlsx" title="Every stored run: one overview sheet plus one sheet per run">Export all .xlsx</a></div>
         <div id="ev-trend" class="trend"></div>
-        <div class="row wrap"><select id="ev-runs-filter"><option value="">all sets</option><option value="routing">routing</option><option value="rag">grounded</option><option value="compare">compare</option></select></div>
+        <div class="row wrap"><select id="ev-runs-filter"><option value="">all sets</option><option value="routing">routing</option><option value="rag">grounded</option><option value="quality">quality</option><option value="compare">compare</option></select></div>
         <div id="ev-runs" class="runs muted">no runs yet</div>
       </div>
     </aside>

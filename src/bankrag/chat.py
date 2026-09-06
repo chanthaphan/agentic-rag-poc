@@ -187,6 +187,7 @@ class ChatSession:
             tool_calls=tool_calls,
             conversation_id=self.conversation_id or "",
             trace=trace,
+            retrieval_context=extra.get("retrieval_texts", []),
         )}
 
     def _recap_items(self) -> list[dict[str, Any]]:
@@ -308,6 +309,7 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
     tool_calls: list[dict[str, Any]] = []
     seen: set[str] = set()
     retrieval = {"calls": 0, "documents": 0, "output_chars": 0, "output_tokens": 0, "query_variants": []}
+    retrieval_texts: list[str] = []
     reasoning: list[str] = []
     for item in getattr(resp, "output", None) or []:
         itype = getattr(item, "type", "")
@@ -332,6 +334,8 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
             retrieval["documents"] += int(m.group(1)) if m else out_s.count("【")
             retrieval["output_chars"] += len(out_s)
             retrieval["output_tokens"] += _tokens(out_s)
+            if out_s.strip():
+                retrieval_texts.append(out_s[:60000])
             try:
                 args = json.loads(getattr(item, "arguments", "") or "{}")
                 retrieval["query_variants"] += list(args.get("query_variants") or ([args["query"]] if args.get("query") else []))
@@ -348,4 +352,4 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
             )
         elif itype == "mcp_list_tools":
             tool_calls.append({"type": itype, "tools": [getattr(t, "name", "") for t in (getattr(item, "tools", None) or [])]})
-    return text, citations, tool_calls, {"retrieval": retrieval, "reasoning": reasoning}
+    return text, citations, tool_calls, {"retrieval": retrieval, "reasoning": reasoning, "retrieval_texts": retrieval_texts}

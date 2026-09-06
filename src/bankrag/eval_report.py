@@ -13,7 +13,7 @@ HEAD_FILL = PatternFill("solid", fgColor="0064FF")
 HEAD_FONT = Font(bold=True, color="FFFFFF")
 PASS_FILL = PatternFill("solid", fgColor="E4F7E8")
 FAIL_FILL = PatternFill("solid", fgColor="FDE8EC")
-SUMMARY_LABELS = {"questions": "Questions", "passed": "Passed", "accuracy": "Accuracy", "pass_rate": "Pass rate", "total_cost_usd": "Total cost (USD)", "avg_ms": "Avg latency (ms)", "skill": "Skill", "models": "Models"}
+SUMMARY_LABELS = {"judge_model": "Judge model", "threshold": "Threshold", "metrics": "Metrics", "avg_scores": "Average scores", "questions": "Questions", "passed": "Passed", "accuracy": "Accuracy", "pass_rate": "Pass rate", "total_cost_usd": "Total cost (USD)", "avg_ms": "Avg latency (ms)", "skill": "Skill", "models": "Models"}
 
 
 def _title(s: str) -> str:
@@ -37,6 +37,8 @@ def _widths(ws, widths: dict[int, int]) -> None:
 def _fmt_summary_value(k: str, v):
     if isinstance(v, list):
         return ", ".join(map(str, v))
+    if isinstance(v, dict):
+        return ", ".join(f"{a}={b:.2f}" if isinstance(b, (int, float)) else f"{a}={b}" for a, b in v.items())
     return v
 
 
@@ -78,6 +80,40 @@ def _results_sheet(ws, run: dict) -> None:
         for j in range(len(models)):
             base = 3 + 6 * j
             widths.update({base: 60, base + 1: 9, base + 2: 11, base + 3: 11, base + 4: 11, base + 5: 10})
+        _widths(ws, widths)
+        return
+    if run.get("set") == "quality":
+        keys = (run.get("summary") or {}).get("metrics") or sorted({k for r in rows for k in (r.get("metrics") or {})})
+        cols = ["#", "Result", "Question", "Skill"] + [c for k in keys for c in (f"{k} score", f"{k} reason")] + ["Answer latency ms", "Judge ms", "Cost USD", "Answer", "Expected answer", "Context chunks", "Tools called"]
+        ws.append(cols)
+        _header(ws, cols)
+        for i, r in enumerate(rows, 1):
+            line = [i, "PASS" if r.get("pass") else "FAIL", r.get("q", ""), r.get("got") or r.get("skill", "")]
+            for k in keys:
+                s = (r.get("metrics") or {}).get(k) or {}
+                line += [s.get("score"), s.get("reason", "")]
+            line += [r.get("ms"), r.get("judge_ms"), r.get("cost_usd"), r.get("answer", ""), r.get("expected_output", ""), r.get("context_chunks"), ", ".join(r.get("tools_called") or [])]
+            ws.append(line)
+            row = ws.max_row
+            ws.cell(row=row, column=2).fill = PASS_FILL if r.get("pass") else FAIL_FILL
+            for j, k in enumerate(keys):
+                c = ws.cell(row=row, column=5 + 2 * j)
+                c.number_format = "0.00"
+                s = (r.get("metrics") or {}).get(k) or {}
+                if s.get("success") is not None:
+                    c.fill = PASS_FILL if s.get("success") else FAIL_FILL
+                ws.cell(row=row, column=6 + 2 * j).alignment = Alignment(wrap_text=True, vertical="top")
+            base = 5 + 2 * len(keys)
+            ws.cell(row=row, column=base + 2).number_format = "$0.0000"
+            for c in (3, base + 3, base + 4):
+                ws.cell(row=row, column=c).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(1, ws.max_row)}"
+        widths = {1: 5, 2: 8, 3: 40, 4: 12}
+        for j in range(len(keys)):
+            widths[5 + 2 * j] = 9
+            widths[6 + 2 * j] = 50
+        base = 5 + 2 * len(keys)
+        widths.update({base: 12, base + 1: 10, base + 2: 10, base + 3: 60, base + 4: 40, base + 5: 9, base + 6: 20})
         _widths(ws, widths)
         return
     cols = ["#", "Result", "Question", "Expected", "Got", "Confidence", "Latency ms", "Cost USD", "Detail"]

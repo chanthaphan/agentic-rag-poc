@@ -3,6 +3,7 @@
 Proof of concept for Bangkok Bank product Q&A / recommendation built on **Microsoft Foundry agents** grounded in an **Azure AI Search** knowledge base through **Foundry IQ** (knowledge bases exposed to agents over MCP). Two things are meant to be easy:
 
 - **Knowledge base**: drop `.md` / `.pdf` files into `knowledge/<product-category>/` and run `bankrag ingest`.
+- **Evals**: routing accuracy, grounded answers, DeepEval quality metrics judged by a Foundry model (LLM-as-judge), model comparison; every run exports to .xlsx from Studio.
 - **Skills**: one folder per product family in `skills/<id>/SKILL.md` (frontmatter + instructions). `bankrag skills sync` turns each skill into a Foundry agent wired to its own knowledge base; the `bank-router` agent picks the skill for each user message.
 
 Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](docs/howto-add-skill.md), [docs/decisions.md](docs/decisions.md), and (after the end-to-end run) [docs/findings-for-real-app.md](docs/findings-for-real-app.md).
