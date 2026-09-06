@@ -200,7 +200,7 @@
         <div class="panel">
           <div class="panel-head"><h3>Routing questions</h3><span class="muted">the router alone must pick the expected skill (or <code>offtopic</code>)</span><span id="ev-status-routing" class="muted ev-status"></span></div>
           <table class="list ev-qs" id="ev-routing"><thead><tr><th>question</th><th style="width:180px">expected skill</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
-          <div class="row wrap ev-actions"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span class="muted">Run saves the questions first. The routing eval costs only router tokens.</span></div>
+          <div class="row wrap ev-actions"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/routing.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="routing" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="routing" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span><span class="muted">Run saves the questions first. The routing eval costs only router tokens.</span></div>
         </div>
         <div class="panel ev-result-panel" id="ev-result-routing-panel" hidden>
           <div class="panel-head"><h3 id="ev-result-routing-title">Result</h3><span id="ev-result-routing-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="routing"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-routing" href="#">Export .xlsx</a></div>
@@ -212,7 +212,7 @@
         <div class="panel">
           <div class="panel-head"><h3>Grounded-answer questions</h3><span class="muted">the full pipeline answers; pass = every expected substring appears and a source is cited</span><span id="ev-status-rag" class="muted ev-status"></span></div>
           <table class="list ev-qs" id="ev-rag"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected substrings (comma)</th><th style="width:70px">needs source</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
-          <div class="row wrap ev-actions"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span class="muted">Each question is a full answer with retrieval, so this costs real model tokens.</span></div>
+          <div class="row wrap ev-actions"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/rag.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="rag" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="rag" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span><span class="muted">Each question is a full answer with retrieval, so this costs real model tokens.</span></div>
         </div>
         <div class="panel ev-result-panel" id="ev-result-rag-panel" hidden>
           <div class="panel-head"><h3 id="ev-result-rag-title">Result</h3><span id="ev-result-rag-when" class="muted"></span><span class="spacer"></span><label class="muted"><input type="checkbox" class="ev-failed-only" data-set="rag"> failed only</label><a class="btn-secondary ev-xlsx" id="ev-xlsx-rag" href="#">Export .xlsx</a></div>
@@ -224,7 +224,7 @@
         <div class="panel">
           <div class="panel-head"><h3>Quality questions</h3><span class="muted">the full pipeline answers, then a judge model scores each answer with DeepEval RAG and agentic metrics</span><span id="ev-status-quality" class="muted ev-status"></span></div>
           <table class="list ev-qs" id="ev-quality"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected answer <span class="muted">(optional; enables precision / recall)</span></th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
-          <div class="row wrap ev-actions"><button id="ev-add-quality" class="btn-secondary">Add question</button><button id="ev-save-quality" class="btn-secondary">Save questions</button></div>
+          <div class="row wrap ev-actions"><button id="ev-add-quality" class="btn-secondary">Add question</button><button id="ev-save-quality" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/quality.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="quality" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="quality" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h3>Metrics and judge</h3><span class="muted">LLM-as-judge through your Foundry deployment (Azure OpenAI key from .env)</span></div>
@@ -346,9 +346,39 @@
     </div>
   </div>
   <div class="pane" id="spane-bundle">
-    <p class="muted">A bundle contains skills/, knowledge/, evals/, pricing.yaml and runtime settings. Import merges by default; "replace" removes existing skills and knowledge first.</p>
-    <div class="toolbar"><a class="btn-secondary" href="/bundle.zip">Download bundle.zip</a><label class="btn-secondary">Import bundle (merge) <input type="file" id="bd-merge" accept=".zip" hidden></label><label class="btn-danger">Import bundle (replace) <input type="file" id="bd-replace" accept=".zip" hidden></label><span id="bd-status" class="muted"></span></div>
-    <pre id="bd-log" class="log"></pre>
+    <div class="bd-grid">
+      <div class="panel">
+        <div class="panel-head"><h3>Export a bundle</h3><span class="muted">move skills, knowledge and evals to another environment (for example local → cloud), or keep a snapshot</span></div>
+        <div class="bd-opts">
+          <label><input type="checkbox" class="bd-part" value="skills" checked> Skills <span class="muted">(every SKILL.md incl. base rules)</span></label>
+          <label><input type="checkbox" class="bd-part" value="knowledge" checked> Knowledge <span class="muted">(markdown per category)</span></label>
+          <label class="bd-sub"><input type="checkbox" id="bd-pdfs" checked> include PDFs <span class="muted">(most of the size; the extracted .md next to each PDF is always included)</span></label>
+          <label><input type="checkbox" class="bd-part" value="evals" checked> Eval question sets</label>
+          <label><input type="checkbox" class="bd-part" value="config" checked> Prices and runtime settings <span class="muted">(pricing.yaml, settings.json; no secrets)</span></label>
+        </div>
+        <div class="row wrap"><a class="btn-secondary" id="bd-download" href="/bundle.zip">Download bundle.zip</a><span id="bd-size" class="muted"></span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Import a bundle</h3><span class="muted">pick a zip to preview what it contains and what would change</span></div>
+        <div class="row wrap"><label class="btn-secondary">Choose bundle.zip <input type="file" id="bd-file" accept=".zip" hidden></label><span id="bd-filename" class="muted"></span></div>
+        <div id="bd-preview" hidden>
+          <table class="list bd-table"><thead><tr><th>part</th><th>files</th><th>new</th><th>changed</th><th>same</th><th>size</th><th>import?</th></tr></thead><tbody id="bd-parts"></tbody></table>
+          <div id="bd-detail" class="muted"></div>
+          <div class="bd-opts">
+            <label><input type="radio" name="bd-mode" value="merge" checked> Merge <span class="muted">(write the bundle's files over existing ones; keep everything else)</span></label>
+            <label><input type="radio" name="bd-mode" value="replace"> Replace <span class="muted">(delete existing skills/ and knowledge/ first, for the parts you import)</span></label>
+            <label><input type="checkbox" id="bd-ingest" checked> Ingest the knowledge categories that changed</label>
+            <label><input type="checkbox" id="bd-sync" checked> Sync skills to Foundry afterwards</label>
+          </div>
+          <div class="row wrap"><button id="bd-import">Import</button><span id="bd-status" class="muted"></span></div>
+        </div>
+        <div id="bd-job" hidden>
+          <div class="bar"><div id="bd-bar" class="fill"></div></div>
+          <div class="ig-line"><span id="bd-job-state"></span><span id="bd-job-msg" class="muted"></span></div>
+          <details id="bd-logwrap" open><summary class="muted">log</summary><pre id="bd-log" class="log"></pre></details>
+        </div>
+      </div>
+    </div>
   </div>
   <pre id="st-log" class="log"></pre>
 </section>

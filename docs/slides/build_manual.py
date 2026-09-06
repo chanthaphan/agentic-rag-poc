@@ -64,6 +64,7 @@ B.settext(s, 29, [("Routing and grounded answers", 0), ("Edit questions in the t
                   ("Export .xlsx per run, or 'Export all' for every stored run (one sheet each); run history shows a trend", 1)])
 B.settext(s, 30, [("Quality (DeepEval) and model comparison", 0), ("Quality: a judge model (your Foundry deployment) scores each answer on RAG metrics (faithfulness, relevancy, context) and agentic metrics (tool use, task completion, language & tone, no advice)", 1),
                   ("Hover a score for the judge's reason; tune the threshold and the metric set; export .xlsx", 1),
+                  ("Question sets: download as .xlsx (also the template) and upload an .xlsx or CSV to append or replace; or send questions from the Conversations tab", 1),
                   ("Comparison: pick a skill, two or three models and a few questions; temporary agents are deleted after the run", 1),
                   ("Side-by-side answers with latency, tokens and cost per model", 1)])
 

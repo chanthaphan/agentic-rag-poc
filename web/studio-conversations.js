@@ -10,7 +10,7 @@ async function loadConversations() {
   const params = new URLSearchParams({ skill: $("#cv-skill").value, rating: $("#cv-rating").value, q: $("#cv-q").value.trim(), source: $("#cv-source").value, limit: 500 });
   $("#cv-status").textContent = "loading…";
   const [rows, list] = await Promise.all([api(`/conversations/questions?${params}`), api(`/sessions/review?skill=${encodeURIComponent($("#cv-skill").value)}&rating=${encodeURIComponent($("#cv-rating").value === "any" ? "" : $("#cv-rating").value)}`)]);
-  CV.rows = rows; CV.page = 0; renderQuestions();
+  CV.rows = rows; CV.page = 0; renderCvQuestions();
   const sel = $("#cv-skill"); if (sel.options.length <= 1) { const skills = new Set(rows.map((r) => r.skill_id).filter(Boolean)); list.forEach((s) => (s.skills || []).forEach((x) => skills.add(x))); for (const x of Array.from(skills).sort()) { const o = document.createElement("option"); o.value = x; o.textContent = x; sel.appendChild(o); } }
   const tb = $("#cv-table tbody"); tb.innerHTML = "";
   for (const s of list) {
@@ -28,7 +28,7 @@ S.loaders.conversations = loadConversations;
 ["#cv-skill", "#cv-rating", "#cv-source"].forEach((s) => $(s).addEventListener("change", loadConversations));
 let cvTimer; $("#cv-q").addEventListener("input", () => { clearTimeout(cvTimer); cvTimer = setTimeout(loadConversations, 350); });
 
-function renderQuestions() {
+function renderCvQuestions() {
   const pages = Math.max(1, Math.ceil(CV.rows.length / CV.size)); CV.page = Math.min(CV.page, pages - 1);
   const start = CV.page * CV.size; const slice = CV.rows.slice(start, start + CV.size);
   const tb = $("#cv-qtable tbody"); tb.innerHTML = "";
@@ -46,9 +46,9 @@ function renderQuestions() {
   const pager = $("#cv-pager"); pager.hidden = CV.rows.length <= CV.size;
   $("#cv-page-info").textContent = `page ${CV.page + 1} / ${pages}`; $("#cv-prev").disabled = CV.page === 0; $("#cv-next").disabled = CV.page >= pages - 1;
 }
-$("#cv-prev").addEventListener("click", () => { CV.page--; renderQuestions(); });
-$("#cv-next").addEventListener("click", () => { CV.page++; renderQuestions(); });
-$("#cv-check-all").addEventListener("change", (e) => { const start = CV.page * CV.size; for (const r of CV.rows.slice(start, start + CV.size)) toggle(r, e.target.checked, true); saveBox(); renderQuestions(); });
+$("#cv-prev").addEventListener("click", () => { CV.page--; renderCvQuestions(); });
+$("#cv-next").addEventListener("click", () => { CV.page++; renderCvQuestions(); });
+$("#cv-check-all").addEventListener("change", (e) => { const start = CV.page * CV.size; for (const r of CV.rows.slice(start, start + CV.size)) toggle(r, e.target.checked, true); saveBox(); renderCvQuestions(); });
 
 function toggle(r, on, silent = false) {
   const k = boxKey(r);
@@ -60,10 +60,10 @@ function toggle(r, on, silent = false) {
 function renderBox() {
   const items = Array.from(CV.box.values()); $("#cv-box-count").textContent = items.length;
   $("#cv-box-list").innerHTML = items.map((r) => `<div class="bi" data-key="${esc(boxKey(r))}"><span><span class="q" title="${esc(r.question)}">${esc(r.question)}</span><span class="s">${esc(r.skill_id || "?")}${r.language ? " · " + esc(r.language) : ""}</span></span><button class="btn-secondary rm" title="remove">✕</button></div>`).join("") || `<div class="muted">empty</div>`;
-  $("#cv-box-list").querySelectorAll(".rm").forEach((b) => b.addEventListener("click", () => { CV.box.delete(b.parentElement.dataset.key); saveBox(); renderQuestions(); }));
+  $("#cv-box-list").querySelectorAll(".rm").forEach((b) => b.addEventListener("click", () => { CV.box.delete(b.parentElement.dataset.key); saveBox(); renderCvQuestions(); }));
   ["#cv-box-xlsx", "#cv-to-routing", "#cv-to-rag", "#cv-to-quality"].forEach((s) => { $(s).disabled = !items.length; });
 }
-$("#cv-box-clear").addEventListener("click", () => { CV.box.clear(); saveBox(); renderQuestions(); });
+$("#cv-box-clear").addEventListener("click", () => { CV.box.clear(); saveBox(); renderCvQuestions(); });
 $("#cv-box-xlsx").addEventListener("click", async () => {
   const items = Array.from(CV.box.values()).map((r) => ({ session_id: r.session_id, idx: r.idx }));
   $("#cv-box-status").textContent = "building workbook…";
@@ -103,10 +103,10 @@ async function openTranscript(id, focusIdx = null) {
       <details><summary class="muted">trace</summary>${TR.traceCard({ ...t }, q)}</details></div>`;
   });
   $("#cv-transcript").innerHTML = html;
-  $$("#cv-transcript .tpick").forEach((cb) => cb.addEventListener("change", () => { const i = +cb.dataset.idx; const a = rec.turns[i + 1]; toggle({ session_id: id, idx: i, question: rec.turns[i].text, skill_id: a?.skill_id || "", language: a?.language || "" }, cb.checked); renderQuestions(); }));
+  $$("#cv-transcript .tpick").forEach((cb) => cb.addEventListener("change", () => { const i = +cb.dataset.idx; const a = rec.turns[i + 1]; toggle({ session_id: id, idx: i, question: rec.turns[i].text, skill_id: a?.skill_id || "", language: a?.language || "" }, cb.checked); renderCvQuestions(); }));
   $$("#cv-transcript .rate button").forEach((b) => b.addEventListener("click", async () => { const idx = +b.parentElement.dataset.idx; await api("/feedback", json({ session_id: id, idx, rating: b.dataset.r, comment: $(`#cv-transcript .cmt[data-idx='${idx}']`).value })); openTranscript(id); loadConversations(); }));
   $$("#cv-transcript .cmt-save").forEach((b) => b.addEventListener("click", async () => { const idx = +b.dataset.idx; const cur = byIdx[idx] || {}; await api("/feedback", json({ session_id: id, idx, rating: cur.rating || null, comment: $(`#cv-transcript .cmt[data-idx='${idx}']`).value })); openTranscript(id); }));
-  $("#cv-select-session").onclick = () => { rec.turns.forEach((t, i) => { if (t.role === "user") { const a = rec.turns[i + 1]; toggle({ session_id: id, idx: i, question: t.text, skill_id: a?.skill_id || "", language: a?.language || "" }, true, true); } }); saveBox(); openTranscript(id); renderQuestions(); };
+  $("#cv-select-session").onclick = () => { rec.turns.forEach((t, i) => { if (t.role === "user") { const a = rec.turns[i + 1]; toggle({ session_id: id, idx: i, question: t.text, skill_id: a?.skill_id || "", language: a?.language || "" }, true, true); } }); saveBox(); openTranscript(id); renderCvQuestions(); };
   $$("#cv-table tr.row").forEach((tr) => tr.classList.remove("sel"));
   $("#cv-transcript-panel").scrollIntoView({ behavior: "smooth", block: "start" });
   if (focusIdx != null) { const el = $(`#tr-${focusIdx}`); if (el) { el.style.outline = "2px solid #ffd166"; setTimeout(() => (el.style.outline = ""), 2500); el.scrollIntoView({ behavior: "smooth", block: "center" }); } }

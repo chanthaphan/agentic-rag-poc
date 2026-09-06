@@ -67,3 +67,8 @@ Long actions run as in-memory jobs (`api._start_job`). Besides a log, each job c
 ## Conversation review
 
 `sessions.question_rows` flattens every customer question with its answer, skill, language, cost, latency and feedback (search, skill, rating and source filters). The Studio Conversations tab lists these rows with checkboxes; the selection box exports the chosen questions to xlsx (`POST /conversations/export.xlsx`) or appends them to an eval set (`POST /evals/{set}/append`, duplicates by question text skipped) so real customer questions become regression cases.
+
+## Bundles and question files
+
+A bundle zip carries skills/, knowledge/ (PDFs optional), evals/ and config (pricing.yaml, settings.json). `bundle.inspect_bundle` previews new / changed / same files against the local copy; `import_bundle` writes only the wanted parts and reports the skills and knowledge categories that changed so `POST /bundle?ingest=1&sync=1` can re-ingest those categories and re-sync the agents as one job. Eval question sets round-trip through xlsx or CSV (`GET /evals/{set}.xlsx`, `POST /evals/{set}/upload?mode=append|replace`; header names are matched loosely, a headerless file is read as one question per row).
+

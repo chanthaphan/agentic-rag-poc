@@ -76,6 +76,118 @@ def append_cases(settings: Settings, set_name: str, cases: list[dict]) -> dict:
     return {"added": added, "skipped": len(cases) - added, "total": len(saved)}
 
 
+COLUMN_ALIASES = {
+    "q": ("q", "question", "questions", "คำถาม", "customer question", "input"),
+    "skill": ("skill", "expected skill", "expected_skill", "skill (optional)", "skill id", "skill_id", "routed skill"),
+    "expect": ("expect", "expected", "expected substrings", "expected substrings (comma)", "expected text", "must contain"),
+    "require_source": ("require_source", "needs source", "requires source", "needs_source", "source required"),
+    "expected_output": ("expected_output", "expected answer", "expected output", "expected answer (optional)", "reference answer", "ground truth"),
+}
+SET_COLUMNS = {"routing": ["q", "skill"], "rag": ["q", "skill", "expect", "require_source"], "quality": ["q", "skill", "expected_output"]}
+COLUMN_TITLES = {"q": "question", "skill": "skill", "expect": "expected substrings", "require_source": "needs source", "expected_output": "expected answer"}
+
+
+def _canon(header: str) -> Optional[str]:
+    h = str(header or "").strip().lower()
+    for key, names in COLUMN_ALIASES.items():
+        if h in names:
+            return key
+    return None
+
+
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in ("1", "true", "yes", "y", "x", "✓", "ใช่")
+
+
+def parse_cases_file(set_name: str, data: bytes, filename: str = "") -> list[dict]:
+    """Read questions from an .xlsx (first sheet) or .csv. The header row names the columns (see COLUMN_ALIASES);
+    a file without a recognised header is read as one question per row in the first column."""
+    if set_name not in SETS:
+        raise ValueError("unknown eval set")
+    rows: list[list] = []
+    if filename.lower().endswith(".csv") or (not filename.lower().endswith((".xlsx", ".xlsm")) and not data.startswith(b"PK")):
+        import csv
+        import io
+
+        rows = [r for r in csv.reader(io.StringIO(data.decode("utf-8-sig", errors="replace")))]
+    else:
+        import io
+
+        from openpyxl import load_workbook
+
+        ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
+        rows = [["" if v is None else v for v in r] for r in ws.iter_rows(values_only=True)]
+    rows = [r for r in rows if any(str(c).strip() for c in r)]
+    if not rows:
+        return []
+    header = [_canon(c) for c in rows[0]]
+    if "q" in header:
+        body = rows[1:]
+    else:
+        header = ["q"] + [None] * (len(rows[0]) - 1)
+        body = rows
+    idx = {k: header.index(k) for k in ("q", "skill", "expect", "require_source", "expected_output") if k in header}
+    out: list[dict] = []
+    for r in body:
+        get = lambda k: str(r[idx[k]]).strip() if k in idx and idx[k] < len(r) and r[idx[k]] is not None else ""  # noqa: E731
+        q = get("q")
+        if not q:
+            continue
+        if set_name == "routing":
+            out.append({"q": q, "skill": get("skill")})
+        elif set_name == "quality":
+            c = {"q": q}
+            if get("skill"):
+                c["skill"] = get("skill")
+            if get("expected_output"):
+                c["expected_output"] = get("expected_output")
+            out.append(c)
+        else:
+            raw = get("expect")
+            expect = [x.strip() for x in (raw.split("|") if "|" in raw else raw.split(",")) if x.strip()]
+            c = {"q": q, "expect": expect, "skill": get("skill") or None}
+            if "require_source" in idx and get("require_source") and not _truthy(get("require_source")):
+                c["require_source"] = False
+            out.append(c)
+    return out
+
+
+def cases_workbook(set_name: str, cases: list[dict]) -> bytes:
+    """The question set as an .xlsx with the same columns the upload accepts (so it doubles as a template)."""
+    import io
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    cols = SET_COLUMNS[set_name]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = {"routing": "Routing", "rag": "Grounded", "quality": "Quality"}[set_name]
+    ws.append([COLUMN_TITLES[c] for c in cols])
+    for cell in ws[1]:
+        cell.fill, cell.font = PatternFill("solid", fgColor="0064FF"), Font(bold=True, color="FFFFFF")
+    ws.freeze_panes = "A2"
+    for c in cases:
+        line = []
+        for k in cols:
+            v = c.get(k)
+            if k == "expect":
+                v = ", ".join(v or [])
+            elif k == "require_source":
+                v = "no" if v is False else "yes"
+            line.append("" if v is None else v)
+        ws.append(line)
+        ws.cell(row=ws.max_row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    widths = {"q": 60, "skill": 16, "expect": 40, "require_source": 12, "expected_output": 60}
+    for i, k in enumerate(cols, 1):
+        ws.column_dimensions[get_column_letter(i)].width = widths[k]
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(1, ws.max_row)}"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def new_run(set_name: str) -> dict:
     return {"id": uuid.uuid4().hex[:10], "set": set_name, "started_at": _now(), "rows": [], "summary": {}}
 

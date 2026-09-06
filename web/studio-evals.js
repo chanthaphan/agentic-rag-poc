@@ -61,6 +61,15 @@ $("#cmp-run").addEventListener("click", async () => {
   try { const j = await api("/evals/compare", json({ skill: $("#cmp-skill").value, models, questions })); $("#cmp-status").textContent = ""; watchEval(j.job_id, "compare"); } catch (e) { $("#cmp-status").textContent = e.message; }
 });
 
+// ---- upload a question list (.xlsx / .csv) ----
+$$(".ev-upload").forEach((inp) => inp.addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return; const set = inp.dataset.set; const mode = $(`.ev-upload-mode[data-set=${set}]`).value;
+  if (mode === "replace" && !confirm(`Replace every ${SET_LABEL[set]} question with the ${f.name} contents?`)) return;
+  const fd = new FormData(); fd.append("file", f); $(`#ev-status-${set}`).textContent = "reading…";
+  try { const r = await api(`/evals/${set}/upload?mode=${mode}`, { method: "POST", body: fd }); evState[set] = await api(`/evals/${set}`); renderQuestions(set);
+    $(`#ev-status-${set}`).textContent = mode === "replace" ? `replaced: ${r.total} questions now` : `added ${r.added}, skipped ${r.skipped} duplicate(s), ${r.total} questions now`; } catch (err) { $(`#ev-status-${set}`).textContent = err.message; }
+}));
+
 // ---- quality: metric picker ----
 async function loadQualityMetrics() {
   if (QM.metrics.length) return;

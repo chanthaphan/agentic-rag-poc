@@ -41,10 +41,46 @@ async function saveRuntime() { const data = {}; for (const k of RT_KEYS) data[k]
 $("#rt-save").addEventListener("click", () => saveRuntime().catch((e) => { $("#rt-status").textContent = e.message; }));
 $("#rt-save-sync").addEventListener("click", async () => { try { await saveRuntime(); const j = await api("/skills/sync", { method: "POST" }); pollJob(j.job_id, $("#st-log"), $("#rt-status")); } catch (e) { $("#rt-status").textContent = e.message; } });
 
-// ---- bundle ----
-async function importBundle(file, mode) {
-  const fd = new FormData(); fd.append("file", file);
-  try { const r = await api(`/bundle?mode=${mode}`, { method: "POST", body: fd }); $("#bd-status").textContent = `imported: ${JSON.stringify(r.counts)}`; $("#bd-log").textContent = (r.log || []).join("\n"); } catch (e) { $("#bd-status").textContent = e.message; }
+// ---- bundle export / import ----
+const fmtBytes = (b) => b < 1e6 ? `${Math.round(b / 1e3)} KB` : `${(b / 1e6).toFixed(1)} MB`;
+const BD = { file: null, info: null };
+function bdExportUrl() {
+  const parts = Array.from($$(".bd-part:checked")).map((x) => x.value);
+  return `/bundle.zip?parts=${encodeURIComponent(parts.join(",") || "skills")}&pdfs=${$("#bd-pdfs").checked}`;
 }
-$("#bd-merge").addEventListener("change", (e) => { if (e.target.files[0]) importBundle(e.target.files[0], "merge"); e.target.value = ""; });
-$("#bd-replace").addEventListener("change", (e) => { if (e.target.files[0] && confirm("Replace ALL skills and knowledge with the bundle contents?")) importBundle(e.target.files[0], "replace"); e.target.value = ""; });
+function bdRefreshExport() { $("#bd-download").href = bdExportUrl(); $("#bd-pdfs").disabled = !$(".bd-part[value=knowledge]").checked; }
+$$(".bd-part, #bd-pdfs").forEach((x) => x.addEventListener("change", bdRefreshExport)); bdRefreshExport();
+
+$("#bd-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  BD.file = f; $("#bd-filename").textContent = `${f.name} · ${fmtBytes(f.size)}`; $("#bd-status").textContent = "inspecting…"; $("#bd-preview").hidden = true; $("#bd-job").hidden = true;
+  const fd = new FormData(); fd.append("file", f);
+  try {
+    const info = await api("/bundle/inspect", { method: "POST", body: fd }); BD.info = info;
+    const label = { skills: "Skills", knowledge: "Knowledge", evals: "Eval questions", config: "Prices & settings" };
+    $("#bd-parts").innerHTML = Object.entries(info.parts).map(([p, s]) => `<tr><td>${label[p]}</td><td>${s.files}</td><td>${s.new ? `<span class="pill ok">${s.new}</span>` : ""}</td><td>${s.changed ? `<span class="pill warn">${s.changed}</span>` : ""}</td><td class="muted">${s.same || ""}</td><td class="muted">${s.files ? fmtBytes(s.bytes) : ""}</td><td><input type="checkbox" class="bd-imp" value="${p}" ${s.files ? "checked" : "disabled"}></td></tr>`).join("");
+    const cats = Object.entries(info.categories).map(([c, n]) => `${c} (${n})`).join(", ");
+    $("#bd-detail").innerHTML = `${info.skills.length ? `skills: ${esc(info.skills.join(", "))}` : "no skills"} · ${cats ? `knowledge: ${esc(cats)}${info.pdfs ? ` · ${info.pdfs} PDF` : ""}` : "no knowledge"}${info.skipped.length ? ` · <span class="pill warn">${info.skipped.length} unknown file(s) skipped</span>` : ""}`;
+    $("#bd-preview").hidden = false; $("#bd-status").textContent = "";
+  } catch (err) { $("#bd-status").textContent = err.message; }
+});
+$("#bd-import").addEventListener("click", async () => {
+  if (!BD.file) return;
+  const parts = Array.from($$(".bd-imp:checked")).map((x) => x.value); if (!parts.length) { $("#bd-status").textContent = "tick at least one part"; return; }
+  const mode = $("input[name=bd-mode]:checked").value;
+  if (mode === "replace" && !confirm(`Replace mode deletes the existing ${parts.filter((p) => p === "skills" || p === "knowledge").join(" and ") || "selected"} folders before writing the bundle. Continue?`)) return;
+  const fd = new FormData(); fd.append("file", BD.file); $("#bd-status").textContent = "importing…"; $("#bd-import").disabled = true;
+  try {
+    const r = await api(`/bundle?mode=${mode}&parts=${encodeURIComponent(parts.join(","))}&ingest=${$("#bd-ingest").checked}&sync=${$("#bd-sync").checked}`, { method: "POST", body: fd });
+    const c = r.counts; $("#bd-status").textContent = `written: ${c.skills} skill files, ${c.knowledge} knowledge files, ${c.evals} eval files, ${c.config} config · changed skills: ${r.changed_skills.join(", ") || "none"} · changed categories: ${r.changed_categories.join(", ") || "none"}`;
+    $("#bd-job").hidden = false; $("#bd-log").textContent = (r.log || []).join("\n");
+    if (r.job_id) {
+      $("#bd-job-state").textContent = "running follow-up job"; $("#bd-bar").className = "fill indet";
+      const tick = async () => { const j = await api(`/jobs/${r.job_id}`); $("#bd-log").textContent = (j.log || []).join("\n"); $("#bd-log").scrollTop = 1e9; const pr = j.progress || {}; $("#bd-job-msg").textContent = pr.message ? `${pr.phase}: ${pr.message}` : (pr.phase || "");
+        if (j.status !== "running") { $("#bd-job-state").textContent = j.status === "done" ? "ingest + sync finished" : "follow-up job failed"; $("#bd-bar").className = "fill " + (j.status === "done" ? "ok" : "err"); $("#bd-bar").style.width = "100%"; S.skillsCache = []; return; }
+        setTimeout(tick, 900); };
+      tick();
+    } else { $("#bd-job-state").textContent = "done (no ingest or sync requested, or nothing changed)"; $("#bd-bar").className = "fill ok"; $("#bd-bar").style.width = "100%"; }
+  } catch (e) { $("#bd-status").textContent = e.message; }
+  $("#bd-import").disabled = false;
+});

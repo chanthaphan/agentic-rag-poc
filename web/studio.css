@@ -205,3 +205,12 @@ h4 { margin:12px 0 6px; font:var(--label-sm); font-weight:600; color:var(--gray-
 .tr-user { position:relative; } .tr-pick { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#fff; opacity:.9; margin-right:8px; }
 .transcript .tr-row { display:flex; align-items:flex-start; gap:8px; justify-content:flex-end; } .transcript .tr-row label { margin-top:10px; font-size:11px; color:var(--gray-60); white-space:nowrap; }
 table.list tr.row { display:table-row; }
+
+/* ---- bundle export / import ---- */
+.bd-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; } @media (max-width: 1100px) { .bd-grid { grid-template-columns:1fr; } }
+.bd-opts { display:flex; flex-direction:column; gap:6px; margin:8px 0 12px; font-size:13px; } .bd-opts label { display:flex; gap:8px; align-items:flex-start; } .bd-opts label input { margin-top:3px; } .bd-opts .bd-sub { margin-left:22px; }
+.bd-table { margin:8px 0; } .bd-table td, .bd-table th { font-size:12.5px; padding:6px 8px; }
+#bd-detail { margin:4px 0 8px; font-size:12px; }
+#bd-job { margin-top:12px; } #bd-job pre.log { margin-top:6px; max-height:260px; }
+.ev-file { display:inline-flex; gap:6px; align-items:center; margin-left:8px; padding-left:10px; border-left:1px solid var(--gray-20); } .ev-file select { padding:6px 8px; font-size:12px; }
+pre.log:empty { display:none; }

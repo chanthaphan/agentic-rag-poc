@@ -773,22 +773,61 @@ def knowledge_crawl(req: CrawlRequest):
 
 
 @studio.get("/bundle.zip")
-def bundle_export():
-    from .bundle import export_bundle
+def bundle_export(parts: str = "skills,knowledge,evals,config", pdfs: bool = True):
+    from .bundle import PARTS, export_bundle
 
-    return Response(export_bundle(settings), media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="bankrag-bundle.zip"'})
+    wanted = [x for x in parts.split(",") if x in PARTS] or list(PARTS)
+    name = "bankrag-bundle" + ("" if len(wanted) == len(PARTS) else "-" + "-".join(wanted)) + ".zip"
+    return Response(export_bundle(settings, wanted, include_pdfs=pdfs), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@studio.post("/bundle/inspect")
+async def bundle_inspect(file: UploadFile = File(...)):
+    from .bundle import inspect_bundle
+
+    try:
+        return inspect_bundle(settings, await file.read())
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}") from e
 
 
 @studio.post("/bundle")
-async def bundle_import(mode: str = "merge", file: UploadFile = File(...)):
-    from .bundle import import_bundle
+async def bundle_import(mode: str = "merge", parts: str = "skills,knowledge,evals,config", ingest: bool = False, sync: bool = False, file: UploadFile = File(...)):
+    """Write the bundle, then (optionally) ingest the knowledge categories that changed and sync the skills, as one job."""
+    from .bundle import PARTS, import_bundle
 
+    wanted = [x for x in parts.split(",") if x in PARTS] or list(PARTS)
     log: list[str] = []
     try:
-        counts = import_bundle(settings, await file.read(), mode=mode if mode in ("merge", "replace") else "merge", log=log.append)
+        result = import_bundle(settings, await file.read(), mode=mode if mode in ("merge", "replace") else "merge", parts=wanted, log=log.append)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}") from e
-    return {"counts": counts, "log": log}
+    out: dict = {"counts": {k: v for k, v in result.items() if not k.startswith("changed_")}, "changed_skills": result["changed_skills"], "changed_categories": result["changed_categories"], "log": log}
+    do_ingest = ingest and bool(result["changed_categories"])
+    do_sync = sync and ("skills" in wanted)
+    if do_ingest or do_sync:
+        def run(job_log):
+            for line in log:
+                job_log(line)
+            summary: dict = {}
+            if do_ingest:
+                from .ingest.pipeline import ingest as run_ingest
+
+                for cat in result["changed_categories"]:
+                    job_log(f"== ingest {cat}")
+                    rep = run_ingest(settings, category=cat, log=job_log)
+                    summary[f"ingest {cat}"] = rep.summary()
+            if do_sync:
+                from .foundry_sync import sync_skills
+
+                job_log("== sync skills")
+                skills, base = _skills()
+                rep = sync_skills(settings, skills, base, log=job_log)
+                summary["sync"] = {r.skill_id: f"{r.action} v{r.version}" for r in rep.rows}
+            return summary
+
+        out["job_id"] = _start_job("import-bundle", run, {"ingest": result["changed_categories"] if do_ingest else [], "sync": do_sync})
+    return out
 
 
 # ---------------- evals ----------------
@@ -865,6 +904,35 @@ def run_quality_endpoint(req: QualityRequest):
         return r
 
     return {"job_id": _start_job("eval-quality", run, {"set": "quality", "judge": req.judge_model or settings.judge_model})}
+
+
+@studio.get("/evals/{set_name}.xlsx")
+def eval_set_xlsx(set_name: str):
+    from .evals import SETS, cases_workbook, load_cases
+
+    if set_name not in SETS:
+        raise HTTPException(404, "unknown eval set")
+    return Response(cases_workbook(set_name, load_cases(settings, set_name)), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="bankrag-eval-{set_name}-questions.xlsx"'})
+
+
+@studio.post("/evals/{set_name}/upload")
+async def eval_set_upload(set_name: str, mode: str = "append", file: UploadFile = File(...)):
+    """Load questions from an .xlsx or .csv into a set: append (skip duplicates) or replace the whole set."""
+    from .evals import SETS, append_cases, parse_cases_file, save_cases
+
+    if set_name not in SETS:
+        raise HTTPException(404, "unknown eval set")
+    try:
+        cases = parse_cases_file(set_name, await file.read(), file.filename or "")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"could not read the file: {type(e).__name__}: {str(e)[:200]}") from e
+    if not cases:
+        raise HTTPException(400, "no questions found: the first column (or a 'question' column) must hold the question text")
+    if mode == "replace":
+        saved = save_cases(settings, set_name, cases)
+        return {"added": len(saved), "skipped": len(cases) - len(saved), "total": len(saved), "mode": "replace"}
+    return {**append_cases(settings, set_name, cases), "mode": "append"}
 
 
 @studio.get("/evals/{set_name}")
