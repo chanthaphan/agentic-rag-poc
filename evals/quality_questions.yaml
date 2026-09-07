@@ -1,1 +1,10 @@
-[]
+- q: บัตรอินฟินิท ธนาคารกรุงเทพ ค่าธรรมเนียมรายปีเท่าไหร่
+  skill: credit-card
+- q: บัตรอินฟินิทเข้าใช้ห้องรับรองสนามบินได้กี่ครั้ง
+  skill: credit-card
+- q: What documents do I need to apply for a Bangkok Bank credit card as a salaried
+    employee?
+  skill: credit-card
+- q: บัตรเครดิตโรงพยาบาลศิริราชได้สิทธิพิเศษอะไรบ้าง
+- q: ประกันสุขภาพแบบไหนดี
+  skill: insurance
