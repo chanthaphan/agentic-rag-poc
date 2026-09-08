@@ -530,7 +530,8 @@ def get_app_settings():
 
     eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
            "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
-           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model}
+           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model, "FOUNDRY_NATIVE_SKILLS": "1" if settings.foundry_native_skills else "0",
+           "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model}
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
 
 
@@ -708,6 +709,56 @@ def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, regist
         return sync_skills(settings, skills, base, only=only, prune=prune, register_native=register_native, log=log).model_dump()
 
     return {"job_id": _start_job("sync", run)}
+
+
+# ---------------- Foundry skill registry ----------------
+@studio.get("/registry/skills")
+def registry_skills():
+    from .foundry import project_client
+    from .foundry_native import list_registry
+
+    skills, _ = _skills()
+    try:
+        with project_client(settings) as pc:
+            return list_registry(pc, set(skills))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+
+
+@studio.get("/registry/skills/{name}")
+def registry_skill_content(name: str, version: Optional[str] = None):
+    from .foundry import project_client
+    from .foundry_native import download_skill_md
+
+    try:
+        with project_client(settings) as pc:
+            meta, body = download_skill_md(pc, name, version)
+        return {"name": name, "frontmatter": meta, "body": body}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+
+
+class RegistryImport(BaseModel):
+    name: str
+    version: Optional[str] = None
+    id: Optional[str] = None
+
+
+@studio.post("/registry/import")
+def registry_import(req: RegistryImport):
+    from .foundry import project_client
+    from .foundry_native import import_registry_skill
+
+    try:
+        with project_client(settings) as pc:
+            spec = import_registry_skill(pc, settings, req.name, req.version, req.id)
+    except FileExistsError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+    return {"id": spec.id, "name": spec.name, "note": "imported as a local skill; review keywords and description, then Save & sync"}
 
 
 # ---------------- knowledge ----------------

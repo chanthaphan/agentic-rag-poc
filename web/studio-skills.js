@@ -18,7 +18,7 @@ async function loadSkills() {
     const el = document.createElement("div"); el.className = "sk-card" + (current === r.id ? " sel" : ""); el.dataset.id = r.id;
     el.innerHTML = `<span class="id">${esc(r.id)}</span><span class="st" title="Foundry agent ${esc(r.agent || "")}"><span class="dot ${st}"></span>${esc(STATE_LABEL[st] || r.state)}${r.version ? ` · v${esc(r.version)}` : ""}</span>
       <span class="nm">${esc(r.name)}</span>
-      <span class="meta"><span class="pill">${esc(r.product_category)}</span><span class="pill">${esc(r.model)}</span><span class="pill" title="knowledge base">${esc(r.knowledge_base || "no knowledge base")}</span>${warns ? `<span class="pill warn" title="lint warnings">⚠ ${warns}</span>` : ""}${infos ? `<span class="pill info" title="lint notes">ℹ ${infos}</span>` : ""}</span>`;
+      <span class="meta"><span class="pill">${esc(r.product_category)}</span><span class="pill">${esc(r.model)}</span><span class="pill" title="knowledge base">${esc(r.knowledge_base || "no knowledge base")}</span>${r.registry_version ? `<span class="pill reg" title="published to the Foundry skill registry as bankrag-${esc(r.id)}">registry v${esc(r.registry_version)}</span>` : ""}${r.a2a ? '<span class="pill a2a" title="exposed as an A2A endpoint; the concierge can hand off to it">A2A</span>' : ""}${warns ? `<span class="pill warn" title="lint warnings">⚠ ${warns}</span>` : ""}${infos ? `<span class="pill info" title="lint notes">ℹ ${infos}</span>` : ""}</span>`;
     el.addEventListener("click", () => { if (window.skillDirty && current !== r.id && !confirm("Discard unsaved changes?")) return; openSkill(r.id); });
     box.appendChild(el);
   }
@@ -180,3 +180,18 @@ async function pgSend() {
   pgBusy = false; th.scrollTop = th.scrollHeight;
 }
 S.loaders["pane-playground"] = pgBanner;
+
+// ---- Foundry skill registry ----
+async function loadRegistry() {
+  $("#rg-status").textContent = "loading…";
+  try {
+    const rows = await api("/registry/skills"); const box = $("#rg-list");
+    box.innerHTML = rows.length ? rows.map((r) => `<div class="rg"><span><span class="n">${esc(r.name)}</span> <span class="pill">v${esc(r.default_version)}</span> ${r.in_app ? '<span class="pill ok">in app</span>' : '<span class="pill warn">registry only</span>'}<span class="d">${esc(r.description.slice(0, 120))}</span></span><span>${r.in_app ? "" : `<button class="btn-secondary imp" data-name="${esc(r.name)}" data-id="${esc(r.local_id)}">Import</button>`}</span></div>`).join("") : '<div class="muted">no skills in the registry yet: run Sync all</div>';
+    box.querySelectorAll(".imp").forEach((b) => b.addEventListener("click", async () => {
+      const id = prompt("Local skill id for this import (lowercase, dashes):", b.dataset.id); if (!id) return;
+      try { const r = await api("/registry/import", json({ name: b.dataset.name, id })); $("#rg-status").textContent = r.note; await loadSkills(); openSkill(r.id); loadRegistry(); } catch (e) { $("#rg-status").textContent = e.message; }
+    }));
+    $("#rg-status").textContent = `${rows.length} in registry`;
+  } catch (e) { $("#rg-status").textContent = e.message; }
+}
+$("#rg-refresh").addEventListener("click", loadRegistry);

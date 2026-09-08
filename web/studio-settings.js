@@ -30,10 +30,11 @@ $("#base-save").addEventListener("click", () => saveBase().catch((e) => { $("#ba
 $("#base-save-sync").addEventListener("click", async () => { try { await saveBase(); const j = await api("/skills/sync", { method: "POST" }); pollJob(j.job_id, $("#st-log"), $("#base-status")); } catch (e) { $("#base-status").textContent = e.message; } });
 
 // ---- runtime settings ----
-const RT_KEYS = ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS"];
+const RT_KEYS = ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "FOUNDRY_NATIVE_SKILLS", "JUDGE_MODEL"];
 S.loaders["spane-runtime"] = async () => {
   const s = await api("/app/settings"); await loadModels();
-  for (const k of ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_LLM_DEPLOYMENT"]) fillModelSelect($(`#rt-${k}`), s.effective[k]);
+  for (const k of ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL"]) fillModelSelect($(`#rt-${k}`), s.effective[k]);
+  fillModelSelect($("#rt-CONCIERGE_MODEL"), s.effective.CONCIERGE_MODEL || s.effective.DEFAULT_CHAT_MODEL); $("#rt-ORCHESTRATION_MODE").value = s.effective.ORCHESTRATION_MODE || "router"; $("#rt-FOUNDRY_NATIVE_SKILLS").value = s.effective.FOUNDRY_NATIVE_SKILLS === "0" ? "0" : "1";
   $("#rt-KB_REASONING_EFFORT").value = s.effective.KB_REASONING_EFFORT; $("#rt-ASSISTANT_NAME").value = s.effective.ASSISTANT_NAME; $("#rt-APP_USER_NAME").value = s.effective.APP_USER_NAME; $("#rt-APP_USER_INITIALS").value = s.effective.APP_USER_INITIALS;
   $("#rt-status").textContent = Object.keys(s.overlay).length ? `overrides active: ${Object.keys(s.overlay).join(", ")}` : "no overrides (values from .env)";
 };

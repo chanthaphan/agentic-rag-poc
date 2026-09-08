@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import MCPTool, PromptAgentDefinition, SkillInlineContent
+from azure.ai.projects.models import MCPTool, PromptAgentDefinition
 
 from . import connections as CONN
 from . import knowledge_base as KB
@@ -141,21 +141,6 @@ def ensure_agent(client: AIProjectClient, name: str, definition: PromptAgentDefi
     return ("created" if latest is None else "updated"), str(created.version)
 
 
-def register_native_skill(client: AIProjectClient, spec: SkillSpec, base_body: str, state: dict, log: Log) -> str:
-    """Optional: publish the skill as a native Foundry Skill (portal visibility). Hash-guarded via local state."""
-    body = compose_instructions(base_body, spec)
-    h = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
-    if state.get("native_skills", {}).get(spec.id) == h:
-        return "unchanged"
-    version = client.beta.skills.create(
-        name=spec.id,
-        inline_content=SkillInlineContent(description=spec.description[:1000], instructions=body, metadata={"source": SOURCE_TAG, "spec_hash": h}),
-    )
-    state.setdefault("native_skills", {})[spec.id] = h
-    log(f"  native skill {spec.id} version {version.version}")
-    return "created"
-
-
 def sync_skills(
     settings: Settings,
     skills: dict[str, SkillSpec],
@@ -222,12 +207,51 @@ def sync_skills(
             )
             state["agents"][spec.agent_name] = {"skill_id": spec.id, "version": row.version, "spec_hash": spec_hash(definition), "kb": owner.kb_name}
             log(f"[{spec.id}] agent {spec.agent_name}: {row.action} (version {row.version})")
-            if register_native:
-                row.note = f"native skill: {register_native_skill(client, spec, base_body, state, log)}"
         except Exception as e:  # noqa: BLE001
             row.action = "error"
             row.note = f"{type(e).__name__}: {str(e)[:300]}"
             log(f"[{spec.id}] ERROR {row.note}")
+        report.rows.append(row)
+
+    # ---- native Foundry: skill registry + toolbox, A2A endpoints + concierge (all hash-guarded) ----
+    from . import foundry_native as FN
+
+    synced_ids = [s.id for s in targets]
+    if settings.foundry_native_skills or register_native:
+        for spec in targets:
+            try:
+                action, version = FN.publish_skill(client, spec, base_body, state, log)
+                report.rows.append(SyncRow(skill_id=f"{spec.id} (registry)", agent=FN.registry_name(spec.id), action=action if action != "published" else "updated", version=version))
+            except Exception as e:  # noqa: BLE001
+                report.rows.append(SyncRow(skill_id=f"{spec.id} (registry)", agent=FN.registry_name(spec.id), action="error", note=f"{type(e).__name__}: {str(e)[:200]}"))
+                log(f"[{spec.id}] registry ERROR {type(e).__name__}: {str(e)[:200]}")
+        try:
+            v = FN.ensure_skill_toolbox(client, sorted(skills), state, log)
+            report.rows.append(SyncRow(skill_id="(skill toolbox)", agent=FN.SKILL_TOOLBOX, action="ok", version=v or ""))
+        except Exception as e:  # noqa: BLE001
+            report.rows.append(SyncRow(skill_id="(skill toolbox)", agent=FN.SKILL_TOOLBOX, action="error", note=f"{type(e).__name__}: {str(e)[:200]}"))
+    connection_ids: dict[str, str] = dict(state.get("a2a_connections", {}))
+    progress(log, "sync", len(targets), len(targets) + 1, message="A2A handoff")
+    for spec in targets:
+        try:
+            a = FN.enable_a2a(client, spec, state, log)
+            if spec.id not in connection_ids:
+                connection_ids[spec.id] = FN.ensure_a2a_connection(settings, spec, cred)
+                log(f"  A2A connection {FN.a2a_connection_name(spec.id)} ready")
+            report.rows.append(SyncRow(skill_id=f"{spec.id} (A2A)", agent=spec.agent_name, connection=FN.a2a_connection_name(spec.id), action="unchanged" if a == "unchanged" else "updated", note="A2A endpoint + connection"))
+        except Exception as e:  # noqa: BLE001
+            report.rows.append(SyncRow(skill_id=f"{spec.id} (A2A)", agent=spec.agent_name, action="error", note=f"{type(e).__name__}: {str(e)[:200]}"))
+            log(f"[{spec.id}] A2A ERROR {type(e).__name__}: {str(e)[:200]}")
+    state["a2a_connections"] = connection_ids
+    if connection_ids:
+        row = SyncRow(skill_id="(concierge)", agent=FN.CONCIERGE_AGENT)
+        try:
+            row.action, row.version = ensure_agent(client, FN.CONCIERGE_AGENT, FN.concierge_definition(settings, skills, connection_ids), {"source": SOURCE_TAG, "skill_id": "concierge"},
+                                                   "bankrag concierge: hands each question to a specialist agent over A2A", keep=keep)
+            log(f"[concierge] agent {FN.CONCIERGE_AGENT}: {row.action} (version {row.version})")
+        except Exception as e:  # noqa: BLE001
+            row.action, row.note = "error", f"{type(e).__name__}: {str(e)[:300]}"
+            log(f"[concierge] ERROR {row.note}")
         report.rows.append(row)
 
     if True:  # the router enum lists every skill id, so reconcile it on every sync (cheap: hash-guarded)
@@ -277,6 +301,7 @@ def status(settings: Settings, skills: dict[str, SkillSpec], base_body: str) -> 
     except Exception as e:  # noqa: BLE001
         auth_error = f"error: {type(e).__name__}"
     owners = plan_kb_owners(settings, skills)
+    native = _load_state(settings)
     latest_by_name: dict = {}
     list_error = ""
     if client is not None:
@@ -301,6 +326,7 @@ def status(settings: Settings, skills: dict[str, SkillSpec], base_body: str) -> 
                 "id": spec.id, "name": spec.name, "product_category": spec.product_category, "model": spec.model or settings.default_chat_model,
                 "top_k": spec.top_k, "filter": spec.effective_filter, "agent": spec.agent_name, "knowledge_base": owners[spec.id].kb_name if owners[spec.id].id == spec.id else "(none: upload documents + sync)",
                 "local_hash": local, "remote_hash": remote, "version": version, "state": state, "path": str(spec.path) if spec.path else "",
+                "registry_version": native.get("registry", {}).get(spec.id, {}).get("version", ""), "a2a": spec.id in native.get("a2a_connections", {}),
             }
         )
     return rows

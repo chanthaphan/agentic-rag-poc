@@ -84,6 +84,9 @@ class ChatSession:
     def ask_stream(self, question: str, *, force_skill: Optional[str] = None, with_sources: bool = True) -> Iterator[dict[str, Any]]:
         """Yields events: route -> delta* -> tool* -> done(answer). The Sources retrieve runs in parallel with the agent call."""
         t_start = time.perf_counter()
+        if self.settings.orchestration_mode == "a2a" and not force_skill:
+            yield from self._ask_concierge(question, t_start)
+            return
         decision = self.decide(question, force_skill)
         self.history.append({"role": "user", "content": question})
         if decision.skill_id == R.OFFTOPIC:
@@ -188,6 +191,71 @@ class ChatSession:
             conversation_id=self.conversation_id or "",
             trace=trace,
             retrieval_context=extra.get("retrieval_texts", []),
+        )}
+
+    def _ask_concierge(self, question: str, t_start: float) -> Iterator[dict[str, Any]]:
+        """Handoff mode: the bank-concierge agent picks a specialist and calls it over A2A inside Foundry (no local router)."""
+        from .foundry_native import CONCIERGE_AGENT
+
+        lang = detect_language(question)
+        self.history.append({"role": "user", "content": question})
+        yield {"type": "route", "skill_id": "concierge", "confidence": 1.0, "language": lang, "reason": "handoff: the concierge agent chooses the specialist over A2A", "agent_name": CONCIERGE_AGENT, "route_ms": 0}
+        rotated = False
+        if self.conversation_id is None or self.turns_in_conversation >= MAX_TURNS_PER_CONVERSATION:
+            rotated = self.conversation_id is not None
+            self.conversation_id = self.openai.conversations.create(items=self._recap_items() if rotated else []).id
+            self.turns_in_conversation = 0
+        yield {"type": "conversation", "conversation_id": self.conversation_id, "rotated": rotated}
+        t_agent = time.perf_counter()
+        stream = self.openai.responses.create(
+            stream=True, conversation=self.conversation_id,
+            input=[{"type": "message", "role": "developer", "content": REPLY_HINT[lang]}, {"type": "message", "role": "user", "content": question}],
+            extra_body={"agent_reference": {"name": CONCIERGE_AGENT, "type": "agent_reference"}},
+        )
+        final = None
+        for event in stream:
+            et = getattr(event, "type", "")
+            if et == "response.output_text.delta":
+                yield {"type": "delta", "text": event.delta}
+            elif et == "response.output_item.done":
+                item = getattr(event, "item", None)
+                if str(getattr(item, "type", "")).startswith("a2a"):
+                    yield {"type": "tool", "name": str(getattr(item, "type", "")), "arguments": _a2a_summary(item)[:300], "error": str(getattr(item, "error", "") or "")}
+            elif et == "response.completed":
+                final = event.response
+            elif et in ("response.failed", "response.incomplete", "error"):
+                err = getattr(event, "response", None) or event
+                detail = getattr(getattr(err, "error", None), "message", None) or getattr(event, "message", None) or et
+                raise RuntimeError(f"concierge stream {et}: {detail}")
+        if final is None:
+            raise RuntimeError("concierge stream ended without a completed response")
+        agent_ms = int((time.perf_counter() - t_agent) * 1000)
+        text, citations, tool_calls, extra = parse_response(final)
+        specialist = _a2a_specialist(tool_calls, self.skills)
+        spec = self.skills.get(specialist)
+        agent_usage = usage_dict(getattr(final, "usage", None))
+        trace = {
+            "timings_ms": {"route": 0, "agent": agent_ms, "sources": 0, "total": int((time.perf_counter() - t_start) * 1000)},
+            "usage": {"router": {}, "agent": agent_usage, "total": agent_usage},
+            "retrieval": extra["retrieval"], "reasoning": extra["reasoning"], "model": getattr(final, "model", "") or "", "response_id": getattr(final, "id", "") or "",
+            "handoff": {"mode": "a2a", "concierge": CONCIERGE_AGENT, "specialist": specialist, "calls": [c for c in tool_calls if str(c.get("type", "")).startswith("a2a")]},
+        }
+        try:
+            trace["cost"] = turn_cost(load_pricing(self.settings), self.settings.router_model, trace["model"] or (self.settings.concierge_model or self.settings.default_chat_model), trace["usage"], 0)
+            trace["cost"]["note"] = "concierge tokens only; the specialist's own call is not visible in this response"
+        except Exception as e:  # noqa: BLE001
+            trace["cost"] = {"error": str(e)[:120]}
+        citations = resolve_citations(citations, [], lookup=lambda ids: _lookup_docs(self.settings, ids))
+        self.history.append({"role": "assistant", "content": text})
+        self.prev_skill = specialist if specialist in self.skills else self.prev_skill
+        self.turns_in_conversation += 1
+        trace["conversation"] = {"id": self.conversation_id, "turn": self.turns_in_conversation, "rotated": rotated}
+        asked = [h["content"] for h in self.history if h["role"] == "user"]
+        yield {"type": "done", "answer": Answer(
+            skill_id=specialist, confidence=1.0, route_reason=f"concierge handed off to {spec.agent_name if spec else 'no specialist'} over A2A" if spec else "concierge answered without a handoff",
+            text=strip_markers(text), language=lang, suggestions=pick_suggestions(spec or self.skills.get("general"), asked, self.skills, language=lang),
+            citations=citations, references=[], agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
+            retrieval_context=(extra.get("retrieval_texts") or []) + _a2a_outputs(tool_calls),
         )}
 
     def _recap_items(self) -> list[dict[str, Any]]:
@@ -355,6 +423,8 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
                         if url and url not in seen:
                             seen.add(url)
                             citations.append(Citation(title=getattr(ann, "title", "") or "", url=url))
+        elif itype.startswith("a2a"):
+            tool_calls.append({"type": itype, **_a2a_fields(item)})
         elif itype == "mcp_call":
             out = getattr(item, "output", None)
             out_s = str(out) if out is not None else ""
@@ -382,3 +452,47 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
         elif itype == "mcp_list_tools":
             tool_calls.append({"type": itype, "tools": [getattr(t, "name", "") for t in (getattr(item, "tools", None) or [])]})
     return text, citations, tool_calls, {"retrieval": retrieval, "reasoning": reasoning, "retrieval_texts": retrieval_texts}
+
+
+
+# ---------------- A2A helpers ----------------
+_A2A_SKIP = {"type", "id", "status"}
+
+
+def _a2a_fields(item: Any) -> dict[str, Any]:
+    """Flatten the useful attributes of an a2a_preview_call / a2a_preview_call_output item (shape is preview and may change)."""
+    out: dict[str, Any] = {}
+    try:
+        src = item.model_dump() if hasattr(item, "model_dump") else dict(getattr(item, "__dict__", {}))  # model_dump keeps the preview-only extras (name, arguments, output)
+    except Exception:  # noqa: BLE001
+        src = dict(getattr(item, "__dict__", {}))
+    for k, v in src.items():
+        if k.startswith("_") or k in _A2A_SKIP or v is None or k in ("content", "role", "phase", "agent_reference", "response_id"):
+            continue
+        s = v if isinstance(v, (str, int, float, bool)) else json.dumps(v, ensure_ascii=False, default=str)
+        out[k] = s[:4000] if isinstance(s, str) else s
+    out["id"] = getattr(item, "id", "")
+    out["status"] = getattr(item, "status", "")
+    return out
+
+
+def _a2a_summary(item: Any) -> str:
+    f = _a2a_fields(item)
+    return f"{f.get('name', '')}: " + str(f.get("arguments") or f.get("output") or "")[:200]
+
+
+def _a2a_specialist(tool_calls: list[dict[str, Any]], skills: dict[str, SkillSpec]) -> str:
+    """Which skill agent the concierge called: match agent / connection names inside the A2A items."""
+    for c in tool_calls:
+        if str(c.get("type", "")).startswith("a2a") and str(c.get("name", "")).startswith("a2a-") and c["name"][4:] in skills:
+            return c["name"][4:]
+    blob = " ".join(str(v) for c in tool_calls if str(c.get("type", "")).startswith("a2a") for v in c.values())
+    for spec in sorted(skills.values(), key=lambda s: -len(s.id)):
+        if spec.agent_name in blob or f"a2a-{spec.id}" in blob:
+            return spec.id
+    return "concierge"
+
+
+def _a2a_outputs(tool_calls: list[dict[str, Any]]) -> list[str]:
+    """The specialists' answers as returned over A2A: the concierge's grounding context (used by the quality evals)."""
+    return [str(c["output"]) for c in tool_calls if c.get("type") == "a2a_preview_call_output" and c.get("output")]

@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL")
+OVERLAY_KEYS = ("ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "FOUNDRY_NATIVE_SKILLS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL")
 _overlay: dict[str, str] = {}
 
 
@@ -80,6 +80,9 @@ class Settings:
     kb_reasoning_effort: str
     kb_llm_deployment: str
     judge_model: str
+    foundry_native_skills: bool
+    orchestration_mode: str  # router | a2a
+    concierge_model: str
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -125,6 +128,9 @@ class Settings:
             kb_reasoning_effort=_env("KB_REASONING_EFFORT", "minimal"),
             kb_llm_deployment=_env("KB_LLM_DEPLOYMENT", "gpt-4.1-mini"),
             judge_model=_env("JUDGE_MODEL", "gpt-4.1-mini"),
+            foundry_native_skills=_env("FOUNDRY_NATIVE_SKILLS", "1").strip().lower() in ("1", "true", "yes", "on"),
+            orchestration_mode=(_env("ORCHESTRATION_MODE", "router").strip().lower() or "router"),
+            concierge_model=_env("CONCIERGE_MODEL", ""),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),

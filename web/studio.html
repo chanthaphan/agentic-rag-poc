@@ -35,6 +35,11 @@
         <div id="sk-cards" class="sk-cards"></div>
         <div class="muted sk-legend"><span class="dot in-sync"></span>in sync <span class="dot outdated"></span>outdated (save &amp; sync) <span class="dot missing"></span>not deployed</div>
       </div>
+      <div class="panel" id="sk-registry">
+        <div class="panel-head"><h3>Foundry skill registry</h3><span id="rg-status" class="muted"></span><span class="spacer"></span><button id="rg-refresh" class="btn-secondary">Load</button></div>
+        <div class="muted">Skills published to the Foundry Skills API (name <code>bankrag-&lt;id&gt;</code>) and attached to the toolbox <code>bankrag-skills</code>. Skills authored in the Foundry portal or VS Code can be imported here.</div>
+        <div id="rg-list" class="rg-list"></div>
+      </div>
       <div class="panel" id="sk-syncpanel">
         <div class="panel-head"><h3>Foundry sync</h3><span id="sync-state" class="pill">idle</span></div>
         <div id="sync-hint" class="muted">Edits reach the assistant only after a sync. "Save &amp; sync" pushes one skill; "Sync all" reconciles every agent, knowledge base and the router.</div>
@@ -342,6 +347,8 @@
     <div class="form" id="rt-form">
       <div class="two"><label>Router model <select id="rt-ROUTER_MODEL"></select></label><label>Default skill model <select id="rt-DEFAULT_CHAT_MODEL"></select></label></div>
       <div class="two"><label>Knowledge base reasoning <select id="rt-KB_REASONING_EFFORT"><option>minimal</option><option>low</option><option>medium</option></select></label><label>KB LLM deployment (for low/medium) <select id="rt-KB_LLM_DEPLOYMENT"></select></label></div>
+      <div class="two"><label>Orchestration <small>(how a question reaches a skill)</small><select id="rt-ORCHESTRATION_MODE"><option value="router">router: app-side router agent picks the skill (fast, one hop)</option><option value="a2a">a2a: Foundry concierge agent hands off to the specialist over A2A (native, two hops)</option></select></label><label>Concierge model <small>(a2a mode)</small><select id="rt-CONCIERGE_MODEL"></select></label></div>
+      <div class="two"><label>Foundry skill registry <select id="rt-FOUNDRY_NATIVE_SKILLS"><option value="1">on: publish every skill to the Foundry Skills API + toolbox bankrag-skills on sync</option><option value="0">off</option></select></label><label>Judge model <small>(quality evals)</small><select id="rt-JUDGE_MODEL"></select></label></div>
       <div class="two"><label>Assistant name <input id="rt-ASSISTANT_NAME"></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
       <div class="toolbar"><button id="rt-save" data-admin>Save settings</button><button id="rt-save-sync" class="btn-secondary" data-admin>Save &amp; sync all agents</button><span class="muted admin-note" data-tester>read-only: models and runtime settings are changed by a Studio admin</span><span id="rt-status" class="muted"></span></div>
     </div>

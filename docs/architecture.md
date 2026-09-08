@@ -101,3 +101,7 @@ The server enforces this (`require_admin` on the routes, plus checks for `full=t
 
 In the customer app, `GET /sessions` returns only the signed-in person's conversations (matched by email, or by name for sessions saved before emails were recorded) and `GET /sessions/{id}`, `/chat` on an existing session and `/chat/{id}/reset` refuse other people's sessions with 403. Studio members (tester or admin) may open any session and can pass `?all=1` to list them all; Studio's Conversations tab uses the review endpoints, which already cover everyone. Without SSO (local dev) nothing is filtered.
 
+## Native Foundry: registry and A2A handoff
+
+`foundry_native.py` runs inside `sync_skills`: publish each skill to the Foundry Skills API (hash-guarded, default version promoted) and the `bankrag-skills` toolbox; enable incoming A2A on each skill agent with an agent card; create `a2a-<id>` RemoteA2A connections; maintain the `bank-concierge` prompt agent whose tools are one `A2APreviewTool` per specialist. `ChatSession._ask_concierge` is used when `ORCHESTRATION_MODE=a2a`: no local router, the concierge streams its reply, A2A items land in `tool_calls`, the specialist is inferred from the A2A item fields and the trace carries a `handoff` block. Registry routes: `GET /registry/skills`, `GET /registry/skills/{name}`, `POST /registry/import`.
+

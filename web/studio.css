@@ -217,3 +217,8 @@ pre.log:empty { display:none; }
 .tr-by { display:block; font-size:11px; opacity:.85; margin-bottom:2px; }
 body.role-tester [data-admin] { display:none !important; } body:not(.role-tester) [data-tester] { display:none !important; } .admin-note { font-size:12px; }
 body.role-tester #spane-base textarea, body.role-tester #spane-runtime input, body.role-tester #spane-runtime select, body.role-tester #pr-table input, body.role-tester #pr-retrieval { pointer-events:none; background:#f4f6fb; color:var(--gray-70); }
+
+/* ---- registry + handoff ---- */
+.rg-list { margin-top:8px; font-size:12px; } .rg-list .rg { display:grid; grid-template-columns: 1fr auto; gap:6px; padding:5px 0; border-top:1px solid #eef0f3; align-items:center; } .rg-list .rg:first-child { border-top:none; }
+.rg-list .rg .n { font-weight:600; } .rg-list .rg .d { color:var(--gray-60); display:block; } .rg-list .rg button { padding:2px 8px; font-size:11px; }
+.sk-card .pill.a2a { background:#efe9fb; color:#622184; } .sk-card .pill.reg { background:#e8f1ff; color:var(--bbl-70); }

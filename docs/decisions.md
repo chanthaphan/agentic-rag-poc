@@ -29,3 +29,21 @@ The base rules (`skills/_base/SKILL.md`) now carry a Tone section: the assistant
 documents, sources, knowledge base or tools, phrases gaps as "I don't have the details on that yet" plus a next step,
 uses one consistent Thai voice (ค่ะ/คะ), and does not fill gaps with generic explanations. Grounding stays mandatory;
 only the wording the customer sees changed. Product skills were rephrased to match.
+
+## 23. Skills are also published to the Foundry skill registry
+Every SKILL.md is published on sync as a versioned Foundry Skill (`bankrag-<id>`, composed base + skill
+instructions) and attached to the toolbox `bankrag-skills`. Foundry becomes the shared, versioned store: the skills
+are visible in the portal and VS Code, loadable by any MCP client, and a skill authored in Foundry can be imported
+into the app (Skills > Foundry skill registry > Import). The prompt agents still get their instructions from the
+app's SKILL.md at sync time, because prompt agents cannot yet consume toolbox skills directly (that is an Agent
+Framework / hosted-agent feature).
+
+## 24. Handoff over A2A as an alternative to the app-side router
+Classic "connected agents" no longer exist in Foundry Agent Service; the replacement is A2A. Sync exposes each skill
+agent as an A2A endpoint (agent card from the skill metadata), creates a RemoteA2A connection per agent
+(project managed identity, needs the Foundry Agent Consumer role: infra/04-a2a-role.sh) and maintains the
+`bank-concierge` agent with one A2A tool per specialist. `ORCHESTRATION_MODE=a2a` sends chat to the concierge, which
+picks and calls the specialist inside Foundry; `router` (default) keeps the one-hop app router. Trade-off measured on
+the POC: the handoff is native and visible in Foundry, but adds a second model hop (about twice the latency), the
+specialist's tokens are not reported in the concierge response, and A2A is preview, text-only and non-streaming.
+
