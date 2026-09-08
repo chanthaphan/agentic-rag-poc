@@ -7,15 +7,16 @@ try { for (const r of JSON.parse(localStorage.getItem("cv-box") || "[]")) CV.box
 function saveBox() { try { localStorage.setItem("cv-box", JSON.stringify(Array.from(CV.box.values()))); } catch {} renderBox(); }
 
 async function loadConversations() {
-  const params = new URLSearchParams({ skill: $("#cv-skill").value, rating: $("#cv-rating").value, q: $("#cv-q").value.trim(), source: $("#cv-source").value, limit: 500 });
+  const params = new URLSearchParams({ skill: $("#cv-skill").value, rating: $("#cv-rating").value, q: $("#cv-q").value.trim(), source: $("#cv-source").value, user: $("#cv-user").value, limit: 500 });
   $("#cv-status").textContent = "loading…";
-  const [rows, list] = await Promise.all([api(`/conversations/questions?${params}`), api(`/sessions/review?skill=${encodeURIComponent($("#cv-skill").value)}&rating=${encodeURIComponent($("#cv-rating").value === "any" ? "" : $("#cv-rating").value)}`)]);
+  const [rows, list, users] = await Promise.all([api(`/conversations/questions?${params}`), api(`/sessions/review?skill=${encodeURIComponent($("#cv-skill").value)}&rating=${encodeURIComponent($("#cv-rating").value === "any" ? "" : $("#cv-rating").value)}&user=${encodeURIComponent($("#cv-user").value)}`), api("/conversations/users").catch(() => [])]);
+  const us = $("#cv-user"); if (us.options.length <= 1) for (const u of users) { const o = document.createElement("option"); o.value = u; o.textContent = u; us.appendChild(o); }
   CV.rows = rows; CV.page = 0; renderCvQuestions();
   const sel = $("#cv-skill"); if (sel.options.length <= 1) { const skills = new Set(rows.map((r) => r.skill_id).filter(Boolean)); list.forEach((s) => (s.skills || []).forEach((x) => skills.add(x))); for (const x of Array.from(skills).sort()) { const o = document.createElement("option"); o.value = x; o.textContent = x; sel.appendChild(o); } }
   const tb = $("#cv-table tbody"); tb.innerHTML = "";
   for (const s of list) {
     const tr = document.createElement("tr"); tr.className = "row" + (CV.session === s.id ? " sel" : "");
-    tr.innerHTML = `<td>${new Date(s.created_at).toLocaleString()}<br><span class="muted">${esc(s.source || "app")}</span></td><td>${esc(s.title || "(empty)")}</td><td>${s.turns}</td><td>${(s.skills || []).map((x) => `<span class="pill info">${esc(x)}</span>`).join(" ")}</td><td>${fmtUsd(s.cost_usd)}</td><td>${s.up || 0}/${s.down || 0}</td><td><button class="btn-danger del">✕</button></td>`;
+    tr.innerHTML = `<td>${new Date(s.created_at).toLocaleString()}<br><span class="muted">${esc(s.source || "app")}</span></td><td>${s.user_name ? `<b>${esc(s.user_name)}</b><br><span class="muted">${esc(s.user_email || "")}</span>` : '<span class="muted">unknown</span>'}</td><td>${esc(s.title || "(empty)")}</td><td>${s.turns}</td><td>${(s.skills || []).map((x) => `<span class="pill info">${esc(x)}</span>`).join(" ")}</td><td>${fmtUsd(s.cost_usd)}</td><td>${s.up || 0}/${s.down || 0}</td><td><button class="btn-danger del">✕</button></td>`;
     tr.addEventListener("click", (e) => { if (e.target.classList.contains("del")) return; openTranscript(s.id); });
     tr.querySelector(".del").addEventListener("click", async () => { if (!confirm("Delete this conversation?")) return; await api(`/sessions/${s.id}`, { method: "DELETE" }); loadConversations(); });
     tb.appendChild(tr);
@@ -25,7 +26,7 @@ async function loadConversations() {
 }
 S.loaders.conversations = loadConversations;
 ["#cv-refresh"].forEach((s) => $(s).addEventListener("click", loadConversations));
-["#cv-skill", "#cv-rating", "#cv-source"].forEach((s) => $(s).addEventListener("change", loadConversations));
+["#cv-skill", "#cv-rating", "#cv-source", "#cv-user"].forEach((s) => $(s).addEventListener("change", loadConversations));
 let cvTimer; $("#cv-q").addEventListener("input", () => { clearTimeout(cvTimer); cvTimer = setTimeout(loadConversations, 350); });
 
 function renderCvQuestions() {
@@ -34,7 +35,7 @@ function renderCvQuestions() {
   const tb = $("#cv-qtable tbody"); tb.innerHTML = "";
   for (const r of slice) {
     const k = boxKey(r); const tr = document.createElement("tr"); tr.className = CV.box.has(k) ? "sel" : ""; tr.dataset.key = k;
-    tr.innerHTML = `<td><input type="checkbox" class="pick" ${CV.box.has(k) ? "checked" : ""}></td><td><span class="qtext" title="open the conversation">${esc(r.question)}</span><span class="ans">${esc((r.answer || "").slice(0, 140))}${(r.answer || "").length > 140 ? "…" : ""}</span></td><td><span class="pill info">${esc(r.skill_id || "?")}</span>${r.language ? ` <span class="pill">${esc(r.language)}</span>` : ""}</td><td>${r.rating === "up" ? "👍" : r.rating === "down" ? "👎" : ""}${r.comment ? ` <span class="muted" title="${esc(r.comment)}">💬</span>` : ""}</td><td>${fmtUsd(r.cost_usd)}</td><td class="muted">${r.at ? new Date(r.at).toLocaleString() : ""}<br>${esc(r.source)}</td><td><button class="btn-secondary open">open</button></td>`;
+    tr.innerHTML = `<td><input type="checkbox" class="pick" ${CV.box.has(k) ? "checked" : ""}></td><td><span class="qtext" title="open the conversation">${esc(r.question)}</span><span class="ans">${esc((r.answer || "").slice(0, 140))}${(r.answer || "").length > 140 ? "…" : ""}</span></td><td><span class="pill info">${esc(r.skill_id || "?")}</span>${r.language ? ` <span class="pill">${esc(r.language)}</span>` : ""}</td><td>${r.rating === "up" ? "👍" : r.rating === "down" ? "👎" : ""}${r.comment ? ` <span class="muted" title="${esc(r.comment)}">💬</span>` : ""}</td><td>${fmtUsd(r.cost_usd)}</td><td>${r.user ? `<b>${esc(r.user)}</b><br>` : ""}<span class="muted">${r.at ? new Date(r.at).toLocaleString() : ""} · ${esc(r.source)}</span></td><td><button class="btn-secondary open">open</button></td>`;
     tr.querySelector(".pick").addEventListener("change", (e) => { toggle(r, e.target.checked); tr.classList.toggle("sel", e.target.checked); });
     tr.querySelector(".qtext").addEventListener("click", () => openTranscript(r.session_id, r.idx));
     tr.querySelector(".open").addEventListener("click", () => openTranscript(r.session_id, r.idx));
@@ -89,12 +90,12 @@ async function openTranscript(id, focusIdx = null) {
   const rec = await api(`/sessions/${id}`); const fb = await api(`/feedback?session_id=${id}`).catch(() => []);
   const byIdx = Object.fromEntries(fb.map((f) => [f.idx, f]));
   CV.session = id; $("#cv-transcript-panel").hidden = false;
-  $("#cv-transcript-title").textContent = rec.title || "(untitled)"; $("#cv-transcript-sub").textContent = `${rec.id} · ${rec.turns.length} messages · ${rec.source || "app"} · ${new Date(rec.created_at).toLocaleString()}`;
+  $("#cv-transcript-title").textContent = rec.title || "(untitled)"; $("#cv-transcript-sub").textContent = `${rec.user_name ? `${rec.user_name}${rec.user_email ? ` <${rec.user_email}>` : ""} · ` : ""}${rec.id} · ${rec.turns.length} messages · ${rec.source || "app"} · ${new Date(rec.created_at).toLocaleString()}`;
   let html = "";
   rec.turns.forEach((t, i) => {
     if (t.role === "user") {
       const a = rec.turns[i + 1]; const r = { session_id: id, idx: i, question: t.text, skill_id: a?.skill_id || "", language: a?.language || "" }; const k = boxKey(r);
-      html += `<div class="tr-row"><label><input type="checkbox" class="tpick" data-idx="${i}" ${CV.box.has(k) ? "checked" : ""}> select</label><div class="tr-user" id="tr-${i}">${esc(t.text)}</div></div>`; return;
+      html += `<div class="tr-row"><label><input type="checkbox" class="tpick" data-idx="${i}" ${CV.box.has(k) ? "checked" : ""}> select</label><div class="tr-user" id="tr-${i}">${t.by || rec.user_name ? `<span class="tr-by">${esc(t.by || rec.user_name)}</span>` : ""}${esc(t.text)}</div></div>`; return;
     }
     const f = byIdx[i] || {}; const q = rec.turns[i - 1]?.text || "";
     html += `<div class="tr-assistant"><div class="tr-text">${md(t.text)}</div><div class="tr-meta"><span class="pill info">${esc(t.skill_id)}</span> ${t.language ? `<span class="pill">${esc(t.language)}</span>` : ""} ${fmtUsd((t.trace || {}).cost?.total_usd)}

@@ -6,9 +6,16 @@
 <form class="login form" method="post" action="/studio/login">
   <h1>bankrag Studio</h1><p>Tester sign-in for skills, knowledge, evals and conversations.</p>
   <div class="err" id="err" hidden>Wrong password. Try again.</div>
-  <label>Your name <small>(shown on feedback)</small><input name="tester" placeholder="e.g. Atthawut" autocomplete="name"></label>
+  <label>Your name <small id="name-note">(any name; shown on feedback and conversations)</small><input name="tester" id="tester" placeholder="e.g. Pim" autocomplete="name"></label>
   <label>Studio password<input name="password" type="password" required autofocus autocomplete="current-password"></label>
   <div class="toolbar"><button type="submit">Sign in</button><a class="btn-secondary" href="/">Back to app</a></div>
 </form>
-<script>if (location.search.includes("error=1")) document.getElementById("err").hidden = false;</script>
+<script>
+if (location.search.includes("error=1")) document.getElementById("err").hidden = false;
+fetch("/whoami", { credentials: "same-origin" }).then((r) => r.json()).then((w) => {
+  const inp = document.getElementById("tester");
+  if (w.sso && w.name) { inp.value = w.name; document.getElementById("name-note").textContent = `(signed in with Microsoft as ${w.email}; change it if you like)`; }
+  else if (w.tester) inp.value = w.tester;
+}).catch(() => {});
+</script>
 </body></html>

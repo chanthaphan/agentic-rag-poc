@@ -72,3 +72,7 @@ Long actions run as in-memory jobs (`api._start_job`). Besides a log, each job c
 
 A bundle zip carries skills/, knowledge/ (PDFs optional), evals/ and config (pricing.yaml, settings.json). `bundle.inspect_bundle` previews new / changed / same files against the local copy; `import_bundle` writes only the wanted parts and reports the skills and knowledge categories that changed so `POST /bundle?ingest=1&sync=1` can re-ingest those categories and re-sync the agents as one job. Eval question sets round-trip through xlsx or CSV (`GET /evals/{set}.xlsx`, `POST /evals/{set}/upload?mode=append|replace`; header names are matched loosely, a headerless file is read as one question per row).
 
+## Who asked
+
+`api.identity` reads the Easy Auth headers (`x-ms-client-principal`, `x-ms-client-principal-name`) to get the signed-in name and email. New sessions record `user_name` / `user_email`, every user turn records `by`, and the mobile app greets with the SSO first name. Studio shows the name on the question list, the session list and the transcript, filters by user, and the xlsx export carries an 'Asked by' column. Without SSO (local dev) the fields stay empty and the Studio tester name is whatever was typed at sign-in.
+

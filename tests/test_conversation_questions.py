@@ -41,7 +41,7 @@ def test_export_and_append_routes(tmp_path, monkeypatch):
     r = c.post("/conversations/export.xlsx", json={"items": [{"session_id": "abcdef123456", "idx": 2}, {"session_id": "abcdef123456", "idx": 0}]}, headers=auth)
     assert r.status_code == 200
     ws = load_workbook(io.BytesIO(r.content))["Questions"]
-    assert ws["C2"].value == "ค่าธรรมเนียมรายปี" and ws["C3"].value == "Infinite lounge visits?" and ws["H2"].value == "down"
+    assert ws["D2"].value == "ค่าธรรมเนียมรายปี" and ws["D3"].value == "Infinite lounge visits?" and ws["I2"].value == "down" and ws["C1"].value == "Asked by"
     r = c.post("/evals/routing/append", json={"cases": [{"q": "Infinite lounge visits?", "skill": "credit-card"}, {"q": "infinite LOUNGE visits?", "skill": "credit-card"}]}, headers=auth)
     assert r.json() == {"added": 1, "skipped": 1, "total": 1}
     assert load_cases(api.settings, "routing") == [{"q": "Infinite lounge visits?", "skill": "credit-card"}]

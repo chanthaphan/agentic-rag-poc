@@ -150,6 +150,7 @@ class Turn(BaseModel):
     role: str  # user | assistant
     text: str
     at: str = ""
+    by: str = ""  # display name of the signed-in person who typed a user turn (from SSO), if known
     skill_id: str = ""
     confidence: Optional[float] = None
     citations: list[Citation] = Field(default_factory=list)
@@ -170,4 +171,6 @@ class SessionRecord(BaseModel):
     conversation_id: Optional[str] = None
     prev_skill: Optional[str] = None
     source: str = "app"  # app | studio | eval
+    user_name: str = ""  # signed-in person who started the session (SSO display name), if known
+    user_email: str = ""
     turns: list[Turn] = Field(default_factory=list)

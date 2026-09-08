@@ -183,8 +183,10 @@ def health():
 
 
 @app.get("/app/config")
-def app_config():
+def app_config(request: Request):
     from .chat import suggestion_language
+
+    who = identity(request)
 
     skills, _ = _skills()
     ordered = ([skills["general"]] if "general" in skills else []) + [s for k, s in skills.items() if k != "general"]
@@ -197,12 +199,49 @@ def app_config():
     starters = by_lang["th"][:3] if by_lang["th"] else by_lang["en"][:3]
     return {
         "starter_prompts_by_lang": by_lang,
-        "user_name": settings.app_user_name,
-        "user_initials": settings.app_user_initials,
+        "user_name": (who["name"].split()[0] if who["name"] else "") or settings.app_user_name,
+        "user_initials": _initials(who["name"]) or settings.app_user_initials,
+        "user_email": who["email"],
         "assistant_name": settings.assistant_name,
         "starter_prompts": starters[:3],
         "skills": [{"id": s.id, "name": s.name, "product_category": s.product_category} for s in skills.values()],
     }
+
+
+# ---------------- identity (Easy Auth / SSO) ----------------
+def identity(request: Request) -> dict:
+    """Who is signed in, from Azure Container Apps Easy Auth headers. Empty when running without SSO (local dev)."""
+    name, email = "", ""
+    raw = request.headers.get("x-ms-client-principal", "")
+    if raw:
+        try:
+            import base64
+
+            claims = json.loads(base64.b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")).get("claims") or []
+            by_type = {}
+            for c in claims:
+                by_type.setdefault(str(c.get("typ", "")).lower(), str(c.get("val", "")))
+            name = by_type.get("name") or by_type.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "")
+            email = (by_type.get("preferred_username") or by_type.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
+                     or by_type.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn") or by_type.get("email") or "")
+        except Exception:  # noqa: BLE001
+            pass
+    if not email:
+        email = request.headers.get("x-ms-client-principal-name", "")
+    if not name and email:
+        name = email.split("@")[0].replace(".", " ").title()
+    return {"name": name[:80], "email": email[:120]}
+
+
+def _initials(name: str) -> str:
+    parts = [p for p in name.replace("@", " ").split() if p]
+    return "".join(p[0] for p in parts[:2]).upper() if parts else ""
+
+
+@app.get("/whoami")
+def whoami(request: Request):
+    who = identity(request)
+    return {**who, "tester": request.cookies.get(TESTER_COOKIE, ""), "sso": bool(who["email"])}
 
 
 # ---------------- sessions + chat ----------------
@@ -228,32 +267,42 @@ def _get_session(sid: Optional[str], skills):
     return rec.id, cs, rec
 
 
+def _stamp_owner(rec, request: Request) -> str:
+    """Record who is chatting (SSO name/email) on a new session; returns the display name for the turn."""
+    who = identity(request)
+    if not rec.user_name and (who["name"] or who["email"]):
+        rec.user_name, rec.user_email = who["name"], who["email"]
+    return who["name"] or rec.user_name
+
+
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
+def chat(req: ChatRequest, request: Request):
     skills, _ = _skills()
     if req.session_id and not SESS.ID_RE.match(req.session_id):
         raise HTTPException(400, "bad session id")
     with _lock:
         sid, session, rec = _get_session(req.session_id, skills)
+        by = _stamp_owner(rec, request)
     try:
         ans = session.ask(req.message, force_skill=req.force_skill, with_sources=req.with_sources)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"{type(e).__name__}: {str(e)[:500]}") from e
     with _lock:
-        SESS.append_turns(rec, req.message, ans)
+        SESS.append_turns(rec, req.message, ans, by=by)
         session.to_record(rec)
         SESS.save_session(settings, rec)
     return ChatResponse(session_id=sid, title=rec.title, answer=ans)
 
 
 @app.post("/chat/stream")
-def chat_stream(req: ChatRequest):
+def chat_stream(req: ChatRequest, request: Request):
     """Server-sent events: route, delta*, tool*, done(answer) | error. Persists the session on done."""
     skills, _ = _skills()
     if req.session_id and not SESS.ID_RE.match(req.session_id):
         raise HTTPException(400, "bad session id")
     with _lock:
         sid, session, rec = _get_session(req.session_id, skills)
+        by = _stamp_owner(rec, request)
     if not rec.turns and req.source:
         rec.source = req.source
 
@@ -264,7 +313,7 @@ def chat_stream(req: ChatRequest):
                 if ev["type"] == "done":
                     ans: Answer = ev["answer"]
                     with _lock:
-                        SESS.append_turns(rec, req.message, ans)
+                        SESS.append_turns(rec, req.message, ans, by=by)
                         session.to_record(rec)
                         SESS.save_session(settings, rec)
                     yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'title': rec.title, 'answer': ans.model_dump()}, ensure_ascii=False)}\n\n"
@@ -301,13 +350,18 @@ def put_pricing(data: dict):
 
 
 @app.get("/sessions/review", dependencies=[Depends(require_studio)])
-def sessions_review(skill: str = "", rating: str = ""):
-    return SESS.review_list(settings, skill=skill, rating=rating)
+def sessions_review(skill: str = "", rating: str = "", user: str = ""):
+    return SESS.review_list(settings, skill=skill, rating=rating, user=user)
+
+
+@studio.get("/conversations/users")
+def conversation_users():
+    return SESS.known_users(settings)
 
 
 @studio.get("/conversations/questions")
-def conversation_questions(skill: str = "", rating: str = "", q: str = "", source: str = "", limit: int = 300):
-    return SESS.question_rows(settings, skill=skill, rating=rating, q=q[:200], source=source, limit=limit)
+def conversation_questions(skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", limit: int = 300):
+    return SESS.question_rows(settings, skill=skill, rating=rating, q=q[:200], source=source, user=user, limit=limit)
 
 
 class QuestionItems(BaseModel):
@@ -1009,7 +1063,7 @@ def post_feedback(req: FeedbackRequest, request: Request):
     if not SESS.ID_RE.match(req.session_id):
         raise HTTPException(400, "bad session id")
     try:
-        return SESS.save_feedback(settings, req.session_id, req.idx, req.rating, req.comment[:1000], request.cookies.get(TESTER_COOKIE, ""))
+        return SESS.save_feedback(settings, req.session_id, req.idx, req.rating, req.comment[:1000], request.cookies.get(TESTER_COOKIE, "") or identity(request)["name"])
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -1076,7 +1130,8 @@ def studio_login_page():
 
 
 @app.post("/studio/login")
-def studio_login(password: str = Form(...), tester: str = Form("")):
+def studio_login(request: Request, password: str = Form(...), tester: str = Form("")):
+    tester = tester.strip() or identity(request)["name"]
     if not _pw_ok(password):
         return RedirectResponse("/studio/login?error=1", status_code=303)
     return _login_ok_response(password, tester)
@@ -1091,7 +1146,8 @@ def studio_logout():
 
 @app.get("/studio/me")
 def studio_me(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)):
-    return {"authed": _studio_authed(request, creds), "tester": request.cookies.get(TESTER_COOKIE, "")}
+    who = identity(request)
+    return {"authed": _studio_authed(request, creds), "tester": request.cookies.get(TESTER_COOKIE, "") or who["name"], "sso": who}
 
 
 app.include_router(studio)

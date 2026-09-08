@@ -169,9 +169,14 @@ def _init_schema(settings: Settings, con: sqlite3.Connection) -> None:
     cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
     if "source" not in cols:
         con.execute("ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'app'")
+    for col in ("user_name", "user_email"):
+        if col not in cols:
+            con.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT DEFAULT ''")
     tcols = {r[1] for r in con.execute("PRAGMA table_info(turns)")}
     if "cost_usd" not in tcols:
         con.execute("ALTER TABLE turns ADD COLUMN cost_usd REAL")
+    if "by" not in tcols:
+        con.execute("ALTER TABLE turns ADD COLUMN by TEXT DEFAULT ''")
     _import_legacy_json(settings, con)
     con.commit()
     _schema_done.add(key)
@@ -198,19 +203,19 @@ def _import_legacy_json(settings: Settings, con: sqlite3.Connection) -> None:
 
 def _write(con: sqlite3.Connection, rec: SessionRecord) -> None:
     con.execute(
-        "INSERT OR REPLACE INTO sessions(id,title,created_at,updated_at,conversation_id,prev_skill,turn_count,data,source) VALUES(?,?,?,?,?,?,?,?,?)",
-        (rec.id, rec.title, rec.created_at, rec.updated_at, rec.conversation_id, rec.prev_skill, len(rec.turns), rec.model_dump_json(), rec.source),
+        "INSERT OR REPLACE INTO sessions(id,title,created_at,updated_at,conversation_id,prev_skill,turn_count,data,source,user_name,user_email) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (rec.id, rec.title, rec.created_at, rec.updated_at, rec.conversation_id, rec.prev_skill, len(rec.turns), rec.model_dump_json(), rec.source, rec.user_name, rec.user_email),
     )
     con.execute("DELETE FROM turns WHERE session_id=?", (rec.id,))
     for i, t in enumerate(rec.turns):
         tr = t.trace or {}
         usage = (tr.get("usage") or {}).get("total") or {}
         con.execute(
-            "INSERT INTO turns(session_id,idx,role,at,text,skill_id,confidence,language,agent_name,route_reason,input_tokens,output_tokens,total_ms,retrieved_docs,cost_usd,data) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO turns(session_id,idx,role,at,text,skill_id,confidence,language,agent_name,route_reason,input_tokens,output_tokens,total_ms,retrieved_docs,cost_usd,data,by) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (rec.id, i, t.role, t.at, t.text, t.skill_id, t.confidence, t.language, t.agent_name, t.route_reason,
              usage.get("input_tokens"), usage.get("output_tokens"), (tr.get("timings_ms") or {}).get("total"), (tr.get("retrieval") or {}).get("documents"),
-             (tr.get("cost") or {}).get("total_usd"), t.model_dump_json()),
+             (tr.get("cost") or {}).get("total_usd"), t.model_dump_json(), t.by),
         )
 
 
@@ -252,9 +257,9 @@ def delete_session(settings: Settings, sid: str) -> bool:
 def list_sessions(settings: Settings, limit: int = 50) -> list[dict]:
     with _lock, connect(settings) as con:
         rows = con.execute(
-            "SELECT id,title,updated_at,created_at,turn_count,prev_skill FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+            "SELECT id,title,updated_at,created_at,turn_count,prev_skill,user_name FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
         ).fetchall()
-    return [{"id": r[0], "title": r[1], "updated_at": r[2], "created_at": r[3], "turns": r[4], "prev_skill": r[5]} for r in rows]
+    return [{"id": r[0], "title": r[1], "updated_at": r[2], "created_at": r[3], "turns": r[4], "prev_skill": r[5], "user_name": r[6] or ""} for r in rows]
 
 
 def stats(settings: Settings) -> dict:
@@ -273,11 +278,11 @@ def stats(settings: Settings) -> dict:
             "per_day": [{"day": r[0], "answers": r[1], "cost_usd": r[2], "input_tokens": r[3]} for r in per_day]}
 
 
-def append_turns(rec: SessionRecord, question: str, answer: Answer) -> None:
+def append_turns(rec: SessionRecord, question: str, answer: Answer, by: str = "") -> None:
     now = _now()
     if not rec.title:
         rec.title = question.strip()[:60]
-    rec.turns.append(Turn(role="user", text=question, at=now, language=answer.language))
+    rec.turns.append(Turn(role="user", text=question, at=now, language=answer.language, by=by or rec.user_name))
     rec.turns.append(
         Turn(
             role="assistant", text=answer.text, at=now, skill_id=answer.skill_id, confidence=answer.confidence,
@@ -289,34 +294,36 @@ def append_turns(rec: SessionRecord, question: str, answer: Answer) -> None:
 
 
 # ---- review + feedback ----
-def review_list(settings: Settings, *, skill: str = "", rating: str = "", limit: int = 200) -> list[dict]:
+def review_list(settings: Settings, *, skill: str = "", rating: str = "", user: str = "", limit: int = 200) -> list[dict]:
     with _lock, connect(settings) as con:
         rows = con.execute(
             "SELECT s.id, s.title, s.created_at, s.updated_at, s.turn_count, s.source, "
             "(SELECT COALESCE(SUM(cost_usd),0) FROM turns t WHERE t.session_id=s.id) AS cost, "
             "(SELECT GROUP_CONCAT(DISTINCT skill_id) FROM turns t WHERE t.session_id=s.id AND t.role='assistant') AS skills, "
             "(SELECT COUNT(*) FROM feedback f WHERE f.session_id=s.id AND f.rating='up') AS up, "
-            "(SELECT COUNT(*) FROM feedback f WHERE f.session_id=s.id AND f.rating='down') AS down "
+            "(SELECT COUNT(*) FROM feedback f WHERE f.session_id=s.id AND f.rating='down') AS down, s.user_name, s.user_email "
             "FROM sessions s ORDER BY s.updated_at DESC LIMIT ?", (limit,)).fetchall()
     out = []
     for r in rows:
         skills = [x for x in (r[7] or "").split(",") if x]
         if skill and skill not in skills:
             continue
+        if user and user not in ((r[10] or ""), (r[11] or "")):
+            continue
         if rating == "up" and not r[8]:
             continue
         if rating == "down" and not r[9]:
             continue
-        out.append({"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3], "turns": r[4], "source": r[5] or "app", "cost_usd": r[6], "skills": skills, "up": r[8], "down": r[9]})
+        out.append({"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3], "turns": r[4], "source": r[5] or "app", "cost_usd": r[6], "skills": skills, "up": r[8], "down": r[9], "user_name": r[10] or "", "user_email": r[11] or ""})
     return out
 
 
-def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", limit: int = 500,
+def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", limit: int = 500,
                   items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
     """Flat customer-question / answer pairs across sessions (newest first) with feedback, for review, selection and export.
     `items` = [(session_id, user_turn_idx)] restricts the result to those questions (any order), e.g. an export selection."""
     sql = ("SELECT u.session_id, u.idx, u.at, u.text, a.text, a.skill_id, a.language, a.confidence, a.cost_usd, a.total_ms, a.retrieved_docs, a.agent_name, "
-           "f.rating, f.comment, f.tester, s.title, s.source, a.input_tokens, a.output_tokens "
+           "f.rating, f.comment, f.tester, s.title, s.source, a.input_tokens, a.output_tokens, COALESCE(NULLIF(u.by,''), s.user_name, '') AS asked_by, s.user_email "
            "FROM turns u JOIN turns a ON a.session_id=u.session_id AND a.idx=u.idx+1 AND a.role='assistant' "
            "JOIN sessions s ON s.id=u.session_id LEFT JOIN feedback f ON f.session_id=a.session_id AND f.idx=a.idx WHERE u.role='user'")
     args: list = []
@@ -330,6 +337,8 @@ def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: s
         sql += " AND (u.text LIKE ? OR a.text LIKE ?)"; args += [f"%{q}%", f"%{q}%"]
     if source:
         sql += " AND COALESCE(s.source,'app')=?"; args.append(source)
+    if user:
+        sql += " AND (u.by=? OR s.user_name=? OR s.user_email=?)"; args += [user, user, user]
     if items:
         sql += " AND (" + " OR ".join("(u.session_id=? AND u.idx=?)" for _ in items) + ")"
         for sid, idx in items:
@@ -339,7 +348,13 @@ def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: s
         rows = con.execute(sql, args).fetchall()
     return [{"session_id": r[0], "idx": r[1], "at": r[2], "question": r[3], "answer": r[4], "skill_id": r[5] or "", "language": r[6] or "", "confidence": r[7],
              "cost_usd": r[8], "total_ms": r[9], "retrieved_docs": r[10], "agent_name": r[11] or "", "rating": r[12], "comment": r[13] or "", "tester": r[14] or "",
-             "session_title": r[15] or "", "source": r[16] or "app", "input_tokens": r[17], "output_tokens": r[18]} for r in rows]
+             "session_title": r[15] or "", "source": r[16] or "app", "input_tokens": r[17], "output_tokens": r[18], "user": r[19] or "", "user_email": r[20] or ""} for r in rows]
+
+
+def known_users(settings: Settings) -> list[str]:
+    with _lock, connect(settings) as con:
+        rows = con.execute("SELECT DISTINCT user_name FROM sessions WHERE user_name<>'' UNION SELECT DISTINCT by FROM turns WHERE by<>'' ORDER BY 1").fetchall()
+    return [r[0] for r in rows]
 
 
 def save_feedback(settings: Settings, session_id: str, idx: int, rating: Optional[str], comment: str, tester: str) -> dict:
