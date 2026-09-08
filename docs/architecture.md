@@ -80,3 +80,20 @@ A bundle zip carries skills/, knowledge/ (PDFs optional), evals/ and config (pri
 
 With Easy Auth in front of the app, `api.studio_role` decides Studio access from the Entra identity alone: the `studio_access` table (SQLite, backed up with the sessions DB) maps email to `admin` or `tester`. Admins manage the list in Settings > Access (`GET/POST /access`, `DELETE /access/{email}`); guards stop removing yourself, a seeded admin or the last admin. `STUDIO_ADMINS` and `STUDIO_TESTERS` (comma-separated emails) seed the table at start so nobody is locked out; once the list has at least one entry, the shared password is no longer accepted for SSO users. Without SSO (local dev, curl basic auth) `STUDIO_PASSWORD` grants admin as before. Signed-in people who are not on the list get a no-access page and can still use the customer app.
 
+### Roles
+
+| Action | tester | admin |
+|---|---|---|
+| Open Studio, view every tab except Access | yes | yes |
+| Skills: create, edit, save, sync one or all, upload zip, playground, versions and restore | yes | yes |
+| Skills: delete a skill (and its Foundry agent / knowledge base), prune | no | yes |
+| Knowledge: upload, crawl, import URLs, incremental ingest, re-ingest one file, chunk browser, search | yes | yes |
+| Knowledge: delete a file, full re-ingest of a category | no | yes |
+| Evals: edit question sets, upload xlsx/csv, run routing / grounded / quality / comparison, export, delete runs | yes | yes |
+| Conversations: review, rate, comment, selection box, export, send to evals | yes | yes |
+| Conversations: delete a conversation | no | yes |
+| Settings: usage, prices, base rules, runtime settings (read) and bundle export | yes | yes |
+| Settings: change prices, base rules, runtime settings; import a bundle; manage Access | no | yes |
+
+The server enforces this (`require_admin` on the routes, plus checks for `full=true` ingest and `prune=true` sync); the Studio hides the same controls for testers.
+

@@ -16,7 +16,7 @@ async function loadConversations() {
   const tb = $("#cv-table tbody"); tb.innerHTML = "";
   for (const s of list) {
     const tr = document.createElement("tr"); tr.className = "row" + (CV.session === s.id ? " sel" : "");
-    tr.innerHTML = `<td>${new Date(s.created_at).toLocaleString()}<br><span class="muted">${esc(s.source || "app")}</span></td><td>${s.user_name ? `<b>${esc(s.user_name)}</b><br><span class="muted">${esc(s.user_email || "")}</span>` : '<span class="muted">unknown</span>'}</td><td>${esc(s.title || "(empty)")}</td><td>${s.turns}</td><td>${(s.skills || []).map((x) => `<span class="pill info">${esc(x)}</span>`).join(" ")}</td><td>${fmtUsd(s.cost_usd)}</td><td>${s.up || 0}/${s.down || 0}</td><td><button class="btn-danger del">✕</button></td>`;
+    tr.innerHTML = `<td>${new Date(s.created_at).toLocaleString()}<br><span class="muted">${esc(s.source || "app")}</span></td><td>${s.user_name ? `<b>${esc(s.user_name)}</b><br><span class="muted">${esc(s.user_email || "")}</span>` : '<span class="muted">unknown</span>'}</td><td>${esc(s.title || "(empty)")}</td><td>${s.turns}</td><td>${(s.skills || []).map((x) => `<span class="pill info">${esc(x)}</span>`).join(" ")}</td><td>${fmtUsd(s.cost_usd)}</td><td>${s.up || 0}/${s.down || 0}</td><td><button class="btn-danger del" data-admin>✕</button></td>`;
     tr.addEventListener("click", (e) => { if (e.target.classList.contains("del")) return; openTranscript(s.id); });
     tr.querySelector(".del").addEventListener("click", async () => { if (!confirm("Delete this conversation?")) return; await api(`/sessions/${s.id}`, { method: "DELETE" }); loadConversations(); });
     tb.appendChild(tr);

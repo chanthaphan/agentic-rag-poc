@@ -215,3 +215,5 @@ table.list tr.row { display:table-row; }
 .ev-file { display:inline-flex; gap:6px; align-items:center; margin-left:8px; padding-left:10px; border-left:1px solid var(--gray-20); } .ev-file select { padding:6px 8px; font-size:12px; }
 pre.log:empty { display:none; }
 .tr-by { display:block; font-size:11px; opacity:.85; margin-bottom:2px; }
+body.role-tester [data-admin] { display:none !important; } body:not(.role-tester) [data-tester] { display:none !important; } .admin-note { font-size:12px; }
+body.role-tester #spane-base textarea, body.role-tester #spane-runtime input, body.role-tester #spane-runtime select, body.role-tester #pr-table input, body.role-tester #pr-retrieval { pointer-events:none; background:#f4f6fb; color:var(--gray-70); }

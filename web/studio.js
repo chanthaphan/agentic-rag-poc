@@ -72,7 +72,8 @@ const fmtUsd = TR.fmtUsd;
 (async function authNav() { try { const r = await fetch(new URL("/.auth/me", location.origin), { credentials: "same-origin" }); if (r.ok) $("#ms-signout").hidden = false; } catch {} })();
 
 (async function init() {
-  try { const me = await api("/studio/me"); $("#who").textContent = me.tester ? `${me.tester}${me.role ? ` · ${me.role}` : ""}` : ""; if (me.role === "admin") $("#tab-access").hidden = false; } catch {}
+  try { const me = await api("/studio/me"); S.role = me.role || "tester"; $("#who").textContent = me.tester || ""; const rp = $("#role-pill"); rp.hidden = false; rp.textContent = S.role; rp.className = "pill " + (S.role === "admin" ? "ok" : "info");
+    if (me.role === "admin") $("#tab-access").hidden = false; else document.body.classList.add("role-tester"); } catch {}
   try { const h = await api("/health"); $("#health").textContent = `index ${h.index} · KB ${h.kb_reasoning_effort}`; } catch {}
   await loadModels();
   S.loaders.skills && S.loaders.skills();

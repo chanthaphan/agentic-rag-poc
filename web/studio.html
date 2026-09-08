@@ -19,7 +19,7 @@
     <a href="/" target="_blank">Open app ↗</a>
   </nav>
   <span id="health" class="muted"></span>
-  <span id="who" class="muted" style="margin-left:auto"></span>
+  <span id="who" class="muted" style="margin-left:auto"></span><span id="role-pill" class="pill" hidden></span>
   <form method="post" action="/studio/logout" style="margin:0"><button class="btn-secondary" type="submit" title="clears the Studio password cookie">Logout Studio</button></form>
   <a id="ms-signout" class="btn-danger" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out (Microsoft)</a>
 </header>
@@ -67,7 +67,7 @@
             <button id="ed-save" class="btn-secondary" title="Cmd/Ctrl+S">Save</button>
             <button id="ed-save-sync">Save &amp; sync</button>
             <a id="ed-zip" class="btn-secondary" href="#" title="Download this skill as a zip">Zip</a>
-            <button id="ed-delete" class="btn-danger" title="Delete the skill folder and its Foundry agent / knowledge base">Delete</button>
+            <button id="ed-delete" class="btn-danger" data-admin title="Delete the skill folder and its Foundry agent / knowledge base">Delete</button>
           </div>
         </div>
         <div class="subtabs"><button data-pane="edit" class="on">Edit</button><button data-pane="preview">Preview</button><button data-pane="versions">Versions</button><button data-pane="playground">Playground</button></div>
@@ -173,7 +173,7 @@
       <div class="panel ingest" id="kn-ingest-panel">
         <div class="panel-head"><h3>Ingestion</h3><span id="ig-state" class="pill">idle</span></div>
         <div id="ig-hint" class="muted"></div>
-        <div class="row wrap ig-actions"><button id="kn-ingest">Run ingest</button><button id="kn-ingest-full" class="btn-secondary">Full re-ingest</button></div>
+        <div class="row wrap ig-actions"><button id="kn-ingest">Run ingest</button><button id="kn-ingest-full" class="btn-secondary" data-admin>Full re-ingest</button></div>
         <div id="ig-body" hidden>
           <ol id="ig-steps" class="steps"></ol>
           <div class="bar"><div id="ig-bar" class="fill"></div></div>
@@ -330,12 +330,12 @@
     <table class="list" id="us-days"><thead><tr><th>day</th><th>answers</th><th>input tokens</th><th>cost</th></tr></thead><tbody></tbody></table>
     <h3>Model prices <span class="muted">(USD per 1M tokens; saved to pricing.yaml; unknown models use "default")</span></h3>
     <table class="list" id="pr-table"><thead><tr><th>model</th><th>input</th><th>cached input</th><th>output</th><th></th></tr></thead><tbody></tbody></table>
-    <div class="toolbar"><button id="pr-add" class="btn-secondary">Add model</button><label>Retrieval cost per call $ <input id="pr-retrieval" type="number" step="0.0001" style="width:110px"></label><button id="pr-save">Save prices</button><span id="pr-status" class="muted"></span></div>
+    <div class="toolbar"><button id="pr-add" class="btn-secondary" data-admin>Add model</button><label>Retrieval cost per call $ <input id="pr-retrieval" type="number" step="0.0001" style="width:110px"></label><button id="pr-save" data-admin>Save prices</button><span class="muted admin-note" data-tester>read-only: prices are set by a Studio admin</span><span id="pr-status" class="muted"></span></div>
   </div>
   <div class="pane" id="spane-base">
     <p class="muted">Shared persona, language, grounding and compliance rules prepended to every skill (skills/_base/SKILL.md). Saving and syncing creates a new version of every agent.</p>
     <textarea id="base-body" rows="26" spellcheck="false"></textarea>
-    <div class="toolbar"><button id="base-save">Save</button><button id="base-save-sync">Save &amp; sync all agents</button><span id="base-status" class="muted"></span></div>
+    <div class="toolbar"><button id="base-save" data-admin>Save</button><button id="base-save-sync" data-admin>Save &amp; sync all agents</button><span class="muted admin-note" data-tester>read-only: the base rules apply to every skill, so only a Studio admin can change them</span><span id="base-status" class="muted"></span></div>
   </div>
   <div class="pane" id="spane-runtime">
     <p class="muted">Overrides saved to .state/settings.json (they win over .env). Model changes apply to agents after a sync.</p>
@@ -343,7 +343,7 @@
       <div class="two"><label>Router model <select id="rt-ROUTER_MODEL"></select></label><label>Default skill model <select id="rt-DEFAULT_CHAT_MODEL"></select></label></div>
       <div class="two"><label>Knowledge base reasoning <select id="rt-KB_REASONING_EFFORT"><option>minimal</option><option>low</option><option>medium</option></select></label><label>KB LLM deployment (for low/medium) <select id="rt-KB_LLM_DEPLOYMENT"></select></label></div>
       <div class="two"><label>Assistant name <input id="rt-ASSISTANT_NAME"></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
-      <div class="toolbar"><button id="rt-save">Save settings</button><button id="rt-save-sync" class="btn-secondary">Save &amp; sync all agents</button><span id="rt-status" class="muted"></span></div>
+      <div class="toolbar"><button id="rt-save" data-admin>Save settings</button><button id="rt-save-sync" class="btn-secondary" data-admin>Save &amp; sync all agents</button><span class="muted admin-note" data-tester>read-only: models and runtime settings are changed by a Studio admin</span><span id="rt-status" class="muted"></span></div>
     </div>
   </div>
   <div class="pane" id="spane-access">
@@ -378,7 +378,7 @@
         </div>
         <div class="row wrap"><a class="btn-secondary" id="bd-download" href="/bundle.zip">Download bundle.zip</a><span id="bd-size" class="muted"></span></div>
       </div>
-      <div class="panel">
+      <div class="panel" data-admin>
         <div class="panel-head"><h3>Import a bundle</h3><span class="muted">pick a zip to preview what it contains and what would change</span></div>
         <div class="row wrap"><label class="btn-secondary">Choose bundle.zip <input type="file" id="bd-file" accept=".zip" hidden></label><span id="bd-filename" class="muted"></span></div>
         <div id="bd-preview" hidden>

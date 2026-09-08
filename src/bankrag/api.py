@@ -369,7 +369,7 @@ def get_pricing():
     return load_pricing(settings)
 
 
-@studio.put("/app/pricing")
+@studio.put("/app/pricing", dependencies=[Depends(require_admin)])
 def put_pricing(data: dict):
     from .pricing import save_pricing
 
@@ -439,7 +439,7 @@ def get_session(session_id: str):
     return rec
 
 
-@app.delete("/sessions/{session_id}")
+@app.delete("/sessions/{session_id}", dependencies=[Depends(require_admin)])
 def delete_session_endpoint(session_id: str):
     if not SESS.ID_RE.match(session_id):
         raise HTTPException(400, "bad session id")
@@ -461,7 +461,7 @@ def get_base():
     return read_base(settings.skills_dir)
 
 
-@studio.put("/skills/_base")
+@studio.put("/skills/_base", dependencies=[Depends(require_admin)])
 def put_base(data: dict):
     try:
         return write_base(settings.skills_dir, str(data.get("body", "")))
@@ -504,7 +504,7 @@ def get_app_settings():
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
 
 
-@studio.put("/app/settings")
+@studio.put("/app/settings", dependencies=[Depends(require_admin)])
 def put_app_settings(data: dict):
     from .config import save_overlay
 
@@ -626,7 +626,7 @@ def create_skill_endpoint(form: SkillForm):
     return {"spec": spec.model_dump(exclude={"path"}), "errors": errors, "warnings": warnings}
 
 
-@studio.delete("/skills/{skill_id}")
+@studio.delete("/skills/{skill_id}", dependencies=[Depends(require_admin)])
 def delete_skill_endpoint(skill_id: str, prune: bool = True):
     try:
         delete_skill(settings.skills_dir, skill_id)
@@ -667,8 +667,11 @@ async def upload_skill(file: UploadFile = File(...)):
 
 
 @studio.post("/skills/sync")
-def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, register_native: bool = False):
+def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, register_native: bool = False, role: str = Depends(require_studio)):
     from .foundry_sync import sync_skills
+
+    if prune and role != "admin":
+        raise HTTPException(403, "prune is for Studio admins")
 
     def run(log):
         skills, base = _skills()
@@ -702,7 +705,7 @@ def knowledge_files(category: str):
     return list_knowledge_files(settings, category)
 
 
-@studio.delete("/knowledge/files")
+@studio.delete("/knowledge/files", dependencies=[Depends(require_admin)])
 def delete_knowledge_file_endpoint(path: str):
     from .ingest.pipeline import delete_knowledge_file
 
@@ -732,8 +735,11 @@ async def upload_knowledge(category: str, files: list[UploadFile] = File(...)):
 
 
 @studio.post("/knowledge/ingest")
-def ingest_endpoint(category: Optional[str] = None, full: bool = False):
+def ingest_endpoint(category: Optional[str] = None, full: bool = False, role: str = Depends(require_studio)):
     from .ingest.pipeline import ingest
+
+    if full and role != "admin":
+        raise HTTPException(403, "full re-ingest is for Studio admins (it re-embeds every file); run the normal ingest instead")
 
     def run(log):
         rep = ingest(settings, category=category, full=full, log=log)
@@ -872,7 +878,7 @@ async def bundle_inspect(file: UploadFile = File(...)):
         raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}") from e
 
 
-@studio.post("/bundle")
+@studio.post("/bundle", dependencies=[Depends(require_admin)])
 async def bundle_import(mode: str = "merge", parts: str = "skills,knowledge,evals,config", ingest: bool = False, sync: bool = False, file: UploadFile = File(...)):
     """Write the bundle, then (optionally) ingest the knowledge categories that changed and sync the skills, as one job."""
     from .bundle import PARTS, import_bundle

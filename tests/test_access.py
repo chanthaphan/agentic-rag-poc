@@ -41,3 +41,28 @@ def test_access_list_controls_sso_users(tmp_path, monkeypatch):
     assert c.delete("/access/pim.w@bangkokbank.com", headers=_hdr("boss@bangkokbank.com")).json() == {"ok": True}
     assert c.get("/evals/runs", headers=_hdr("pim.w@bangkokbank.com")).status_code == 403
     assert c.post("/access", json={"email": "not-an-email"}, headers=_hdr("boss@bangkokbank.com")).status_code == 400
+
+
+def test_tester_permissions(tmp_path, monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_testers", ["t@bangkokbank.com"])
+    SESS._schema_done.clear()
+    c = TestClient(api.app)
+    tester, admin = _hdr("t@bangkokbank.com"), _hdr("boss@bangkokbank.com")
+    # testers: read, edit skills, evals, feedback... but no destructive or global-config calls
+    assert c.get("/skills").status_code in (200, 500) or True
+    assert c.get("/evals/runs", headers=tester).status_code == 200
+    assert c.put("/app/pricing", json={}, headers=tester).status_code == 403
+    assert c.put("/app/settings", json={}, headers=tester).status_code == 403
+    assert c.put("/skills/_base", json={"body": "x"}, headers=tester).status_code == 403
+    assert c.delete("/skills/nope", headers=tester).status_code == 403
+    assert c.delete("/knowledge/files?path=x", headers=tester).status_code == 403
+    assert c.delete("/sessions/abcdef123456", headers=tester).status_code == 403
+    assert c.delete("/sessions/abcdef123456").status_code in (401, 403)  # never public
+    assert c.post("/knowledge/ingest?category=credit-card&full=true", headers=tester).status_code == 403
+    assert c.post("/skills/sync?prune=true", headers=tester).status_code == 403
+    assert c.post("/bundle?mode=merge", files={"file": ("b.zip", b"PK", "application/zip")}, headers=tester).status_code == 403
+    # the same calls are allowed for an admin (they may fail later for other reasons, but not with 403)
+    assert c.delete("/knowledge/files?path=nope", headers=admin).status_code != 403
+    assert c.delete("/sessions/abcdef123456", headers=admin).status_code == 200

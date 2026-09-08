@@ -48,7 +48,7 @@ function renderFiles() {
     const kind = f.kind || (f.path.endsWith(".pdf") ? "pdf" : "md");
     const status = kind === "pdf" ? (f.image_based ? '<span class="pill warn">image-only PDF (no text)</span>' : f.text_chars != null ? `<span class="pill ok">text ${(f.text_chars / 1000).toFixed(1)}k chars</span>` : "") : "";
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><a href="#" class="chunks" data-path="${esc(f.path)}">${esc(f.path)}</a><br><span class="muted">${esc(f.title || "")}</span></td><td>${esc(kind)} ${status}</td><td>${(f.size / 1024).toFixed(1)} KB</td><td>${f.chunks}${f.indexed ? "" : ' <span class="pill info">not ingested</span>'}</td><td><button class="btn-secondary reingest" data-path="${esc(f.path)}">re-ingest</button> <button class="btn-danger del" data-path="${esc(f.path)}">delete</button></td>`;
+    tr.innerHTML = `<td><a href="#" class="chunks" data-path="${esc(f.path)}">${esc(f.path)}</a><br><span class="muted">${esc(f.title || "")}</span></td><td>${esc(kind)} ${status}</td><td>${(f.size / 1024).toFixed(1)} KB</td><td>${f.chunks}${f.indexed ? "" : ' <span class="pill info">not ingested</span>'}</td><td><button class="btn-secondary reingest" data-path="${esc(f.path)}">re-ingest</button> <button class="btn-danger del" data-admin data-path="${esc(f.path)}">delete</button></td>`;
     tb.appendChild(tr);
   }
   if (!slice.length) tb.innerHTML = `<tr><td colspan="5" class="muted">${FILES.all.length ? "no file matches the filter" : "no files yet — upload, crawl or import above"}</td></tr>`;

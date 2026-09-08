@@ -110,4 +110,7 @@ def test_chat_persists_and_rehydrates(tmp_path, monkeypatch):
     rec = c.get(f"/sessions/{sid}").json()
     assert len(rec["turns"]) == 4 and rec["conversation_id"] == "conv_stub" and rec["prev_skill"] == "credit-card"
     assert c.get("/sessions").json()[0]["id"] == sid
-    assert c.delete(f"/sessions/{sid}").json()["ok"] is True
+    import base64
+    pw = {"Authorization": "Basic " + base64.b64encode(f"x:{api.settings.studio_password}".encode()).decode()}
+    assert c.delete(f"/sessions/{sid}").status_code in (401, 403)  # deleting conversations is admin-only now
+    assert c.delete(f"/sessions/{sid}", headers=pw).json()["ok"] is True
