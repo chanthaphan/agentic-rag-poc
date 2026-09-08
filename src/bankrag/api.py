@@ -453,6 +453,84 @@ def append_eval_cases(set_name: str, req: AppendCases):
         raise HTTPException(404, str(e)) from e
 
 
+def reconcile_pending(hours: int = 24, limit: int = 50) -> dict:
+    """Read specialist usage from Application Insights for recent handoff turns still marked pending."""
+    from . import observability as OBS
+
+    if not OBS.enabled(settings):
+        return {"enabled": False, "checked": 0, "updated": 0}
+    checked = updated = 0
+    for sid, idx in SESS.pending_handoff_turns(settings, hours=hours, limit=limit):
+        rec = SESS.load_session(settings, sid)
+        if rec is None or idx >= len(rec.turns):
+            continue
+        checked += 1
+        trace = dict(rec.turns[idx].trace or {})
+        try:
+            if OBS.reconcile_trace(settings, trace):
+                SESS.update_turn_trace(settings, sid, idx, trace)
+                updated += 1
+            elif int((trace.get("handoff") or {}).get("reconcile_attempts", 0)) >= 20:
+                trace.setdefault("handoff", {})["usage_pending"] = False  # give up after ~30 min of polling
+                trace["handoff"]["reconcile_note"] = "specialist spans never appeared in Application Insights"
+                SESS.update_turn_trace(settings, sid, idx, trace)
+            else:
+                SESS.update_turn_trace(settings, sid, idx, trace)  # persists the attempt counter
+        except Exception as e:  # noqa: BLE001
+            log_msg = f"reconcile {sid}#{idx}: {type(e).__name__}: {str(e)[:120]}"
+            print(log_msg)
+            break
+    return {"enabled": True, "checked": checked, "updated": updated}
+
+
+def _start_reconcile_thread() -> None:
+    from . import observability as OBS
+
+    if not OBS.enabled(settings):
+        return
+
+    def loop() -> None:
+        import time as _t
+
+        _t.sleep(60)
+        while True:
+            try:
+                reconcile_pending()
+            except Exception as e:  # noqa: BLE001
+                print(f"reconcile thread: {type(e).__name__}: {e}")
+            _t.sleep(90)
+
+    threading.Thread(target=loop, daemon=True, name="handoff-reconcile").start()
+
+
+@app.post("/sessions/{session_id}/reconcile")
+def reconcile_session(session_id: str, request: Request):
+    """Pull the specialist's tokens for this conversation's handoff answers now (otherwise a background job does it every 90 s)."""
+    from . import observability as OBS
+
+    if not SESS.ID_RE.match(session_id):
+        raise HTTPException(400, "bad session id")
+    rec = SESS.load_session(settings, session_id)
+    if rec is None:
+        raise HTTPException(404, "session not found")
+    _require_owner(request, rec)
+    if not OBS.enabled(settings):
+        return {"enabled": False, "updated": 0, "pending": 0}
+    updated = pending = 0
+    for i, turn in enumerate(rec.turns):
+        ho = (turn.trace or {}).get("handoff") or {}
+        if ho.get("usage_pending"):
+            trace = dict(turn.trace)
+            try:
+                ok = OBS.reconcile_trace(settings, trace)
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(502, f"trace query failed: {type(e).__name__}: {str(e)[:200]}") from e
+            SESS.update_turn_trace(settings, session_id, i, trace)
+            updated += int(ok)
+            pending += int(not ok)
+    return {"enabled": True, "updated": updated, "pending": pending, "session": SESS.load_session(settings, session_id)}
+
+
 @app.get("/sessions/{session_id}")
 def get_session(session_id: str, request: Request):
     if not SESS.ID_RE.match(session_id):
@@ -1318,3 +1396,10 @@ def access_delete(email: str, request: Request):
 
 app.include_router(studio)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+
+
+@app.on_event("startup")
+def _startup_handoff_reconcile() -> None:
+    if not os.environ.get("BANKRAG_NO_RECONCILE"):
+        _start_reconcile_thread()
+

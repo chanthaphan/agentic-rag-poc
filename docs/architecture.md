@@ -105,3 +105,7 @@ In the customer app, `GET /sessions` returns only the signed-in person's convers
 
 `foundry_native.py` runs inside `sync_skills`: publish each skill to the Foundry Skills API (hash-guarded, default version promoted) and the `bankrag-skills` toolbox; enable incoming A2A on each skill agent with an agent card; create `a2a-<id>` RemoteA2A connections; maintain the `bank-concierge` prompt agent whose tools are one `A2APreviewTool` per specialist. `ChatSession._ask_concierge` is used when `ORCHESTRATION_MODE=a2a`: no local router, the concierge streams its reply, A2A items land in `tool_calls`, the specialist is inferred from the A2A item fields and the trace carries a `handoff` block. Registry routes: `GET /registry/skills`, `GET /registry/skills/{name}`, `POST /registry/import`.
 
+## Handoff usage reconciliation
+
+`observability.py` queries Application Insights (`APPINSIGHTS_APP_ID`, Entra token, Monitoring Reader) for the spans sharing the concierge response's operation, summarises tokens per agent and writes `usage.specialist`, the combined `usage.total`, `cost.specialist` and `timings_ms.specialist` into the stored turn. `api.reconcile_pending` runs in a thread every 90 s over turns flagged `handoff.usage_pending`; `POST /sessions/{id}/reconcile` does it on demand.
+

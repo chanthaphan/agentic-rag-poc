@@ -16,7 +16,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -472,4 +472,23 @@ def delete_access(settings: Settings, email: str) -> bool:
         cur = con.execute("DELETE FROM studio_access WHERE email=?", (email.strip().lower(),))
         con.commit()
         return cur.rowcount > 0
+
+
+# ---------------- handoff usage reconciliation ----------------
+def pending_handoff_turns(settings: Settings, hours: int = 24, limit: int = 200) -> list[tuple[str, int]]:
+    """(session_id, idx) of assistant turns whose A2A specialist usage has not been read from the trace yet."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    with _lock, connect(settings) as con:
+        rows = con.execute("SELECT session_id, idx FROM turns WHERE role='assistant' AND at > ? AND (data LIKE '%usage_pending%:true%' OR data LIKE '%usage_pending%: true%') ORDER BY at DESC LIMIT ?", (since, limit)).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def update_turn_trace(settings: Settings, session_id: str, idx: int, trace: dict) -> bool:
+    """Replace one assistant turn's trace (and the derived columns) inside the stored session."""
+    rec = load_session(settings, session_id)
+    if rec is None or idx >= len(rec.turns):
+        return False
+    rec.turns[idx].trace = trace
+    save_session(settings, rec)
+    return True
 

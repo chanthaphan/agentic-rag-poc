@@ -238,11 +238,13 @@ class ChatSession:
             "timings_ms": {"route": 0, "agent": agent_ms, "sources": 0, "total": int((time.perf_counter() - t_start) * 1000)},
             "usage": {"router": {}, "agent": agent_usage, "total": agent_usage},
             "retrieval": extra["retrieval"], "reasoning": extra["reasoning"], "model": getattr(final, "model", "") or "", "response_id": getattr(final, "id", "") or "",
-            "handoff": {"mode": "a2a", "concierge": CONCIERGE_AGENT, "specialist": specialist, "calls": [c for c in tool_calls if str(c.get("type", "")).startswith("a2a")]},
+            "handoff": {"mode": "a2a", "concierge": CONCIERGE_AGENT, "specialist": specialist, "calls": [c for c in tool_calls if str(c.get("type", "")).startswith("a2a")],
+                        "usage_pending": bool(specialist != "concierge" and self.settings.appinsights_app_id)},
         }
         try:
             trace["cost"] = turn_cost(load_pricing(self.settings), self.settings.router_model, trace["model"] or (self.settings.concierge_model or self.settings.default_chat_model), trace["usage"], 0)
-            trace["cost"]["note"] = "concierge tokens only; the specialist's own call is not visible in this response"
+            trace["cost"]["note"] = ("concierge tokens; the specialist's tokens are read from the Foundry trace a few minutes later" if trace["handoff"]["usage_pending"]
+                                     else "concierge tokens only; connect Application Insights (APPINSIGHTS_APP_ID) to add the specialist's tokens")
         except Exception as e:  # noqa: BLE001
             trace["cost"] = {"error": str(e)[:120]}
         citations = resolve_citations(citations, [], lookup=lambda ids: _lookup_docs(self.settings, ids))

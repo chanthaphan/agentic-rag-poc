@@ -201,3 +201,11 @@ async function loadSession(id) {
   let saved = null; try { saved = localStorage.getItem("bankrag_session"); } catch {}
   if (saved) await loadSession(saved); else render();
 })();
+
+// handoff answers: pull the specialist's tokens from the Foundry trace on demand
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest(".tc-reconcile"); if (!a) return; e.preventDefault();
+  const sid = a.dataset.session || (window.state && state.sessionId) || ""; if (!sid) return; a.textContent = "checking…";
+  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); a.textContent = r.updated ? "updated, reopen the trace" : (r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"); if (r.updated && typeof loadSession === "function") loadSession(sid); }
+  catch (err) { a.textContent = err.message; }
+});

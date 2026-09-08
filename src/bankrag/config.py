@@ -83,6 +83,7 @@ class Settings:
     foundry_native_skills: bool
     orchestration_mode: str  # router | a2a
     concierge_model: str
+    appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -131,6 +132,7 @@ class Settings:
             foundry_native_skills=_env("FOUNDRY_NATIVE_SKILLS", "1").strip().lower() in ("1", "true", "yes", "on"),
             orchestration_mode=(_env("ORCHESTRATION_MODE", "router").strip().lower() or "router"),
             concierge_model=_env("CONCIERGE_MODEL", ""),
+            appinsights_app_id=_env("APPINSIGHTS_APP_ID", ""),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),

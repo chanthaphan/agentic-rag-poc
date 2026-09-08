@@ -113,3 +113,8 @@ async function openTranscript(id, focusIdx = null) {
   if (focusIdx != null) { const el = $(`#tr-${focusIdx}`); if (el) { el.style.outline = "2px solid #ffd166"; setTimeout(() => (el.style.outline = ""), 2500); el.scrollIntoView({ behavior: "smooth", block: "center" }); } }
 }
 $("#cv-transcript-close").addEventListener("click", () => { $("#cv-transcript-panel").hidden = true; CV.session = null; });
+
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest("#cv-transcript .tc-reconcile"); if (!a) return; e.preventDefault(); const sid = CV.session; if (!sid) return; a.textContent = "checking…";
+  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); if (r.updated) openTranscript(sid); else a.textContent = r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"; } catch (err) { a.textContent = err.message; }
+});

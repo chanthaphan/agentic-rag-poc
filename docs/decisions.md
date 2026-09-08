@@ -47,3 +47,13 @@ picks and calls the specialist inside Foundry; `router` (default) keeps the one-
 the POC: the handoff is native and visible in Foundry, but adds a second model hop (about twice the latency), the
 specialist's tokens are not reported in the concierge response, and A2A is preview, text-only and non-streaming.
 
+## 25. Specialist tokens in handoff mode come from the Foundry trace
+In A2A mode the specialist's run happens inside Foundry: its usage is not in the concierge response, the inner run is
+not listed by the responses API (even with user-identity passthrough), and the A2A output carries only text. Foundry's
+server-side tracing (Application Insights connected to the project, `infra/05-tracing.sh`) records every span with
+OpenTelemetry GenAI attributes, and the A2A hop propagates trace context, so querying `dependencies` by the concierge's
+`gen_ai.response.id` returns the specialist's `chat` span (tokens, model) and its knowledge-base tool call.
+`observability.reconcile_trace` merges that into the turn's usage and cost; a background job runs it every 90 s for
+pending turns (ingestion takes 1 to 5 minutes) and the trace card offers "check now". Trade-off: full accounting arrives
+minutes after the answer rather than with it.
+
