@@ -261,11 +261,18 @@ def delete_session(settings: Settings, sid: str) -> bool:
         return cur.rowcount > 0
 
 
-def list_sessions(settings: Settings, limit: int = 50) -> list[dict]:
+def list_sessions(settings: Settings, limit: int = 50, *, owner_email: str = "", owner_name: str = "") -> list[dict]:
+    """Recent sessions; with owner_email/owner_name only that person's sessions (email match, or name match for
+    sessions saved before emails were recorded)."""
+    sql = "SELECT id,title,updated_at,created_at,turn_count,prev_skill,user_name FROM sessions"
+    args: list = []
+    if owner_email or owner_name:
+        sql += " WHERE (user_email<>'' AND lower(user_email)=lower(?)) OR (user_email='' AND user_name<>'' AND user_name=?)"
+        args += [owner_email, owner_name]
+    sql += " ORDER BY updated_at DESC LIMIT ?"
+    args.append(limit)
     with _lock, connect(settings) as con:
-        rows = con.execute(
-            "SELECT id,title,updated_at,created_at,turn_count,prev_skill,user_name FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = con.execute(sql, args).fetchall()
     return [{"id": r[0], "title": r[1], "updated_at": r[2], "created_at": r[3], "turns": r[4], "prev_skill": r[5], "user_name": r[6] or ""} for r in rows]
 
 

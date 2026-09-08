@@ -97,3 +97,7 @@ With Easy Auth in front of the app, `api.studio_role` decides Studio access from
 
 The server enforces this (`require_admin` on the routes, plus checks for `full=true` ingest and `prune=true` sync); the Studio hides the same controls for testers.
 
+### Session visibility
+
+In the customer app, `GET /sessions` returns only the signed-in person's conversations (matched by email, or by name for sessions saved before emails were recorded) and `GET /sessions/{id}`, `/chat` on an existing session and `/chat/{id}/reset` refuse other people's sessions with 403. Studio members (tester or admin) may open any session and can pass `?all=1` to list them all; Studio's Conversations tab uses the review endpoints, which already cover everyone. Without SSO (local dev) nothing is filtered.
+

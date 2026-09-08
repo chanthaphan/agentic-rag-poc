@@ -309,6 +309,7 @@ def chat(req: ChatRequest, request: Request):
         raise HTTPException(400, "bad session id")
     with _lock:
         sid, session, rec = _get_session(req.session_id, skills)
+        _require_owner(request, rec)
         by = _stamp_owner(rec, request)
     try:
         ans = session.ask(req.message, force_skill=req.force_skill, with_sources=req.with_sources)
@@ -329,6 +330,7 @@ def chat_stream(req: ChatRequest, request: Request):
         raise HTTPException(400, "bad session id")
     with _lock:
         sid, session, rec = _get_session(req.session_id, skills)
+        _require_owner(request, rec)
         by = _stamp_owner(rec, request)
     if not rec.turns and req.source:
         rec.source = req.source
@@ -352,9 +354,31 @@ def chat_stream(req: ChatRequest, request: Request):
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+def _owns(request: Request, rec) -> bool:
+    """Signed-in people see only their own sessions in the app; Studio members (any role) may open any session.
+    Without SSO (local dev) everything is visible."""
+    who = identity(request)
+    if not who["email"]:
+        return True
+    if rec.user_email and rec.user_email.lower() == who["email"].lower():
+        return True
+    if not rec.user_email and rec.user_name and rec.user_name == who["name"]:
+        return True
+    return studio_role(request, None) is not None
+
+
+def _require_owner(request: Request, rec) -> None:
+    if not _owns(request, rec):
+        raise HTTPException(403, "this conversation belongs to someone else")
+
+
 @app.get("/sessions")
-def list_sessions():
-    return SESS.list_sessions(settings)
+def list_sessions(request: Request, all: bool = False):
+    """The app's history list: only the signed-in person's sessions. Studio members may pass all=1 to list everything."""
+    who = identity(request)
+    if not who["email"] or (all and studio_role(request, None)):
+        return SESS.list_sessions(settings)
+    return SESS.list_sessions(settings, owner_email=who["email"], owner_name=who["name"])
 
 
 @app.get("/sessions/stats")
@@ -430,12 +454,13 @@ def append_eval_cases(set_name: str, req: AppendCases):
 
 
 @app.get("/sessions/{session_id}")
-def get_session(session_id: str):
+def get_session(session_id: str, request: Request):
     if not SESS.ID_RE.match(session_id):
         raise HTTPException(400, "bad session id")
     rec = SESS.load_session(settings, session_id)
     if rec is None:
         raise HTTPException(404, "session not found")
+    _require_owner(request, rec)
     return rec
 
 
@@ -451,7 +476,12 @@ def delete_session_endpoint(session_id: str):
 
 
 @app.post("/chat/{session_id}/reset")
-def chat_reset(session_id: str):
+def chat_reset(session_id: str, request: Request):
+    if not SESS.ID_RE.match(session_id):
+        raise HTTPException(400, "bad session id")
+    rec = SESS.load_session(settings, session_id)
+    if rec is not None:
+        _require_owner(request, rec)
     return delete_session_endpoint(session_id)
 
 
