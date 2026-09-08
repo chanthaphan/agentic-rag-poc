@@ -102,3 +102,13 @@ def test_a2a_specialist_detection():
     assert f["name"] == "a2a-wealth" and "agent_reference" not in f and _a2a_outputs([f | {"type": "a2a_preview_call_output"}]) == ["RMF is …"]
     assert _a2a_specialist([{"type": "a2a_preview_call", "server_label": "bank-debit-card"}], skills) == "debit-card"
     assert _a2a_specialist([], skills) == "concierge"
+
+
+def test_a2a_question_and_marker_citations():
+    from bankrag.chat import _a2a_question, _citations_from_markers
+    from bankrag.models import Reference
+    assert _a2a_question('{"message":{"parts":[{"kind":"text","text":"annual fee?"}]}}') == "annual fee?"
+    assert _a2a_question("garbage") == ""
+    refs = [Reference(id="1", title="บัตรเครดิต Visa Platinum ธนาคารกรุงเทพ", source_url="https://x/platinum")]
+    cites = _citations_from_markers(["3,000 บาทค่ะ【4:0†บัตรเครดิต Visa Platinum ธนาคารกรุงเทพ】 และ【4:1†Unknown doc】"], refs)
+    assert [(c.title, c.url) for c in cites] == [("บัตรเครดิต Visa Platinum ธนาคารกรุงเทพ", "https://x/platinum"), ("Unknown doc", "")]

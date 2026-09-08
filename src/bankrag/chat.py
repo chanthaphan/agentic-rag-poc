@@ -85,7 +85,7 @@ class ChatSession:
         """Yields events: route -> delta* -> tool* -> done(answer). The Sources retrieve runs in parallel with the agent call."""
         t_start = time.perf_counter()
         if self.settings.orchestration_mode == "a2a" and not force_skill:
-            yield from self._ask_concierge(question, t_start)
+            yield from self._ask_concierge(question, t_start, with_sources=with_sources)
             return
         decision = self.decide(question, force_skill)
         self.history.append({"role": "user", "content": question})
@@ -193,7 +193,7 @@ class ChatSession:
             retrieval_context=extra.get("retrieval_texts", []),
         )}
 
-    def _ask_concierge(self, question: str, t_start: float) -> Iterator[dict[str, Any]]:
+    def _ask_concierge(self, question: str, t_start: float, *, with_sources: bool = True) -> Iterator[dict[str, Any]]:
         """Handoff mode: the bank-concierge agent picks a specialist and calls it over A2A inside Foundry (no local router)."""
         from .foundry_native import CONCIERGE_AGENT
 
@@ -213,14 +213,26 @@ class ChatSession:
             extra_body={"agent_reference": {"name": CONCIERGE_AGENT, "type": "agent_reference"}},
         )
         final = None
+        future = None  # Sources retrieve for the specialist's knowledge base, started as soon as the concierge picks one
+        t_src_start = None
         for event in stream:
             et = getattr(event, "type", "")
             if et == "response.output_text.delta":
                 yield {"type": "delta", "text": event.delta}
             elif et == "response.output_item.done":
                 item = getattr(event, "item", None)
-                if str(getattr(item, "type", "")).startswith("a2a"):
-                    yield {"type": "tool", "name": str(getattr(item, "type", "")), "arguments": _a2a_summary(item)[:300], "error": str(getattr(item, "error", "") or "")}
+                itype = str(getattr(item, "type", ""))
+                if itype.startswith("a2a"):
+                    yield {"type": "tool", "name": itype, "arguments": _a2a_summary(item)[:300], "error": str(getattr(item, "error", "") or "")}
+                    if itype == "a2a_preview_call" and future is None and with_sources:
+                        f = _a2a_fields(item)
+                        sid = str(f.get("name", ""))[4:] if str(f.get("name", "")).startswith("a2a-") else ""
+                        delegated = _a2a_question(str(f.get("arguments") or "")) or question
+                        target = self.skills.get(sid)
+                        owner = self.kb_owners.get(sid, target) if target else None
+                        if target is not None and owner is not None and owner.id == target.id:
+                            t_src_start = time.perf_counter()
+                            future = _POOL.submit(KB.retrieve, self.settings, owner.kb_name, delegated, ks_name=owner.ks_name, max_docs=target.top_k)
             elif et == "response.completed":
                 final = event.response
             elif et in ("response.failed", "response.incomplete", "error"):
@@ -233,9 +245,21 @@ class ChatSession:
         text, citations, tool_calls, extra = parse_response(final)
         specialist = _a2a_specialist(tool_calls, self.skills)
         spec = self.skills.get(specialist)
+        references: list = []
+        sources_ms = 0
+        if future is not None:
+            t_wait = time.perf_counter()
+            try:
+                references = future.result(timeout=60)
+            except Exception as e:  # noqa: BLE001 - sources are a debugging aid, never fail the answer
+                tool_calls.append({"type": "sources_error", "error": f"{type(e).__name__}: {str(e)[:200]}"})
+            sources_ms = int((time.perf_counter() - t_wait) * 1000)
+        # the specialist's citation markers 【n:m†title】 travel inside the A2A output; the concierge's relay drops them
+        citations = _citations_from_markers(_a2a_outputs(tool_calls), references, lookup_title=lambda title: _lookup_title(self.settings, title, spec.product_category if spec else None)) or citations
+        extra["retrieval"]["documents"] = max(int(extra["retrieval"].get("documents") or 0), len(references))
         agent_usage = usage_dict(getattr(final, "usage", None))
         trace = {
-            "timings_ms": {"route": 0, "agent": agent_ms, "sources": 0, "total": int((time.perf_counter() - t_start) * 1000)},
+            "timings_ms": {"route": 0, "agent": agent_ms, "sources": sources_ms, "total": int((time.perf_counter() - t_start) * 1000)},
             "usage": {"router": {}, "agent": agent_usage, "total": agent_usage},
             "retrieval": extra["retrieval"], "reasoning": extra["reasoning"], "model": getattr(final, "model", "") or "", "response_id": getattr(final, "id", "") or "",
             "handoff": {"mode": "a2a", "concierge": CONCIERGE_AGENT, "specialist": specialist, "calls": [c for c in tool_calls if str(c.get("type", "")).startswith("a2a")],
@@ -247,7 +271,7 @@ class ChatSession:
                                      else "concierge tokens only; connect Application Insights (APPINSIGHTS_APP_ID) to add the specialist's tokens")
         except Exception as e:  # noqa: BLE001
             trace["cost"] = {"error": str(e)[:120]}
-        citations = resolve_citations(citations, [], lookup=lambda ids: _lookup_docs(self.settings, ids))
+        citations = resolve_citations(citations, references, lookup=lambda ids: _lookup_docs(self.settings, ids))
         self.history.append({"role": "assistant", "content": text})
         self.prev_skill = specialist if specialist in self.skills else self.prev_skill
         self.turns_in_conversation += 1
@@ -256,7 +280,7 @@ class ChatSession:
         yield {"type": "done", "answer": Answer(
             skill_id=specialist, confidence=1.0, route_reason=f"concierge handed off to {spec.agent_name if spec else 'no specialist'} over A2A" if spec else "concierge answered without a handoff",
             text=strip_markers(text), language=lang, suggestions=pick_suggestions(spec or self.skills.get("general"), asked, self.skills, language=lang),
-            citations=citations, references=[], agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
+            citations=citations, references=references, agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
             retrieval_context=(extra.get("retrieval_texts") or []) + _a2a_outputs(tool_calls),
         )}
 
@@ -498,3 +522,46 @@ def _a2a_specialist(tool_calls: list[dict[str, Any]], skills: dict[str, SkillSpe
 def _a2a_outputs(tool_calls: list[dict[str, Any]]) -> list[str]:
     """The specialists' answers as returned over A2A: the concierge's grounding context (used by the quality evals)."""
     return [str(c["output"]) for c in tool_calls if c.get("type") == "a2a_preview_call_output" and c.get("output")]
+
+
+_CITE_MARKER_RE = re.compile(r"【\d+:\d+†([^】]+)】")
+
+
+def _a2a_question(arguments: str) -> str:
+    """The text the concierge delegated: {"message": {"parts": [{"kind": "text", "text": ...}]}}."""
+    try:
+        parts = json.loads(arguments).get("message", {}).get("parts", [])
+        return " ".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _lookup_title(settings: Settings, title: str, category: Optional[str]) -> str:
+    """Best-effort source_url for a cited document title: one hybrid search on the index, scoped to the skill's category."""
+    try:
+        from . import search_index as SI
+
+        hits = SI.hybrid_search(settings, title, category=category or None, k=1)
+        return (hits[0].get("source_url") or "") if hits else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _citations_from_markers(outputs: list[str], references: list, lookup_title=None) -> list[Citation]:
+    """Citations named in the specialist's A2A output (title inside the marker), resolved to source URLs via the Sources
+    retrieve when the titles match; otherwise a title-only citation."""
+    seen: list[str] = []
+    for out in outputs:
+        for title in _CITE_MARKER_RE.findall(out):
+            title = title.strip()
+            if title and title not in seen:
+                seen.append(title)
+    by_title = {r.title.strip(): r.source_url for r in references if getattr(r, "title", "")}
+    cites: list[Citation] = []
+    for title in seen:
+        url = by_title.get(title) or next((u for tt, u in by_title.items() if title in tt or tt in title), "")
+        if not url and lookup_title is not None:
+            url = lookup_title(title) or ""
+        cites.append(Citation(title=title, url=url))
+    return cites
+
