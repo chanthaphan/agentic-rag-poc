@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>bankrag Studio · no access</title>
+<link rel="stylesheet" href="/static/mobile.css"><link rel="stylesheet" href="/static/studio.css">
+<style>.login{max-width:420px;margin:12vh auto;background:#fff;border:1px solid var(--gray-20);border-radius:16px;padding:24px;box-shadow:0 8px 24px rgba(20,40,70,.08)} .login h1{font:var(--heading-sm);font-weight:600;margin:0 0 4px} .login p{color:var(--gray-60);font:var(--caption-lg);margin:0 0 12px}</style>
+</head><body class="studio">
+<div class="login">
+  <h1>Studio access needed</h1>
+  <p>You are signed in as <b id="who">…</b>, but this account is not on the Studio access list. The customer app still works for you.</p>
+  <p>Ask a Studio admin to add your email under Settings → Access. Once added, reload this page.</p>
+  <div class="toolbar"><a class="btn-secondary" href="/">Back to app</a><a class="btn-secondary" href="/studio">Reload</a><a class="btn-danger" href="/.auth/logout?post_logout_redirect_uri=/">Sign out (Microsoft)</a></div>
+</div>
+<script>fetch("/whoami",{credentials:"same-origin"}).then(r=>r.json()).then(w=>{document.getElementById("who").textContent=w.email||w.name||"unknown";}).catch(()=>{});</script>
+</body></html>

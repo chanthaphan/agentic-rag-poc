@@ -84,6 +84,8 @@ class Settings:
     kb_max_output_tokens: int
     # App
     studio_password: str
+    studio_admins: list[str]
+    studio_testers: list[str]
     app_user_name: str
     app_user_initials: str
     assistant_name: str
@@ -126,6 +128,8 @@ class Settings:
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),
+            studio_admins=[e.strip().lower() for e in _env("STUDIO_ADMINS", "").split(",") if e.strip()],
+            studio_testers=[e.strip().lower() for e in _env("STUDIO_TESTERS", "").split(",") if e.strip()],
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
             assistant_name=_env("ASSISTANT_NAME", "Assistant"),

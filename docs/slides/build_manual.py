@@ -14,7 +14,7 @@ s = B.slide(prs, LAY, "Title only", title="Getting started in four steps", foote
 B.process_steps(s, [("Open the app", "Go to localhost:8010. The phone screen greets you with three starter questions."),
                     ("Ask and follow up", "Type Thai or English. The answer streams in; tap a suggested follow-up to continue the same conversation."),
                     ("Look behind the scenes", "The panel beside the phone shows the routing decision, agent, retrieval, tokens and cost per turn."),
-                    ("Sign in to Studio", "Click 'Studio' in the top bar and enter the Studio password. Your name is pre-filled from your Microsoft sign-in (any name works); it is shown on feedback and conversations.")], y=3.25, accent_upto=0)
+                    ("Sign in to Studio", "Click 'Studio' in the top bar. Access is by your Microsoft account: a Studio admin adds you under Settings > Access as tester or admin. Without SSO (local runs) the Studio password is used instead.")], y=3.25, accent_upto=0)
 
 s = B.slide(prs, LAY, "Two columns", title="The customer app screen", footer=FOOT,
             lead="What each element on the phone does.")

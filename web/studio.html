@@ -323,7 +323,7 @@
 
 <!-- ================= SETTINGS ================= -->
 <section id="view-settings" class="view">
-  <div class="subtabs"><button data-spane="usage" class="on">Usage &amp; prices</button><button data-spane="base">Base rules</button><button data-spane="runtime">Runtime settings</button><button data-spane="bundle">Export / import</button></div>
+  <div class="subtabs"><button data-spane="usage" class="on">Usage &amp; prices</button><button data-spane="base">Base rules</button><button data-spane="runtime">Runtime settings</button><button data-spane="bundle">Export / import</button><button data-spane="access" id="tab-access" hidden>Access</button></div>
   <div class="pane on" id="spane-usage">
     <h3>Usage (from .state/bankrag.db)</h3>
     <div class="cards" id="us-cards"></div>
@@ -344,6 +344,25 @@
       <div class="two"><label>Knowledge base reasoning <select id="rt-KB_REASONING_EFFORT"><option>minimal</option><option>low</option><option>medium</option></select></label><label>KB LLM deployment (for low/medium) <select id="rt-KB_LLM_DEPLOYMENT"></select></label></div>
       <div class="two"><label>Assistant name <input id="rt-ASSISTANT_NAME"></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
       <div class="toolbar"><button id="rt-save">Save settings</button><button id="rt-save-sync" class="btn-secondary">Save &amp; sync all agents</button><span id="rt-status" class="muted"></span></div>
+    </div>
+  </div>
+  <div class="pane" id="spane-access">
+    <div class="bd-grid">
+      <div class="panel">
+        <div class="panel-head"><h3>Who can open Studio</h3><span id="ac-status" class="muted"></span></div>
+        <p class="muted" id="ac-note">People sign in with their Microsoft (Entra) account. Only accounts on this list can open Studio; everyone else can still use the customer app. <b>Admins</b> manage this list and everything else; <b>testers</b> get every Studio tab except Access.</p>
+        <table class="list" id="ac-table"><thead><tr><th>email</th><th>role</th><th>name</th><th>added by</th><th>when</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Add or change a person</h3></div>
+        <div class="form">
+          <label>Email <small>(the Microsoft account they sign in with, e.g. name@bangkokbank.com)</small><input id="ac-email" type="email" placeholder="someone@bangkokbank.com"></label>
+          <label>Role <select id="ac-role"><option value="tester">tester</option><option value="admin">admin</option></select></label>
+          <label>Name <small>(optional; shown on feedback)</small><input id="ac-name"></label>
+          <div class="row wrap"><button id="ac-add">Add / update</button><span id="ac-add-status" class="muted"></span></div>
+        </div>
+        <p class="muted" id="ac-seed"></p>
+      </div>
     </div>
   </div>
   <div class="pane" id="spane-bundle">

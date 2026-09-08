@@ -1,0 +1,43 @@
+import base64
+import json
+
+from fastapi.testclient import TestClient
+
+from bankrag import api, sessions as SESS
+
+
+def _hdr(email, name="Some One"):
+    claims = [{"typ": "name", "val": name}, {"typ": "preferred_username", "val": email}]
+    return {"x-ms-client-principal": base64.b64encode(json.dumps({"claims": claims}).encode()).decode()}
+
+
+def _pw():
+    return {"Authorization": "Basic " + base64.b64encode(f"x:{api.settings.studio_password}".encode()).decode()}
+
+
+def test_access_list_controls_sso_users(tmp_path, monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_testers", ["seeded.tester@bangkokbank.com"])
+    SESS._schema_done.clear()
+    c = TestClient(api.app)
+    assert c.get("/studio/me", headers=_hdr("Seeded.Tester@bangkokbank.com")).json()["role"] == "tester"
+    # seeded admin gets in with SSO alone; a stranger with SSO is refused even with the password; no-SSO password still works
+    assert c.get("/studio/me", headers=_hdr("boss@bangkokbank.com")).json()["role"] == "admin"
+    assert c.get("/evals/runs", headers=_hdr("boss@bangkokbank.com")).status_code == 200
+    r = c.get("/evals/runs", headers={**_hdr("stranger@bangkokbank.com"), **_pw()})
+    assert r.status_code == 403
+    assert c.get("/studio", headers=_hdr("stranger@bangkokbank.com")).status_code == 403
+    assert c.get("/evals/runs", headers=_pw()).status_code == 200
+    # admin adds a tester; the tester can use Studio but not manage access
+    assert c.post("/access", json={"email": "Pim.W@bangkokbank.com", "role": "tester", "name": "Pim"}, headers=_hdr("boss@bangkokbank.com")).json() == {"email": "pim.w@bangkokbank.com", "role": "tester"}
+    assert c.get("/evals/runs", headers=_hdr("pim.w@bangkokbank.com")).status_code == 200
+    assert c.get("/studio", headers=_hdr("pim.w@bangkokbank.com")).status_code == 200
+    assert c.post("/access", json={"email": "x@y.com"}, headers=_hdr("pim.w@bangkokbank.com")).status_code == 403
+    users = c.get("/access", headers=_hdr("pim.w@bangkokbank.com")).json()["users"]
+    assert {u["email"]: u["role"] for u in users} == {"boss@bangkokbank.com": "admin", "pim.w@bangkokbank.com": "tester", "seeded.tester@bangkokbank.com": "tester"}
+    # guards: cannot remove yourself, a seeded admin, or the last admin; can remove a tester
+    assert c.delete("/access/boss@bangkokbank.com", headers=_hdr("boss@bangkokbank.com")).status_code == 400
+    assert c.delete("/access/pim.w@bangkokbank.com", headers=_hdr("boss@bangkokbank.com")).json() == {"ok": True}
+    assert c.get("/evals/runs", headers=_hdr("pim.w@bangkokbank.com")).status_code == 403
+    assert c.post("/access", json={"email": "not-an-email"}, headers=_hdr("boss@bangkokbank.com")).status_code == 400

@@ -84,3 +84,26 @@ $("#bd-import").addEventListener("click", async () => {
   } catch (e) { $("#bd-status").textContent = e.message; }
   $("#bd-import").disabled = false;
 });
+
+// ---- access list (admins) ----
+async function loadAccess() {
+  try {
+    const d = await api("/access"); const tb = $("#ac-table tbody"); tb.innerHTML = "";
+    for (const u of d.users) {
+      const me = u.email === (d.me.email || "").toLowerCase(); const seeded = d.seeded_admins.includes(u.email);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${esc(u.email)}${me ? ' <span class="pill info">you</span>' : ""}</td><td><span class="pill ${u.role === "admin" ? "ok" : ""}">${esc(u.role)}</span></td><td>${esc(u.name)}</td><td class="muted">${esc(u.added_by)}</td><td class="muted">${u.at ? new Date(u.at).toLocaleDateString() : ""}</td><td>${me || seeded ? "" : `<button class="btn-danger rm" data-email="${esc(u.email)}">remove</button>`}</td>`;
+      tb.appendChild(tr);
+    }
+    if (!d.users.length) tb.innerHTML = `<tr><td colspan="6" class="muted">nobody yet: until someone is added, the shared password is the only gate</td></tr>`;
+    tb.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`Remove ${b.dataset.email} from Studio?`)) return; try { await api(`/access/${encodeURIComponent(b.dataset.email)}`, { method: "DELETE" }); loadAccess(); } catch (e) { $("#ac-status").textContent = e.message; } }));
+    $("#ac-status").textContent = `${d.users.length} account(s)`;
+    $("#ac-seed").textContent = d.seeded_admins.length ? `Seeded admins from STUDIO_ADMINS (cannot be removed here): ${d.seeded_admins.join(", ")}` : "";
+  } catch (e) { $("#ac-status").textContent = e.message; }
+}
+S.loaders["spane-access"] = loadAccess;
+$("#ac-add").addEventListener("click", async () => {
+  const email = $("#ac-email").value.trim(); if (!email) { $("#ac-add-status").textContent = "enter an email"; return; }
+  try { const r = await api("/access", json({ email, role: $("#ac-role").value, name: $("#ac-name").value })); $("#ac-add-status").textContent = `${r.email} is now ${r.role}`; $("#ac-email").value = ""; $("#ac-name").value = ""; loadAccess(); } catch (e) { $("#ac-add-status").textContent = e.message; }
+});
+$("#ac-email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#ac-add").click(); });

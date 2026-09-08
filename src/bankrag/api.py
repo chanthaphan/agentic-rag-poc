@@ -52,24 +52,51 @@ STUDIO_COOKIE = "bankrag_studio"
 TESTER_COOKIE = "bankrag_tester"
 
 
-def _studio_authed(request: Request, creds: Optional[HTTPBasicCredentials]) -> bool:
-    return bool(settings.studio_password) and ((creds is not None and _pw_ok(creds.password)) or _pw_ok(request.cookies.get(STUDIO_COOKIE)))
-
-
 def _pw_ok(value: Optional[str]) -> bool:
     pw = settings.studio_password
     return bool(pw and value) and secrets.compare_digest(value.encode(), pw.encode())
 
 
-def require_studio(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)) -> None:
-    """Studio access: HTTP basic auth (any username) OR the cookie set by /studio?key=<password>."""
+def _identity_from_headers(request: Request) -> dict:
+    return identity(request)  # defined below (Easy Auth headers); kept behind a function so auth helpers can sit up here
+
+
+def studio_role(request: Request, creds: Optional[HTTPBasicCredentials]) -> Optional[str]:
+    """Who may use Studio, and as what.
+    - Signed in through Entra (Easy Auth headers): the access list decides (admin / tester). The shared password is not
+      accepted for SSO users once at least one person is on the list, so access is managed purely by identity.
+    - No SSO identity (local dev, curl with basic auth): the STUDIO_PASSWORD grants admin, as before."""
+    who = _identity_from_headers(request)
+    if who["email"]:
+        role = SESS.get_role(settings, who["email"])
+        if role:
+            return role
+        if SESS.access_count(settings) > 0:
+            return None
+    pw_ok = (creds is not None and _pw_ok(creds.password)) or _pw_ok(request.cookies.get(STUDIO_COOKIE))
+    return "admin" if pw_ok else None
+
+
+def _studio_authed(request: Request, creds: Optional[HTTPBasicCredentials]) -> bool:
+    return studio_role(request, creds) is not None
+
+
+def require_studio(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)) -> str:
+    """Studio access: Entra identity on the access list, or (without SSO) HTTP basic auth / the password cookie."""
+    role = studio_role(request, creds)
+    if role:
+        return role
+    if _identity_from_headers(request)["email"]:
+        raise HTTPException(403, "your account is not on the Studio access list; ask a Studio admin to add you")
     if not settings.studio_password:
-        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env")
-    if creds is not None and _pw_ok(creds.password):
-        return
-    if _pw_ok(request.cookies.get(STUDIO_COOKIE)):
-        return
+        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env or STUDIO_ADMINS")
     raise HTTPException(401, "Studio password required", headers={"WWW-Authenticate": 'Basic realm="bankrag studio"'})
+
+
+def require_admin(role: str = Depends(require_studio)) -> str:
+    if role != "admin":
+        raise HTTPException(403, "Studio admins only")
+    return role
 
 
 studio = APIRouter(dependencies=[Depends(require_studio)])
@@ -1112,13 +1139,22 @@ def _login_ok_response(password: str, tester: str = "", to: str = "/studio") -> 
 
 @app.get("/studio")
 def studio_page(request: Request, key: Optional[str] = None, creds: Optional[HTTPBasicCredentials] = Depends(security)):
-    """Open with the login page, basic auth, or once with ?key=<STUDIO_PASSWORD> (sets the cookie)."""
+    """Entra users on the access list go straight in; others see the no-access page. Without SSO: login page / ?key=."""
+    who = identity(request)
+    if who["email"] and SESS.access_count(settings) > 0:
+        role = SESS.get_role(settings, who["email"])
+        if not role:
+            return Response(_page("noaccess.html").body, status_code=403, media_type="text/html", headers={"Cache-Control": "no-cache"})
+        resp = _page("studio.html")
+        if not request.cookies.get(TESTER_COOKIE) and who["name"]:
+            resp.set_cookie(TESTER_COOKIE, who["name"][:40], samesite="lax", max_age=30 * 24 * 3600)
+        return resp
     if key is not None:
         if not _pw_ok(key):
             return RedirectResponse("/studio/login?error=1", status_code=303)
-        return _login_ok_response(key)
+        return _login_ok_response(key, who["name"])
     if not settings.studio_password:
-        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env")
+        raise HTTPException(503, "Studio is disabled: set STUDIO_PASSWORD in .env or STUDIO_ADMINS")
     if not _studio_authed(request, creds):
         return RedirectResponse("/studio/login", status_code=303)
     return _page("studio.html")
@@ -1147,7 +1183,50 @@ def studio_logout():
 @app.get("/studio/me")
 def studio_me(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(security)):
     who = identity(request)
-    return {"authed": _studio_authed(request, creds), "tester": request.cookies.get(TESTER_COOKIE, "") or who["name"], "sso": who}
+    role = studio_role(request, creds)
+    return {"authed": role is not None, "role": role, "tester": request.cookies.get(TESTER_COOKIE, "") or who["name"], "sso": who,
+            "access_managed": SESS.access_count(settings) > 0}
+
+
+# ---------------- Studio access management (admins) ----------------
+class AccessEntry(BaseModel):
+    email: str
+    role: str = "tester"
+    name: str = ""
+
+
+@app.get("/access", dependencies=[Depends(require_studio)])
+def access_list(request: Request):
+    who = identity(request)
+    return {"users": SESS.list_access(settings), "me": who, "seeded_admins": settings.studio_admins}
+
+
+@app.post("/access", dependencies=[Depends(require_admin)])
+def access_upsert(entry: AccessEntry, request: Request):
+    who = identity(request)
+    email = entry.email.strip().lower()
+    if email == who["email"].lower() and entry.role != "admin":
+        raise HTTPException(400, "you cannot demote yourself")
+    try:
+        return SESS.upsert_access(settings, email, entry.role, entry.name, who["email"] or who["name"] or "password")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.delete("/access/{email}", dependencies=[Depends(require_admin)])
+def access_delete(email: str, request: Request):
+    who = identity(request)
+    email = email.strip().lower()
+    if email == who["email"].lower():
+        raise HTTPException(400, "you cannot remove yourself")
+    if email in settings.studio_admins:
+        raise HTTPException(400, "this admin is seeded by STUDIO_ADMINS; change the environment variable to remove it")
+    admins = [u for u in SESS.list_access(settings) if u["role"] == "admin"]
+    if len(admins) == 1 and admins[0]["email"] == email:
+        raise HTTPException(400, "cannot remove the last admin")
+    if not SESS.delete_access(settings, email):
+        raise HTTPException(404, "not on the list")
+    return {"ok": True}
 
 
 app.include_router(studio)

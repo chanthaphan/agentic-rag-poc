@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS eval_runs (
 CREATE TABLE IF NOT EXISTS feedback (
   session_id TEXT NOT NULL, idx INTEGER NOT NULL, rating TEXT, comment TEXT, tester TEXT, at TEXT,
   PRIMARY KEY (session_id, idx));
+CREATE TABLE IF NOT EXISTS studio_access (
+  email TEXT PRIMARY KEY, role TEXT NOT NULL, name TEXT DEFAULT '', added_by TEXT DEFAULT '', at TEXT);
 CREATE TABLE IF NOT EXISTS turns (
   session_id TEXT NOT NULL, idx INTEGER NOT NULL, role TEXT, at TEXT, text TEXT, skill_id TEXT, confidence REAL, language TEXT,
   agent_name TEXT, route_reason TEXT, input_tokens INTEGER, output_tokens INTEGER, total_ms INTEGER, retrieved_docs INTEGER, cost_usd REAL, data TEXT,
@@ -177,6 +179,11 @@ def _init_schema(settings: Settings, con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE turns ADD COLUMN cost_usd REAL")
     if "by" not in tcols:
         con.execute("ALTER TABLE turns ADD COLUMN by TEXT DEFAULT ''")
+    for email in settings.studio_admins:  # STUDIO_ADMINS env seeds (never demotes) admins so nobody is locked out
+        con.execute("INSERT OR IGNORE INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?)", (email, "admin", "", "STUDIO_ADMINS", _now()))
+        con.execute("UPDATE studio_access SET role='admin' WHERE email=? AND role<>'admin'", (email,))
+    for email in getattr(settings, "studio_testers", []):  # STUDIO_TESTERS seeds testers once; admins may change or remove them later
+        con.execute("INSERT OR IGNORE INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?)", (email, "tester", "", "STUDIO_TESTERS", _now()))
     _import_legacy_json(settings, con)
     con.commit()
     _schema_done.add(key)
@@ -415,3 +422,47 @@ def get_eval_run(settings: Settings, run_id: str) -> Optional[dict]:
     with _lock, connect(settings) as con:
         r = con.execute("SELECT id,set_name,started_at,finished_at,summary,rows FROM eval_runs WHERE id=?", (run_id,)).fetchone()
     return {"id": r[0], "set": r[1], "started_at": r[2], "finished_at": r[3], "summary": json.loads(r[4] or "{}"), "rows": json.loads(r[5] or "[]")} if r else None
+
+
+# ---------------- Studio access list (Entra identities) ----------------
+ROLES = ("admin", "tester")
+
+
+def list_access(settings: Settings) -> list[dict]:
+    with _lock, connect(settings) as con:
+        rows = con.execute("SELECT email, role, name, added_by, at FROM studio_access ORDER BY role, email").fetchall()
+    return [{"email": r[0], "role": r[1], "name": r[2] or "", "added_by": r[3] or "", "at": r[4] or ""} for r in rows]
+
+
+def get_role(settings: Settings, email: str) -> Optional[str]:
+    if not email:
+        return None
+    with _lock, connect(settings) as con:
+        r = con.execute("SELECT role FROM studio_access WHERE email=?", (email.strip().lower(),)).fetchone()
+    return r[0] if r else None
+
+
+def access_count(settings: Settings) -> int:
+    with _lock, connect(settings) as con:
+        return int(con.execute("SELECT COUNT(*) FROM studio_access").fetchone()[0])
+
+
+def upsert_access(settings: Settings, email: str, role: str, name: str = "", added_by: str = "") -> dict:
+    email = email.strip().lower()
+    if "@" not in email or " " in email:
+        raise ValueError("enter an email address")
+    if role not in ROLES:
+        raise ValueError("role must be admin or tester")
+    with _lock, connect(settings) as con:
+        con.execute("INSERT INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?) ON CONFLICT(email) DO UPDATE SET role=excluded.role, name=CASE WHEN excluded.name<>'' THEN excluded.name ELSE studio_access.name END, added_by=excluded.added_by, at=excluded.at",
+                    (email, role, name.strip(), added_by, _now()))
+        con.commit()
+    return {"email": email, "role": role}
+
+
+def delete_access(settings: Settings, email: str) -> bool:
+    with _lock, connect(settings) as con:
+        cur = con.execute("DELETE FROM studio_access WHERE email=?", (email.strip().lower(),))
+        con.commit()
+        return cur.rowcount > 0
+
