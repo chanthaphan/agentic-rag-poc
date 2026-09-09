@@ -1444,10 +1444,24 @@ def feedback_csv():
 
 
 # ---------------- pages ----------------
+_asset_cache: dict = {"stamp": None, "version": ""}
+
+
 def _asset_version() -> str:
-    """Short hash of the web assets' mtimes: appended as ?v= so browsers drop cached JS/CSS after a deploy."""
-    stamps = "|".join(f"{q.name}:{int(q.stat().st_mtime)}" for q in sorted(WEB_DIR.glob("*.js")) + sorted(WEB_DIR.glob("*.css")))
-    return hashlib.sha1(stamps.encode()).hexdigest()[:10]
+    """Short hash of the web assets' CONTENT, appended as ?v= so browsers drop cached JS/CSS after a deploy.
+
+    Content rather than mtime: a container image can carry normalised timestamps, and an mtime hash that never changes
+    leaves every user on the JS they cached before the deploy. The read is cached on the mtime set, so local edits
+    still show up without a restart and a request does not re-hash the files."""
+    files = sorted(WEB_DIR.glob("*.js")) + sorted(WEB_DIR.glob("*.css"))
+    stamp = tuple((q.name, q.stat().st_size, int(q.stat().st_mtime)) for q in files)
+    if _asset_cache["stamp"] != stamp:
+        h = hashlib.sha1()
+        for q in files:
+            h.update(q.name.encode())
+            h.update(q.read_bytes())
+        _asset_cache.update(stamp=stamp, version=h.hexdigest()[:10])
+    return _asset_cache["version"]
 
 
 def _page(name: str) -> Response:
