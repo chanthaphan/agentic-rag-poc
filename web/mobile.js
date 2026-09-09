@@ -16,16 +16,20 @@ const STATUS = {
   th: { thinking: "กำลังคิดค่ะ…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแลค่ะ…", retrieving: "กำลังค้นหาข้อมูล{skill}ให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญด้าน{skill}ค่ะ…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบค่ะ…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียงให้ค่ะ…" },
   en: { thinking: "Thinking…", choosing: "Working out who should handle this…", retrieving: "Looking up {skill} information…", specialist: "Handing this to the {skill} specialist…", drafting: "Found it, writing the answer…", relaying: "The specialist replied, putting the answer together…" },
 };
-const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร", "financial-knowledge": "การเงิน" };
+const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร", "financial-knowledge": "การเงิน", "bank-profile": "ธนาคารกรุงเทพ", "bank-services": "อัตราแลกเปลี่ยน" };
 function skillLabel(id, lang) {
   if (!id) return lang === "th" ? "" : "product";
   if (lang === "th") return SKILL_TH[id] || id.replace(/-/g, " ");
   const row = ((state.config || {}).skills || []).find((x) => x.id === id);
   return row ? row.name.replace(/\s+(Advisor|Assistant)$/i, "") : id.replace(/-/g, " ");
 }
+// a skill with no Thai label must not drop an English id into a Thai sentence: use the label-free wording instead
+const STATUS_TH_PLAIN = { retrieving: "กำลังค้นหาข้อมูลให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญค่ะ…" };
 function statusText(t) {
   const lang = t.language === "en" ? "en" : t.language === "th" ? "th" : TH ? "th" : "en";
-  const tpl = STATUS[lang][t.status || "thinking"] || STATUS[lang].thinking;
+  const status = t.status || "thinking";
+  if (lang === "th" && t.status_skill && !SKILL_TH[t.status_skill] && STATUS_TH_PLAIN[status]) return STATUS_TH_PLAIN[status];
+  const tpl = STATUS[lang][status] || STATUS[lang].thinking;
   return tpl.replace("{skill}", skillLabel(t.status_skill, lang));
 }
 function statusHtml(t) { return `<span class="wait"><i class="spin"></i>${esc(statusText(t))}</span>`; }

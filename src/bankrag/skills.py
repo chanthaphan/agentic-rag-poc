@@ -28,6 +28,9 @@ def parse_skill(path: Path) -> SkillSpec:
     suggestions = meta.get("suggestions") or []
     if isinstance(suggestions, str):
         suggestions = [x.strip() for x in suggestions.splitlines() if x.strip()]
+    tools = meta.get("tools") or []
+    if isinstance(tools, str):
+        tools = [t.strip() for t in tools.split(",") if t.strip()]
     return SkillSpec(
         id=str(meta.get("id") or path.name),
         name=str(meta.get("name") or path.name),
@@ -38,6 +41,7 @@ def parse_skill(path: Path) -> SkillSpec:
         top_k=int(meta.get("top_k", 5)),
         filter=filt,
         version=int(meta.get("version", 1)),
+        tools=[str(t) for t in tools],
         suggestions=[str(x) for x in suggestions],
         body=post.content.strip(),
         path=path,
@@ -145,7 +149,7 @@ def skill_to_zip(spec: SkillSpec) -> bytes:
 
 
 # ---- editing (Studio) ----
-FORM_KEYS = ("name", "id", "description", "product_category", "keywords", "model", "top_k", "filter", "version", "suggestions")
+FORM_KEYS = ("name", "id", "description", "product_category", "keywords", "model", "top_k", "filter", "version", "tools", "suggestions")
 SKILL_TEMPLATE_BODY = """## Role
 You are the {name} specialist. Your knowledge base holds Bangkok Bank documents for this product family.
 
@@ -161,9 +165,9 @@ def _clean_form(meta: dict) -> dict:
         if k not in meta or meta[k] is None:
             continue
         v = meta[k]
-        if k in ("keywords", "suggestions"):
+        if k in ("keywords", "suggestions", "tools"):
             if isinstance(v, str):
-                v = [x.strip() for x in re.split(r"[\n,]" if k == "keywords" else r"\n", v) if x.strip()]
+                v = [x.strip() for x in re.split(r"\n" if k == "suggestions" else r"[\n,]", v) if x.strip()]
             v = [str(x).strip() for x in v if str(x).strip()]
         elif k in ("top_k", "version"):
             v = int(v)

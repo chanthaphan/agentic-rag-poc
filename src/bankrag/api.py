@@ -1550,6 +1550,26 @@ def access_delete(email: str, request: Request):
 app.include_router(studio)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
+# Live-service tools for the agents (FX today, branches next). Mounted only when a tool key is set, because the path
+# has to sit outside the Studio/Easy Auth gate for Foundry to reach it: the header key is what protects it.
+if settings.services_mcp_key:
+    from contextlib import asynccontextmanager
+
+    from .mcp_server import MCP_PATH, build_asgi
+
+    _mcp_app, _mcp_inner = build_asgi(settings)
+    app.mount(MCP_PATH, _mcp_app)
+    _app_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _lifespan_with_mcp(a):
+        # Mount does not run a mounted app's lifespan, and the MCP transport needs its task group started
+        async with _mcp_inner.router.lifespan_context(_mcp_inner):
+            async with _app_lifespan(a):
+                yield
+
+    app.router.lifespan_context = _lifespan_with_mcp
+
 
 @app.on_event("startup")
 def _startup_handoff_reconcile() -> None:

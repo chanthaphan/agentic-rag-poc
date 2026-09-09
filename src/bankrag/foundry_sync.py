@@ -42,6 +42,32 @@ def kb_tool(settings: Settings, spec: SkillSpec, kb_owner: Optional[SkillSpec] =
     return MCPTool(project_connection_id=owner.connection_name, **common)
 
 
+TOOL_ONLY_NOTE = (
+    "\n\n# Knowledge base status\n"
+    "You have no product documents, and you do not need any: your answers come from your live tool(s) ({tools}). "
+    "Call the tool for every question in your scope and answer from what it returns. Never say your knowledge base is "
+    "empty, and never answer a live value from memory or from earlier in the conversation."
+)
+
+
+def services_tool(settings: Settings, spec: SkillSpec) -> Optional[MCPTool]:
+    """Our own live-service MCP endpoint, for skills that declare `tools:` in their frontmatter.
+
+    Needs PUBLIC_BASE_URL (the agent calls us from Foundry, so it must be the public https name) and MCP_TOOL_KEY,
+    which travels in the agent definition the same way the KB query key does under KB_MCP_AUTH=apikey."""
+    from .mcp_server import AUTH_HEADER, MCP_PATH
+
+    if not spec.tools or not settings.services_mcp_key or not settings.public_base_url:
+        return None
+    return MCPTool(
+        server_label="bank-services",
+        server_url=f"{settings.public_base_url}{MCP_PATH}/",
+        require_approval="never",
+        allowed_tools=list(spec.tools),
+        headers={AUTH_HEADER: settings.services_mcp_key},
+    )
+
+
 SHARED_KB_NOTE = (
     "\n\n# Knowledge base status\n"
     "The search service quota did not allow a dedicated knowledge base for '{category}', so your knowledge base tool searches ALL product "
@@ -67,9 +93,15 @@ def desired_definition(settings: Settings, spec: SkillSpec, base_body: str, kb_o
         if shared_by_quota:
             instructions += SHARED_KB_NOTE.format(category=spec.product_category)
             tools = [kb_tool(settings, spec, kb_owner)]
-        else:
+        elif not spec.tools:
             instructions += EMPTY_KB_NOTE.format(category=spec.product_category)
             tools = []
+        else:  # a tool-only skill (live lookups, no documents): it must use its tool, not refuse
+            instructions += TOOL_ONLY_NOTE.format(tools=", ".join(spec.tools))
+            tools = []
+    live = services_tool(settings, spec)  # live lookups are independent of whether the skill has documents
+    if live is not None:
+        tools = tools + [live]
     return PromptAgentDefinition(
         model=spec.model or settings.default_chat_model,
         instructions=instructions,

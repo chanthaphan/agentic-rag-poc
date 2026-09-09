@@ -22,6 +22,7 @@ class SkillSpec(BaseModel):
     model: Optional[str] = None
     top_k: int = 5
     filter: Optional[str] = None  # None -> default category filter; "" -> no filter
+    tools: list[str] = Field(default_factory=list)  # live-service MCP tools this skill's agent carries, e.g. ["fx_rate"]
     version: int = 1
     suggestions: list[str] = Field(default_factory=list)  # follow-up prompts shown under answers
     body: str = ""  # markdown instructions (frontmatter removed)

@@ -86,6 +86,8 @@ class Settings:
     appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
     bbl_api_subscription: str  # subscription value the bangkokbank.com site sends with its own public API calls (FX, branches)
     bbl_api_base: str
+    services_mcp_key: str  # shared header key guarding our own /mcp/services endpoint (agents send it back)
+    public_base_url: str  # public https base of this app, so a Foundry agent can reach /mcp/services
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -138,6 +140,8 @@ class Settings:
             appinsights_app_id=_env("APPINSIGHTS_APP_ID", ""),
             bbl_api_subscription=_env("BBL_API_KEY", ""),
             bbl_api_base=_env("BBL_API_BASE", "https://www.bangkokbank.com/api").rstrip("/"),
+            services_mcp_key=_env("MCP_TOOL_KEY", ""),
+            public_base_url=_env("PUBLIC_BASE_URL", "").rstrip("/"),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),
