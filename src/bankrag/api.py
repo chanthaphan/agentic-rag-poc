@@ -1340,7 +1340,7 @@ def studio_login(request: Request, password: str = Form(...), tester: str = Form
 
 @app.post("/studio/logout")
 def studio_logout():
-    resp = RedirectResponse("/studio/login", status_code=303)
+    resp = RedirectResponse("/", status_code=303)  # back to the chat page, not the Studio login form
     resp.delete_cookie(STUDIO_COOKIE)
     return resp
 
