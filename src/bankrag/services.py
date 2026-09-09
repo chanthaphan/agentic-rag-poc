@@ -218,15 +218,18 @@ def countries(settings: Settings, lang: str = "en") -> Any:
     return _get(settings, f"{LOC_SERVICE}/GetCountry{'Th' if lang == 'th' else 'En'}")
 
 
-# The Locate Us page's own type codes. Confirmed from its network calls: BRC, ATM, ATMPLUS. There may be more (an
-# exchange booth, a CDM); an unrecognised code is passed through uppercased rather than rejected, so a new one works
-# the day it is discovered without a code change.
+# The Locate Us page's own type codes, confirmed from its network calls: BRC, ATM, ATMPLUS, FXB. An unrecognised code
+# is passed through uppercased rather than rejected, so a new one works the day it is discovered without a code change.
 KIND_BRANCH = "BRC"
 KIND_ATM = "ATM"
 KIND_ATM_PLUS = "ATMPLUS"
+KIND_FX_BOOTH = "FXB"  # a currency-exchange booth, which is not the same thing as a branch that happens to do FX
 _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
           "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
-          "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS}
+          "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS,
+          "fxb": KIND_FX_BOOTH, "fx": KIND_FX_BOOTH, "exchange": KIND_FX_BOOTH, "fx booth": KIND_FX_BOOTH,
+          "currency exchange": KIND_FX_BOOTH, "money exchange": KIND_FX_BOOTH,
+          "แลกเงิน": KIND_FX_BOOTH, "บูธแลกเงิน": KIND_FX_BOOTH, "ที่แลกเงิน": KIND_FX_BOOTH}
 
 
 def resolve_kind(kind: str) -> str:

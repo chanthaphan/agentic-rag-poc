@@ -51,12 +51,13 @@ def build_server(settings: Settings) -> MCPServer:
     @server.tool(
         name=TOOL_BRANCH,
         description="Bangkok Bank branches nearest to a pair of coordinates, closest first. Use when the customer asks "
-                    "where a branch or an ATM is, which is nearest, or where they can exchange currency. The customer's "
+                    "where a branch, an ATM or a currency-exchange booth is, or which is nearest. For 'where can I "
+                    "exchange money' use kind='exchange' first, which finds real FX booths. The customer's "
                     "coordinates are given to you in the conversation when they have shared their location; if they "
                     "are not there, ask which province or district instead of guessing.",
     )
     def find_branch(lat: float, lon: float, province: str = "", kind: str = "branch", limit: int = 5) -> dict[str, Any]:
-        """lat/lon: the customer's position. province: optional Thai province name. kind: 'branch', 'atm' or 'atm plus'."""
+        """lat/lon: the customer's position. province: optional Thai province name. kind: 'branch', 'atm', 'atm plus', or 'exchange' for a currency-exchange booth."""
         try:
             return SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
         except SV.ServiceError as e:
