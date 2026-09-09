@@ -7,6 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterator, Optional
 
+import logging
+
 import tiktoken
 
 from . import knowledge_base as KB
@@ -26,6 +28,7 @@ OFFTOPIC_REPLY = {
 }
 MIN_CONFIDENCE = 0.5
 MAX_TURNS_PER_CONVERSATION = 6  # Foundry conversations keep every tool output; rotate to cap input tokens
+audit = logging.getLogger("bankrag.audit")
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sources")
 REPLY_HINT = {
     "th": "Reply-language note: the customer wrote in Thai. Write the entire answer in Thai (product names may stay in English). Do not mention this note.",
@@ -343,6 +346,9 @@ class ChatSession:
             return text, ""
         if report:
             trace["compliance"] = {k: v for k, v in report.items() if k != "appended"}
+            if report.get("fixed") or report.get("violations"):
+                audit.info("responsible-lending skill=%s products=%s appended=%s violations=%s", skill_id,
+                           report.get("products"), report.get("fixed"), report.get("violations"))
         return text, report.get("appended", "")
 
     def _recap_items(self) -> list[dict[str, Any]]:

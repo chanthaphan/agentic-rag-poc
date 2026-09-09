@@ -183,3 +183,26 @@ def test_kind_codes_map_and_pass_through():
     assert SV.resolve_kind("fcd") == "FCD" and SV.resolve_kind("foreign currency deposit") == "FCD"
     assert SV.resolve_kind("wealth lounge") == "BEV" and SV.resolve_kind("สำนักธุรกิจ") == "BUC"
     assert SV.resolve_kind("CDM") == "CDM"  # a code we have not seen yet still reaches the service
+
+
+def test_currency_names_resolve_to_iso_codes():
+    """Customers ask for 'เยน', not 'JPY'; the tool must not answer 'not in today's list' for that."""
+    for word in ("เยน", "yen", "JPY", "jpy", "อัตราเงินเยน", "Japanese Yen"):
+        assert SV.resolve_currency(word) == "JPY", word
+    assert SV.resolve_currency("ดอลลาร์") == "USD" and SV.resolve_currency("euro") == "EUR"
+    assert SV.resolve_currency("ริงกิต") == "MYR" and SV.resolve_currency("หยวน") == "CNY"
+    assert SV.resolve_currency("xyz") == "XYZ"  # unknown still reaches the lookup, which reports it honestly
+
+
+def test_fx_rate_accepts_a_currency_name(settings, monkeypatch):
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [
+        {**LIVE_ROW, "Description": "JPY: 100", "FamilyLong": "Japanese Yen", "BuyingRates": "0.2150",
+         "SellingRates": "0.2250"}])
+    out = SV.fx_rate(settings, "เยน")
+    assert out["found"] and out["currency"] == "JPY" and out["rates"][0]["buying"] == 0.215
+
+
+def test_unknown_currency_says_what_was_asked_for(settings, monkeypatch):
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_ROW])
+    out = SV.fx_rate(settings, "เงินดาวอังคาร")
+    assert out["found"] is False and out["asked_for"] == "เงินดาวอังคาร" and out["available"] == ["USD"]

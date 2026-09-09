@@ -28,7 +28,8 @@ from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills,
 
 import logging as _logging
 
-_logging.getLogger("bankrag.services").setLevel(_logging.INFO)  # live-service calls are auditable
+for _n in ("bankrag.services", "bankrag.audit"):  # live calls, tool calls and compliance actions are auditable
+    _logging.getLogger(_n).setLevel(_logging.INFO)
 
 app = FastAPI(title="bankrag POC", version="0.2.0")
 settings = Settings.load()

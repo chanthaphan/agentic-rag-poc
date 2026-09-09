@@ -191,17 +191,57 @@ def fx_rates_raw(settings: Settings, on: _date, round_no: int = 2, lang: str = "
     return _get(settings, f"{FX_SERVICE}/Getfxrates/{on.day:02d}/{on.month:02d}/{on.year}/{round_no}/{lang}")
 
 
+# Customers ask for "เยน", not "JPY". The tool takes an ISO code, but a model handed a Thai or English currency name
+# would otherwise get "not in today's list" for a currency the bank very much trades.
+_CCY_ALIASES = {
+    "usd": "USD", "dollar": "USD", "us dollar": "USD", "ดอลลาร์": "USD", "ดอลล่าร์": "USD", "เหรียญ": "USD",
+    "jpy": "JPY", "yen": "JPY", "japanese yen": "JPY", "เยน": "JPY", "เงินเยน": "JPY", "ญี่ปุ่น": "JPY",
+    "eur": "EUR", "euro": "EUR", "ยูโร": "EUR",
+    "gbp": "GBP", "pound": "GBP", "sterling": "GBP", "ปอนด์": "GBP",
+    "cny": "CNY", "yuan": "CNY", "rmb": "CNY", "หยวน": "CNY", "จีน": "CNY",
+    "krw": "KRW", "won": "KRW", "วอน": "KRW", "เกาหลี": "KRW",
+    "aud": "AUD", "ออสเตรเลีย": "AUD", "nzd": "NZD", "chf": "CHF", "ฟรังก์": "CHF",
+    "sgd": "SGD", "สิงคโปร์": "SGD", "myr": "MYR", "ริงกิต": "MYR", "มาเลเซีย": "MYR",
+    "hkd": "HKD", "ฮ่องกง": "HKD", "twd": "TWD", "ไต้หวัน": "TWD",
+    "vnd": "VND", "ดong": "VND", "ดอง": "VND", "เวียดนาม": "VND",
+    "idr": "IDR", "รูเปียห์": "IDR", "inr": "INR", "รูปี": "INR", "อินเดีย": "INR",
+    "cad": "CAD", "แคนาดา": "CAD", "lak": "LAK", "กีบ": "LAK", "ลาว": "LAK",
+    "mmk": "MMK", "จ๊าด": "MMK", "พม่า": "MMK", "php": "PHP", "เปโซ": "PHP", "ฟิลิปปินส์": "PHP",
+    "dkk": "DKK", "nok": "NOK", "sek": "SEK", "zar": "ZAR", "aed": "AED", "sar": "SAR", "rub": "RUB",
+}
+
+
+def resolve_currency(text: str, rates: Optional[list] = None) -> str:
+    """'เยน' / 'yen' / 'JPY' -> JPY. Falls back to matching the bank's own row names."""
+    raw = str(text or "").strip()
+    key = raw.lower()
+    if key in _CCY_ALIASES:
+        return _CCY_ALIASES[key]
+    if len(raw) == 3 and raw.isalpha():
+        return raw.upper()
+    for alias, code in _CCY_ALIASES.items():
+        if alias and alias in key:
+            return code
+    for r in rates or []:  # last resort: the bank's own wording for the row
+        blob = f"{r.currency} {r.name} {r.label}".lower()
+        if key and key in blob:
+            return r.currency
+    return raw.upper()
+
+
 def fx_rate(settings: Settings, currency: str, *, lang: str = "en") -> dict:
     """The tool entry point: today's rate(s) for one currency, with the time the bank published them.
 
     A currency can have several bank-note denominations at different rates (USD 1-2 vs 50-100), so every matching row
     comes back and the agent quotes the one the customer means."""
-    ccy = currency.upper().strip()
     rates = normalize_fx(fx_latest_raw(settings))
+    ccy = resolve_currency(currency, rates)
     hits = [r for r in rates if r.currency == ccy]
+    log.info("fx_rate(%r) -> %s: %d row(s)", currency, ccy, len(hits))
     if not hits:
         return {"found": False, "currency": ccy,
                 "available": sorted({r.currency for r in rates}),
+                "asked_for": currency,
                 "say": f"{ccy} is not in today's rate table; offer one of the currencies listed in `available`."}
     return {
         "found": True,
@@ -340,6 +380,7 @@ def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "
         return {"found": False, "error": str(e),
                 "say": "The branch lookup is not available right now; point the customer at the bank's Locate Us page."}
     places = normalize_places(raw)[:limit]
+    log.info("find_branch(lat=%.4f, lon=%.4f, province=%r, kind=%s) -> %d place(s)", lat, lon, province, kind, len(places))
     if not places:
         return {"found": False, "province": province,
                 "say": "No branch came back for that spot. Ask the customer which province or district they mean, "

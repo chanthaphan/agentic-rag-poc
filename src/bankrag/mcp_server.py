@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
+import time
 from typing import Any, Awaitable, Callable
 
 from mcp.server.mcpserver import MCPServer
@@ -21,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from .config import Settings
 from . import services as SV
 
+log = logging.getLogger("bankrag.audit")
 MCP_PATH = "/mcp/services"
 AUTH_HEADER = "x-tool-key"
 TOOL_FX = "fx_rate"
@@ -41,10 +44,15 @@ def build_server(settings: Settings) -> MCPServer:
                     "Always show the customer the as_of time and that the rate can change during the day.",
     )
     def fx_rate(currency: str) -> dict[str, Any]:
-        """currency: ISO code such as USD, EUR, JPY."""
+        """currency: ISO code such as USD, EUR, JPY, or the name the customer used ('เยน', 'yen')."""
+        t0 = time.perf_counter()
         try:
-            return SV.fx_rate(settings, currency)
+            out = SV.fx_rate(settings, currency)
+            log.info("tool fx_rate(currency=%r) -> found=%s in %d ms", currency, out.get("found"),
+                     int((time.perf_counter() - t0) * 1000))
+            return out
         except SV.ServiceError as e:
+            log.warning("tool fx_rate(currency=%r) FAILED: %s", currency, e)
             return {"found": False, "currency": currency.upper(), "error": str(e),
                     "say": "The live rate is not available right now; suggest the bank's website or staff."}
 
@@ -58,9 +66,14 @@ def build_server(settings: Settings) -> MCPServer:
     )
     def find_branch(lat: float, lon: float, province: str = "", kind: str = "branch", limit: int = 5) -> dict[str, Any]:
         """lat/lon: the customer's position. province: optional Thai province name. kind: branch | atm | atm plus | exchange (FX booth) | fcd | wealth lounge | business center."""
+        t0 = time.perf_counter()
         try:
-            return SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
+            out = SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
+            log.info("tool find_branch(kind=%s, province=%r) -> found=%s in %d ms", SV.resolve_kind(kind), province,
+                     out.get("found"), int((time.perf_counter() - t0) * 1000))
+            return out
         except SV.ServiceError as e:
+            log.warning("tool find_branch(kind=%r) FAILED: %s", kind, e)
             return {"found": False, "error": str(e),
                     "say": "The branch lookup is not available right now; suggest the bank's Locate Us page."}
 
@@ -93,6 +106,9 @@ def build_asgi(settings: Settings) -> tuple[Callable, Any]:
         if scope["type"] == "http":
             headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
             why = _reject(settings, headers)
+            caller = caller_object_id(headers) or "(anonymous)"
+            log.info("mcp %s %s caller=%s -> %s", scope.get("method"), scope.get("path"), caller,
+                     f"401 {why}" if why else "allowed")
             if why:
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json")]})
