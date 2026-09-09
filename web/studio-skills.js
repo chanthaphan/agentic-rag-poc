@@ -47,6 +47,8 @@ async function openSkill(id) {
   $("#ver-table tbody").innerHTML = ""; $("#ver-diff").textContent = ""; $("#ver-restore").hidden = true; $("#ver-status").textContent = ""; $("#try-out").textContent = "";
   pgReset();
   $$(".subtabs button[data-pane]")[0].click();
+  // stacked layout: the editor sits under the skill list, so bring it into view
+  if (window.matchMedia("(max-width: 1100px)").matches) $("#sk-editor").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function showMsgs(errors, warnings) { $("#ed-msgs").innerHTML = (errors || []).map((e) => `<div class="err">✖ ${esc(e)}</div>`).join("") + (warnings || []).map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join(""); }
 function formPayload() {

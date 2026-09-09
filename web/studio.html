@@ -9,7 +9,7 @@
 </head>
 <body class="studio">
 <header class="top">
-  <div><b>bankrag Studio</b> <span class="muted">tester workbench for the product assistant</span></div>
+  <div class="brand"><b>bankrag Studio</b> <span class="muted top-sub">tester workbench for the product assistant</span></div>
   <nav>
     <button data-view="skills" class="on">Skills</button>
     <button data-view="knowledge">Knowledge</button>
@@ -19,8 +19,8 @@
     <a href="/" target="_blank">Open app ↗</a>
   </nav>
   <span id="health" class="muted"></span>
-  <span id="who" class="muted" style="margin-left:auto"></span><span id="role-pill" class="pill" hidden></span>
-  <form method="post" action="/studio/logout" style="margin:0"><button class="btn-secondary" type="submit" title="clears the Studio password cookie">Logout Studio</button></form>
+  <span id="who" class="muted"></span><span id="role-pill" class="pill" hidden></span>
+  <form method="post" action="/studio/logout" class="top-logout"><button class="btn-secondary" type="submit" title="clears the Studio password cookie">Logout Studio</button></form>
   <a id="ms-signout" class="btn-danger" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out (Microsoft)</a>
 </header>
 
@@ -106,7 +106,7 @@
         <div class="pane" id="pane-versions">
           <div class="toolbar"><button id="ver-refresh" class="btn-secondary">Reload versions</button><span id="ver-status" class="muted"></span></div>
           <div class="split-narrow">
-            <table class="list" id="ver-table"><thead><tr><th>ver</th><th>created</th><th>model</th><th>hash</th></tr></thead><tbody></tbody></table>
+            <div class="tw"><table class="list" id="ver-table"><thead><tr><th>ver</th><th>created</th><th>model</th><th>hash</th></tr></thead><tbody></tbody></table></div>
             <div>
               <div class="toolbar"><span id="ver-title" class="muted">Select a version to diff it against the local SKILL.md (local = green, deployed = red)</span><button id="ver-restore" class="btn-secondary" hidden>Restore this version's body into the editor</button></div>
               <pre id="ver-diff" class="diff"></pre>
@@ -165,7 +165,7 @@
       </div>
       <div class="panel">
         <div class="panel-head"><h3>Files in <span class="kn-cat-name"></span></h3><span id="kn-files-hint" class="muted"></span><input id="kn-filter" class="kn-filter" placeholder="filter by name or title"></div>
-        <table class="list" id="kn-files-table"><thead><tr><th>file</th><th>kind</th><th>size</th><th>chunks</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="tw"><table class="list" id="kn-files-table"><thead><tr><th>file</th><th>kind</th><th>size</th><th>chunks</th><th></th></tr></thead><tbody></tbody></table></div>
         <div class="pager" id="kn-pager" hidden><button class="btn-secondary" id="kn-prev">‹ prev</button><span id="kn-page-info" class="muted"></span><button class="btn-secondary" id="kn-next">next ›</button></div>
       </div>
       <div class="panel">
@@ -204,7 +204,7 @@
       <div class="pane on" id="epane-routing">
         <div class="panel">
           <div class="panel-head"><h3>Routing questions</h3><span class="muted">the router alone must pick the expected skill (or <code>offtopic</code>)</span><span id="ev-status-routing" class="muted ev-status"></span></div>
-          <table class="list ev-qs" id="ev-routing"><thead><tr><th>question</th><th style="width:180px">expected skill</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="tw"><table class="list ev-qs" id="ev-routing"><thead><tr><th>question</th><th style="width:180px">expected skill</th><th style="width:40px"></th></tr></thead><tbody></tbody></table></div>
           <div class="row wrap ev-actions"><button id="ev-run-routing">Run routing eval</button><button id="ev-add-routing" class="btn-secondary">Add question</button><button id="ev-save-routing" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/routing.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="routing" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="routing" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span><span class="muted">Run saves the questions first. The routing eval costs only router tokens.</span></div>
         </div>
         <div class="panel ev-result-panel" id="ev-result-routing-panel" hidden>
@@ -216,7 +216,7 @@
       <div class="pane" id="epane-rag">
         <div class="panel">
           <div class="panel-head"><h3>Grounded-answer questions</h3><span class="muted">the full pipeline answers; pass = every expected substring appears and a source is cited</span><span id="ev-status-rag" class="muted ev-status"></span></div>
-          <table class="list ev-qs" id="ev-rag"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected substrings (comma)</th><th style="width:70px">needs source</th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="tw"><table class="list ev-qs" id="ev-rag"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected substrings (comma)</th><th style="width:70px">needs source</th><th style="width:40px"></th></tr></thead><tbody></tbody></table></div>
           <div class="row wrap ev-actions"><button id="ev-run-rag">Run grounded eval</button><button id="ev-add-rag" class="btn-secondary">Add question</button><button id="ev-save-rag" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/rag.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="rag" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="rag" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span><span class="muted">Each question is a full answer with retrieval, so this costs real model tokens.</span></div>
         </div>
         <div class="panel ev-result-panel" id="ev-result-rag-panel" hidden>
@@ -228,7 +228,7 @@
       <div class="pane" id="epane-quality">
         <div class="panel">
           <div class="panel-head"><h3>Quality questions</h3><span class="muted">the full pipeline answers, then a judge model scores each answer with DeepEval RAG and agentic metrics</span><span id="ev-status-quality" class="muted ev-status"></span></div>
-          <table class="list ev-qs" id="ev-quality"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected answer <span class="muted">(optional; enables precision / recall)</span></th><th style="width:40px"></th></tr></thead><tbody></tbody></table>
+          <div class="tw"><table class="list ev-qs" id="ev-quality"><thead><tr><th>question</th><th style="width:130px">skill (optional)</th><th>expected answer <span class="muted">(optional; enables precision / recall)</span></th><th style="width:40px"></th></tr></thead><tbody></tbody></table></div>
           <div class="row wrap ev-actions"><button id="ev-add-quality" class="btn-secondary">Add question</button><button id="ev-save-quality" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/quality.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="quality" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="quality" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span></div>
         </div>
         <div class="panel">
@@ -298,11 +298,11 @@
         <div class="subtabs"><button data-cpane="questions" class="on">Questions</button><button data-cpane="sessions">Conversations</button></div>
         <div class="pane on" id="cpane-questions">
           <div class="row wrap cv-bulk"><label class="muted"><input type="checkbox" id="cv-check-all"> select all shown</label><span class="muted" id="cv-shown"></span></div>
-          <table class="list" id="cv-qtable"><thead><tr><th style="width:28px"></th><th>question</th><th style="width:110px">skill</th><th style="width:70px">rating</th><th style="width:70px">cost</th><th style="width:150px">asked by · when</th><th style="width:60px"></th></tr></thead><tbody></tbody></table>
+          <div class="tw"><table class="list" id="cv-qtable"><thead><tr><th style="width:28px"></th><th>question</th><th style="width:110px">skill</th><th style="width:70px">rating</th><th style="width:70px">cost</th><th style="width:150px">asked by · when</th><th style="width:60px"></th></tr></thead><tbody></tbody></table></div>
           <div class="pager" id="cv-pager" hidden><button class="btn-secondary" id="cv-prev">‹ prev</button><span id="cv-page-info" class="muted"></span><button class="btn-secondary" id="cv-next">next ›</button></div>
         </div>
         <div class="pane" id="cpane-sessions">
-          <table class="list" id="cv-table"><thead><tr><th>started</th><th>user</th><th>title</th><th>turns</th><th>skills</th><th>cost</th><th>👍/👎</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="tw"><table class="list" id="cv-table"><thead><tr><th>started</th><th>user</th><th>title</th><th>turns</th><th>skills</th><th>cost</th><th>👍/👎</th><th></th></tr></thead><tbody></tbody></table></div>
         </div>
       </div>
       <div class="panel" id="cv-transcript-panel" hidden>
@@ -332,9 +332,9 @@
   <div class="pane on" id="spane-usage">
     <h3>Usage (from .state/bankrag.db)</h3>
     <div class="cards" id="us-cards"></div>
-    <table class="list" id="us-days"><thead><tr><th>day</th><th>answers</th><th>input tokens</th><th>cost</th></tr></thead><tbody></tbody></table>
+    <div class="tw"><table class="list" id="us-days"><thead><tr><th>day</th><th>answers</th><th>input tokens</th><th>cost</th></tr></thead><tbody></tbody></table></div>
     <h3>Model prices <span class="muted">(USD per 1M tokens; saved to pricing.yaml; unknown models use "default")</span></h3>
-    <table class="list" id="pr-table"><thead><tr><th>model</th><th>input</th><th>cached input</th><th>output</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="tw"><table class="list" id="pr-table"><thead><tr><th>model</th><th>input</th><th>cached input</th><th>output</th><th></th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar"><button id="pr-add" class="btn-secondary" data-admin>Add model</button><label>Retrieval cost per call $ <input id="pr-retrieval" type="number" step="0.0001" style="width:110px"></label><button id="pr-save" data-admin>Save prices</button><span class="muted admin-note" data-tester>read-only: prices are set by a Studio admin</span><span id="pr-status" class="muted"></span></div>
   </div>
   <div class="pane" id="spane-base">
@@ -352,12 +352,12 @@
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Rules</h3><span class="muted">a rule applies to an answer that mentions one of its products</span><button id="rl-new" class="btn-secondary" data-admin>New rule</button></div>
-      <table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th><th style="width:50px"></th></tr></thead><tbody></tbody></table>
+      <div class="tw"><table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th><th style="width:50px"></th></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="bd-grid">
       <div class="panel">
         <div class="panel-head"><h3>Product families</h3><span class="muted">which skill agent carries each family's rules</span><button id="rl-new-product" class="btn-secondary" data-admin>New family</button></div>
-        <table class="list" id="rl-products"><thead><tr><th>family</th><th style="width:170px">skills that carry it</th><th style="width:60px">rules</th><th style="width:60px"></th></tr></thead><tbody></tbody></table>
+        <div class="tw"><table class="list" id="rl-products"><thead><tr><th>family</th><th style="width:170px">skills that carry it</th><th style="width:60px">rules</th><th style="width:60px"></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="panel">
         <div class="panel-head"><h3>Try an answer</h3><span class="muted">runs the same guard the chat runs before an answer is sent</span></div>
@@ -383,7 +383,7 @@
       <div class="panel">
         <div class="panel-head"><h3>Who can open Studio</h3><span id="ac-status" class="muted"></span></div>
         <p class="muted" id="ac-note">People sign in with their Microsoft (Entra) account. Only accounts on this list can open Studio; everyone else can still use the customer app. <b>Admins</b> manage this list and everything else; <b>testers</b> get every Studio tab except Access.</p>
-        <table class="list" id="ac-table"><thead><tr><th>email</th><th>role</th><th>name</th><th>added by</th><th>when</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="tw"><table class="list" id="ac-table"><thead><tr><th>email</th><th>role</th><th>name</th><th>added by</th><th>when</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="panel">
         <div class="panel-head"><h3>Add or change a person</h3></div>
@@ -415,7 +415,7 @@
         <div class="panel-head"><h3>Import a bundle</h3><span class="muted">pick a zip to preview what it contains and what would change</span></div>
         <div class="row wrap"><label class="btn-secondary">Choose bundle.zip <input type="file" id="bd-file" accept=".zip" hidden></label><span id="bd-filename" class="muted"></span></div>
         <div id="bd-preview" hidden>
-          <table class="list bd-table"><thead><tr><th>part</th><th>files</th><th>new</th><th>changed</th><th>same</th><th>size</th><th>import?</th></tr></thead><tbody id="bd-parts"></tbody></table>
+          <div class="tw"><table class="list bd-table"><thead><tr><th>part</th><th>files</th><th>new</th><th>changed</th><th>same</th><th>size</th><th>import?</th></tr></thead><tbody id="bd-parts"></tbody></table></div>
           <div id="bd-detail" class="muted"></div>
           <div class="bd-opts">
             <label><input type="radio" name="bd-mode" value="merge" checked> Merge <span class="muted">(write the bundle's files over existing ones; keep everything else)</span></label>
