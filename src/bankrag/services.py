@@ -218,14 +218,16 @@ def countries(settings: Settings, lang: str = "en") -> Any:
     return _get(settings, f"{LOC_SERVICE}/GetCountry{'Th' if lang == 'th' else 'En'}")
 
 
-# The Locate Us page's own type codes, confirmed from its network calls: BRC, ATM, ATMPLUS, FXB, FCD and BEV (BEV is
-# real but what it stands for is unconfirmed, so it gets no friendly alias rather than a guessed one). An unrecognised
-# code is passed through uppercased rather than rejected, so a new one works the day it is found without a code change.
+# The Locate Us page's own type codes, confirmed from its network calls and its own filter labels: BRC, ATM, ATMPLUS,
+# FXB, FCD, BEV and BUC. An unrecognised code is passed through uppercased rather than rejected, so a new one works the
+# day it is found without a code change.
 KIND_BRANCH = "BRC"
 KIND_ATM = "ATM"
 KIND_ATM_PLUS = "ATMPLUS"
 KIND_FX_BOOTH = "FXB"  # a currency-exchange booth, which is not the same thing as a branch that happens to do FX
 KIND_FCD = "FCD"  # a branch that handles foreign-currency deposit accounts: opening one, not exchanging cash
+KIND_WEALTH_LOUNGE = "BEV"  # Wealth Lounge
+KIND_BUSINESS_CENTER = "BUC"  # สำนักธุรกิจ / Business Center, for business banking rather than a retail counter
 _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
           "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
           "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS,
@@ -233,7 +235,11 @@ _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH
           "currency exchange": KIND_FX_BOOTH, "money exchange": KIND_FX_BOOTH,
           "แลกเงิน": KIND_FX_BOOTH, "บูธแลกเงิน": KIND_FX_BOOTH, "ที่แลกเงิน": KIND_FX_BOOTH,
           "fcd": KIND_FCD, "foreign currency deposit": KIND_FCD, "fcd account": KIND_FCD,
-          "บัญชีเงินตราต่างประเทศ": KIND_FCD, "เงินฝากสกุลต่างประเทศ": KIND_FCD}
+          "บัญชีเงินตราต่างประเทศ": KIND_FCD, "เงินฝากสกุลต่างประเทศ": KIND_FCD,
+          "bev": KIND_WEALTH_LOUNGE, "wealth lounge": KIND_WEALTH_LOUNGE, "wealth": KIND_WEALTH_LOUNGE,
+          "เวลท์เลานจ์": KIND_WEALTH_LOUNGE, "เลานจ์": KIND_WEALTH_LOUNGE,
+          "buc": KIND_BUSINESS_CENTER, "business center": KIND_BUSINESS_CENTER,
+          "business centre": KIND_BUSINESS_CENTER, "สำนักธุรกิจ": KIND_BUSINESS_CENTER}
 
 
 def resolve_kind(kind: str) -> str:

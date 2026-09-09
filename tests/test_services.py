@@ -181,4 +181,5 @@ def test_kind_codes_map_and_pass_through():
     assert SV.resolve_kind("") == "BRC"
     assert SV.resolve_kind("exchange") == "FXB" and SV.resolve_kind("แลกเงิน") == "FXB"
     assert SV.resolve_kind("fcd") == "FCD" and SV.resolve_kind("foreign currency deposit") == "FCD"
+    assert SV.resolve_kind("wealth lounge") == "BEV" and SV.resolve_kind("สำนักธุรกิจ") == "BUC"
     assert SV.resolve_kind("CDM") == "CDM"  # a code we have not seen yet still reaches the service

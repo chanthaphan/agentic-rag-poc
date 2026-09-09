@@ -57,7 +57,7 @@ def build_server(settings: Settings) -> MCPServer:
                     "are not there, ask which province or district instead of guessing.",
     )
     def find_branch(lat: float, lon: float, province: str = "", kind: str = "branch", limit: int = 5) -> dict[str, Any]:
-        """lat/lon: the customer's position. province: optional Thai province name. kind: 'branch', 'atm', 'atm plus', 'exchange' (FX booth) or 'fcd' (foreign-currency deposit)."""
+        """lat/lon: the customer's position. province: optional Thai province name. kind: branch | atm | atm plus | exchange (FX booth) | fcd | wealth lounge | business center."""
         try:
             return SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
         except SV.ServiceError as e:
