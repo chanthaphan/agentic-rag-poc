@@ -53,6 +53,11 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .hdr-row { display:flex; align-items:center; justify-content:space-between; }
 .hdr h1 { margin:0; font:var(--display-md); letter-spacing:-.02em; color:var(--bbl-ink); }
 .hdr-right { display:flex; align-items:center; gap:4px; }
+.avatar { cursor:pointer; padding:0; }
+.account { position:absolute; right:18px; top:96px; z-index:20; min-width:200px; background:rgba(255,255,255,.98); border:1px solid rgba(20,40,70,.08); border-radius:14px; padding:12px 14px; box-shadow:0 8px 24px rgba(20,40,70,.14); animation:fadeUp .2s ease; }
+.account .acc-name { font:var(--label-lg); font-weight:600; color:var(--bbl-ink); }
+.account .acc-email { font:var(--caption-lg); color:var(--gray-70); margin-top:2px; word-break:break-all; }
+.account .acc-signout { display:block; margin-top:10px; padding:8px 0; border-top:1px solid var(--gray-20); font:var(--label-sm); font-weight:600; color:var(--red-70); text-decoration:none; }
 .icon-btn { width:40px; height:40px; border-radius:50%; border:none; background:transparent; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--bbl-60); }
 .avatar { width:40px; height:40px; border-radius:50%; background:var(--bbl-20); color:var(--bbl-70); font:var(--label-sm); font-weight:600; letter-spacing:.02em; display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.5); }
 .dots { display:flex; gap:5px; margin-top:10px; }

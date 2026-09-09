@@ -220,6 +220,14 @@ async function loadSession(id) {
 })();
 
 (async function init() {
+  // account popover: who is signed in through Microsoft (Easy Auth) and a sign-out link; local dev has no SSO
+  $("#avatar").addEventListener("click", async (e) => {
+    e.stopPropagation(); const box = $("#account"); if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false; $("#acc-name").textContent = "…"; $("#acc-email").textContent = "";
+    try { const w = await api("/whoami"); $("#acc-name").textContent = w.name || w.email || (TH ? "ยังไม่ได้ลงชื่อเข้าใช้" : "Not signed in"); $("#acc-email").textContent = w.email || (w.sso ? "" : TH ? "โหมดทดสอบในเครื่อง ไม่มี Microsoft sign-in" : "local mode, no Microsoft sign-in"); $("#acc-signout").hidden = !w.sso; $("#acc-signout").textContent = TH ? "ออกจากระบบ Microsoft" : "Sign out of Microsoft"; }
+    catch (err) { $("#acc-name").textContent = err.message; }
+  });
+  document.addEventListener("click", (e) => { if (!$("#account").contains(e.target)) $("#account").hidden = true; });
   try { state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant"; } catch {}
   let saved = null; try { saved = localStorage.getItem("bankrag_session"); } catch {}
   if (saved) await loadSession(saved); else render();

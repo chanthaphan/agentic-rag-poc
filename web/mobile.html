@@ -29,8 +29,13 @@
           <h1 id="title">Assistant</h1>
           <div class="hdr-right">
             <button class="icon-btn" id="btn-history" aria-label="History"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button>
-            <div class="avatar" id="avatar">PW</div>
+            <button class="avatar" id="avatar" aria-label="Account">PW</button>
           </div>
+        </div>
+        <div class="account" id="account" hidden>
+          <div class="acc-name" id="acc-name">…</div>
+          <div class="acc-email" id="acc-email"></div>
+          <a class="acc-signout" id="acc-signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out of Microsoft</a>
         </div>
         <div class="dots"><i></i><i class="on"></i><i></i></div>
       </div>
