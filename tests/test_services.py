@@ -124,12 +124,28 @@ def test_branch_search_builds_the_captured_path(settings, monkeypatch):
     assert seen["path"] == "locationsearchservice/SearchThaiLandEnWithLocation/Bangkok/5/13.0/100.0/ATM"
 
 
+# a branch row exactly as the locator returns it
+LIVE_BRANCH = {"BranchName": "สาขาซีคอนสแควร์", "BranchNo": "0232", "Address1": "904 หมู่ 6 ถนนศรีนครินทร์",
+               "Address2": "หนองบอน", "Address3": "ประเวศ", "MicroBranchHours": "ทุกวัน 11.00 น. - 19.00 น.",
+               "Province": "กรุงเทพมหานคร", "Postcode": "10250", "ATM": "x", "ATMPlus": "", "Branch": "x",
+               "BusinessCenter": ""}
+
+
+def test_normalize_places_reads_the_live_shape():
+    """The address arrives split across Address1..3, and services are 'x' columns rather than a list."""
+    p = SV.normalize_places([LIVE_BRANCH])[0]
+    assert p.name == "สาขาซีคอนสแควร์" and p.branch_no == "0232" and p.postcode == "10250"
+    assert p.address == "904 หมู่ 6 ถนนศรีนครินทร์ หนองบอน ประเวศ"
+    assert p.hours == "ทุกวัน 11.00 น. - 19.00 น."
+    assert p.services == ["ATM", "Branch"]  # only the columns actually marked x
+    assert p.lat is None  # the locator returns no coordinates; it orders by the ones we send instead
+
+
 def test_normalize_places_is_tolerant(settings):
-    rows = [{"BranchName": "สาขาสีลม", "Address": "1 ถนนสีลม", "Province": "กรุงเทพมหานคร",
-             "Latitude": "13.7", "Longitude": "100.5", "Distance": "1.2", "Tel": "02-000-0000"},
-            {"Name": "Silom 2", "FullAddress": "2 Silom Rd"}]
+    rows = [{"Name": "Silom 2", "FullAddress": "2 Silom Rd", "Latitude": "13.7", "Longitude": "100.5",
+             "Distance": "1.2", "Tel": "02-000-0000"}]
     got = SV.normalize_places(rows)
-    assert [p.name for p in got] == ["สาขาสีลม", "Silom 2"]
+    assert got[0].name == "Silom 2" and got[0].address == "2 Silom Rd"
     assert got[0].lat == 13.7 and got[0].distance_km == 1.2 and got[0].phone == "02-000-0000"
     assert SV.normalize_places([{"nothing": "useful"}]) == []  # no name and no address: not a place
     assert SV.normalize_places("boom") == []
@@ -137,13 +153,13 @@ def test_normalize_places_is_tolerant(settings):
 
 def test_find_branch_returns_the_nearest(settings, monkeypatch):
     monkeypatch.setattr(SV, "search_places_raw", lambda *a, **k: [
-        {"BranchName": "A", "Address": "1", "Distance": "0.4"},
-        {"BranchName": "B", "Address": "2", "Distance": "1.1"},
-        {"BranchName": "C", "Address": "3", "Distance": "9.9"}])
+        {**LIVE_BRANCH, "BranchName": "A"}, {**LIVE_BRANCH, "BranchName": "B"}, {**LIVE_BRANCH, "BranchName": "C"}])
     out = SV.find_branch(settings, 13.7, 100.6, limit=2)
+    # the service orders by the coordinates we send, so "nearest" is simply the order it gave us
     assert out["found"] and [b["name"] for b in out["branches"]] == ["A", "B"]
     assert out["near"] == {"lat": 13.7, "lon": 100.6}
     assert "can change" in out["disclaimer"]
+    assert out["branches"][0]["services"] == ["ATM", "Branch"]
     assert all("lat" not in b for b in out["branches"])  # blank fields are dropped, not sent as nulls
 
 
@@ -164,4 +180,5 @@ def test_kind_codes_map_and_pass_through():
     assert SV.resolve_kind("atm") == "ATM" and SV.resolve_kind("ATM Plus") == "ATMPLUS"
     assert SV.resolve_kind("") == "BRC"
     assert SV.resolve_kind("exchange") == "FXB" and SV.resolve_kind("แลกเงิน") == "FXB"
+    assert SV.resolve_kind("fcd") == "FCD" and SV.resolve_kind("foreign currency deposit") == "FCD"
     assert SV.resolve_kind("CDM") == "CDM"  # a code we have not seen yet still reaches the service

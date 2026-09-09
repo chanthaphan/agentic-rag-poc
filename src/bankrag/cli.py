@@ -349,6 +349,22 @@ def services_probe(lang: str = typer.Option("en", help="th | en")):
         else:
             shape = f"{type(data).__name__}: {preview[:120]}"
         rprint(f"[green]{name}: ok[/] {shape}")
+    try:  # the branch row is wide and the interesting parts (coordinates, service flags) sit past a short preview
+        rows = SV.search_places_raw(s, "กรุงเทพมหานคร", 13.697057591968564, 100.64558570030171)
+        rows = rows if isinstance(rows, list) else []
+        if rows:
+            rprint(f"\n[bold]branch row: {len(rows[0])} fields[/]")
+            rprint("  keys: " + ", ".join(rows[0].keys()))
+            rprint("  first row: " + _json.dumps(rows[0], ensure_ascii=False))
+            geo = [k for k in rows[0] if any(w in k.lower() for w in ("lat", "long", "lng", "dist", "geo"))]
+            rprint(f"  [{'green' if geo else 'yellow'}]coordinate/distance fields: {geo or 'NONE - cannot sort by distance ourselves'}[/]")
+            places = SV.normalize_places(rows)[:2]
+            rprint(f"  normalised {len(SV.normalize_places(rows))}/{len(rows)}; sample:")
+            for pl in places:
+                rprint(f"    {pl.name} | {pl.address} | hours={pl.hours or '-'} | services={pl.services or '-'} | lat={pl.lat} lon={pl.lon} km={pl.distance_km}")
+    except SV.ServiceError as e:
+        rprint(f"[red]branch shape: {e}[/]")
+
     rates = []
     try:
         rates = SV.normalize_fx(SV.fx_latest_raw(s))
@@ -357,7 +373,7 @@ def services_probe(lang: str = typer.Option("en", help="th | en")):
     if rates:
         rprint(f"\n[bold]normalised {len(rates)} currencies[/]; sample:")
         for r in rates[:3]:
-            rprint(f"  {r.currency} {r.name or ''} buying={r.buying} selling={r.selling} unit={r.unit or '-'}")
+            rprint(f"  {r.currency} [{r.label or '-'}] buying={r.buying} selling={r.selling} tt={r.tt or '-'} as_of={r.as_of or '-'}")
         parsed = sum(1 for r in rates if r.buying is not None or r.selling is not None)
         rprint(f"[{'green' if parsed else 'yellow'}]{parsed}/{len(rates)} have a buying/selling number "
                f"({'parsing looks right' if parsed else 'field names differ - send the shape above so I can fix normalize_fx'})[/]")

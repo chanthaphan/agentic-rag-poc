@@ -224,12 +224,15 @@ KIND_BRANCH = "BRC"
 KIND_ATM = "ATM"
 KIND_ATM_PLUS = "ATMPLUS"
 KIND_FX_BOOTH = "FXB"  # a currency-exchange booth, which is not the same thing as a branch that happens to do FX
+KIND_FCD = "FCD"  # a branch that handles foreign-currency deposit accounts: opening one, not exchanging cash
 _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
           "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
           "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS,
           "fxb": KIND_FX_BOOTH, "fx": KIND_FX_BOOTH, "exchange": KIND_FX_BOOTH, "fx booth": KIND_FX_BOOTH,
           "currency exchange": KIND_FX_BOOTH, "money exchange": KIND_FX_BOOTH,
-          "แลกเงิน": KIND_FX_BOOTH, "บูธแลกเงิน": KIND_FX_BOOTH, "ที่แลกเงิน": KIND_FX_BOOTH}
+          "แลกเงิน": KIND_FX_BOOTH, "บูธแลกเงิน": KIND_FX_BOOTH, "ที่แลกเงิน": KIND_FX_BOOTH,
+          "fcd": KIND_FCD, "foreign currency deposit": KIND_FCD, "fcd account": KIND_FCD,
+          "บัญชีเงินตราต่างประเทศ": KIND_FCD, "เงินฝากสกุลต่างประเทศ": KIND_FCD}
 
 
 def resolve_kind(kind: str) -> str:
@@ -241,36 +244,46 @@ def resolve_kind(kind: str) -> str:
 @dataclass
 class Place:
     name: str = ""
-    address: str = ""
-    district: str = ""
+    branch_no: str = ""
+    address: str = ""  # the locator splits this across Address1..3: street, then sub-district and district
     province: str = ""
+    postcode: str = ""
     phone: str = ""
     hours: str = ""
+    services: Optional[list[str]] = None  # the "x" columns on the row: Branch, ATM, ATMPlus, BusinessCenter, FX...
     lat: Optional[float] = None
     lon: Optional[float] = None
     distance_km: Optional[float] = None
-    services: str = ""
 
 
 _PLACE_KEYS = {
     "name": ("BranchName", "Name", "name", "branchName", "Title", "LocationName"),
-    "address": ("Address", "address", "FullAddress", "Addr", "AddressTh", "AddressEn"),
-    "district": ("District", "district", "Amphur", "Area"),
+    "branch_no": ("BranchNo", "BranchCode", "Code"),
     "province": ("Province", "province", "City"),
-    "phone": ("Tel", "Telephone", "Phone", "phone", "TelNo"),
-    "hours": ("OpenTime", "OpeningHours", "Hours", "ServiceTime", "Time"),
+    "postcode": ("Postcode", "PostCode", "Zipcode"),
+    "phone": ("Tel", "Telephone", "Phone", "phone", "TelNo", "Telno"),
+    "hours": ("MicroBranchHours", "BranchHours", "OpenTime", "OpeningHours", "Hours", "ServiceTime", "Time"),
     "lat": ("Latitude", "latitude", "Lat", "lat"),
     "lon": ("Longitude", "longitude", "Lng", "lng", "Lon", "lon"),
     "distance_km": ("Distance", "distance", "DistanceKm"),
-    "services": ("Service", "Services", "ServiceType", "Type", "Facilities"),
 }
+_ADDRESS_KEYS = ("Address1", "Address2", "Address3", "Address4", "Address", "FullAddress", "AddressTh", "AddressEn")
+# a row marks each service it offers with "x" in a column named after that service, which is how we know whether a
+# place actually exchanges currency rather than just being the nearest branch
+_NOT_A_SERVICE = {"branchname", "branchno", "province", "postcode", "tel", "telephone", "phone",
+                  "latitude", "longitude", "distance", "microbranchhours", "branchhours"}
+
+
+def _services_of(row: dict) -> list[str]:
+    return [k for k, v in row.items()
+            if str(v).strip().lower() == "x" and k.lower() not in _NOT_A_SERVICE and not k.lower().startswith("address")]
 
 
 def normalize_places(data: Any) -> list[Place]:
     """Branch rows, normalised the same defensive way as the rates: unknown spellings degrade to blank, not a crash."""
     out: list[Place] = []
     for row in _rate_rows(data):
-        p = Place()
+        p = Place(services=[])
         for field, keys in _PLACE_KEYS.items():
             raw = _first(row, keys)
             if raw in (None, ""):
@@ -279,6 +292,9 @@ def normalize_places(data: Any) -> list[Place]:
                 setattr(p, field, _to_float(raw))
             else:
                 setattr(p, field, str(raw).strip())
+        parts = [str(row[k]).strip() for k in _ADDRESS_KEYS if str(row.get(k, "")).strip()]
+        p.address = " ".join(dict.fromkeys(parts))
+        p.services = _services_of(row)
         if p.name or p.address:
             out.append(p)
     return out
