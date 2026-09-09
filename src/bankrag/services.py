@@ -218,8 +218,9 @@ def countries(settings: Settings, lang: str = "en") -> Any:
     return _get(settings, f"{LOC_SERVICE}/GetCountry{'Th' if lang == 'th' else 'En'}")
 
 
-# The Locate Us page's own type codes, confirmed from its network calls: BRC, ATM, ATMPLUS, FXB. An unrecognised code
-# is passed through uppercased rather than rejected, so a new one works the day it is discovered without a code change.
+# The Locate Us page's own type codes, confirmed from its network calls: BRC, ATM, ATMPLUS, FXB, FCD and BEV (BEV is
+# real but what it stands for is unconfirmed, so it gets no friendly alias rather than a guessed one). An unrecognised
+# code is passed through uppercased rather than rejected, so a new one works the day it is found without a code change.
 KIND_BRANCH = "BRC"
 KIND_ATM = "ATM"
 KIND_ATM_PLUS = "ATMPLUS"
