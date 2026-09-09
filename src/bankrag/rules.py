@@ -31,6 +31,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 STATUSES = ("active", "draft", "retired")
 CHECKS = ("required_phrase", "prohibited_phrase", "required_pattern", "judgement")
 ENFORCEMENTS = ("append", "flag", "none")
+TRIGGERS = ("promotion", "mention")
 SEVERITIES = ("block", "warn")
 SECTION_RE = re.compile(r"^#{1,6}[ \t]*(?P<head>[^\n]*)$", re.M)
 # order matters: a heading is classified by the first entry it matches, so the two MCCS sections win over the note
@@ -114,6 +115,7 @@ def parse_rule(path: Path, pack_id: str = "") -> RuleSpec:
         clause=str(meta.get("clause") or "").strip(),
         products=listy("products"),
         status=str(meta.get("status") or "active").strip().lower(),
+        trigger=str(meta.get("trigger") or "promotion").strip().lower(),
         severity=str(meta.get("severity") or "block").strip().lower(),
         check=str(meta.get("check") or "judgement").strip().lower(),
         enforcement=str(meta.get("enforcement") or "flag").strip().lower(),
@@ -139,8 +141,9 @@ def load_pack(settings: Settings, pack_id: str = "mccs") -> RulePack:
     meta = dict(post.metadata)
     products = [RuleProduct(**{**{"id": "", "name": ""}, **p}) for p in (meta.get("products") or [])]
     rules = [parse_rule(f, pack_id) for f in sorted(d.glob("*.md")) if f.name != PACK_FILE]
+    promotion = {str(k): [str(x) for x in (v or [])] for k, v in (meta.get("promotion") or {}).items()}
     return RulePack(id=str(meta.get("id") or pack_id), name=str(meta.get("name") or pack_id), description=str(meta.get("description") or ""),
-                    sources=[str(x) for x in (meta.get("sources") or [])], products=products, body=post.content.strip(),
+                    sources=[str(x) for x in (meta.get("sources") or [])], promotion=promotion, products=products, body=post.content.strip(),
                     rules=sorted(rules, key=lambda r: (r.clause, r.id)), path=d)
 
 
@@ -193,6 +196,8 @@ def validate_rule(rule: RuleSpec, pack: RulePack) -> tuple[list[str], list[str]]
         errors.append(f"id '{rule.id}' must match {ID_RE.pattern}")
     if rule.status not in STATUSES:
         errors.append(f"status '{rule.status}' must be one of {', '.join(STATUSES)}")
+    if rule.trigger not in TRIGGERS:
+        errors.append(f"trigger '{rule.trigger}' must be one of {', '.join(TRIGGERS)}")
     if rule.check not in CHECKS:
         errors.append(f"check '{rule.check}' must be one of {', '.join(CHECKS)}")
     if rule.enforcement not in ENFORCEMENTS:
@@ -251,6 +256,23 @@ def detect_products(pack: RulePack, text: str, *, skill_id: str = "") -> list[st
     return found
 
 
+def is_promotional(pack: RulePack, text: str) -> bool:
+    """Is this answer advertising - does it offer, recommend or detail the product rather than just mention it?
+
+    The regulator's rules govern การโฆษณา, so a definition, a comparison of concepts or a 'no details yet' reply is
+    not one. `promotion.signals` in PACK.md say what selling looks like; `promotion.exclude` are our own no-information
+    sentences, which only veto when the answer quotes no figures at all (a refusal that still names a rate is an ad).
+    With no signals configured the gate is open, which is the old every-mention behaviour."""
+    signals = pack.promotion.get("signals") or []
+    if not signals:
+        return True
+    if _any_pattern(text, signals) is None:
+        return False
+    if _any_pattern(text, pack.promotion.get("exclude") or []) and not re.search(r"\d", text):
+        return False
+    return True
+
+
 def rules_for_products(pack: RulePack, product_ids: Iterable[str], *, status: str = "active") -> list[RuleSpec]:
     wanted = set(product_ids)
     return [r for r in pack.rules if (not status or r.status == status) and wanted & set(r.products)]
@@ -260,26 +282,36 @@ def rules_for_products(pack: RulePack, product_ids: Iterable[str], *, status: st
 HEADER = "# Responsible Lending (ปฏิบัติตามก่อนตอบ / mandatory before you answer)"
 INTRO = (
     "These rules come from {sources}. They apply to what YOU write, not only to marketing material: an answer that "
-    "mentions or recommends a regulated product below is an advertisement under these rules. Follow every rule that "
-    "matches the product you are talking about. Required wording must be reproduced EXACTLY, with no edit, translation "
-    "or paraphrase, on its own line at the end of the answer."
+    "OFFERS or RECOMMENDS a regulated product below - quotes its rate, fee, instalment or benefits, compares it, "
+    "suggests it to the customer, or explains how to apply - is an advertisement under these rules.\n"
+    "An answer that only defines a term, answers a general question, or says you have no details yet is NOT an "
+    "advertisement: do not attach the warnings to it. The wording you must never use applies to every answer.\n"
+    "Required wording must be reproduced EXACTLY, with no edit, translation or paraphrase."
 )
 FOOTER = (
     "## How to comply\n"
-    "- Put the required warning(s) verbatim on their own line at the end of the answer, after the product facts.\n"
+    "- When you are offering or recommending the product, end the answer with a short block that NAMES the product "
+    "family in bold and carries the required warning(s) verbatim, one per line:\n"
+    "  ---\n"
+    "  **<product family>**\n"
+    "  ⚠️ <required warning, word for word>\n"
     "- If you cannot state every figure a rule requires (reference rate and its date, effective rate range, calculation "
     "assumptions), do NOT quote an interest rate, a fee waiver or an instalment amount at all: describe the product "
     "qualitatively and tell the customer where the exact figures are confirmed.\n"
     "- Never use wording that encourages borrowing beyond need, promises approval without a credit check, or makes "
     "borrowing sound effortless, in any language.\n"
-    "- These warnings are required even when the customer did not ask about interest, and even in a short answer."
+    "- These warnings are required even when the customer did not ask about interest, and even in a short answer, "
+    "as long as the answer is offering or recommending the product."
 )
 
 
 def _rule_lines(rule: RuleSpec, pack: RulePack, scope: Optional[set[str]] = None) -> str:
     pids = [p for p in rule.products if scope is None or p in scope]
     names = ", ".join((pack.product(p).name if pack.product(p) else p) for p in pids)
-    out = [f"### {rule.clause or rule.id} — {rule.title}", f"Applies to: {names}", rule.system_rule.strip(), rule.assistant_note.strip()]
+    when = ("whenever the answer mentions this product, selling or not" if rule.trigger == "mention"
+            else "when the answer offers or recommends this product")
+    out = [f"### {rule.clause or rule.id} — {rule.title}", f"Applies to: {names} ({when})",
+           rule.system_rule.strip(), rule.assistant_note.strip()]
     if rule.template:
         out.append(f"Required wording / format: {rule.template.strip()}")
     if rule.check == "required_phrase" and rule.phrases:
@@ -329,8 +361,14 @@ def prompt_block_for_concierge(pack: RulePack) -> str:
         *lines,
         "",
         "## Before you relay a specialist's answer",
-        "- Check that the answer carries the warning its product family requires. If it is missing, add it verbatim on its"
-        " own line at the end before you send the answer; never reword or translate it.",
+        "- Decide first whether the answer offers or recommends one of these products. If it only defines a term, answers"
+        " generally, or says there are no details yet, relay it as it is: no warning belongs on it.",
+        "- If it does offer or recommend, check the answer carries the warning that family requires. If it is missing, add"
+        " a block at the end that names the product family in bold with the warning verbatim under it, and never reword"
+        " or translate the warning itself:",
+        "      ---",
+        "      **<product family>**",
+        "      ⚠️ <required warning>",
         *(["- Required warnings:", *required] if required else []),
         "- If the answer quotes an interest rate, a fee waiver or an instalment amount without the assumptions and the"
         " reference-rate date the rules require, drop the figure from the answer and point the customer to the bank for"
@@ -343,16 +381,18 @@ def prompt_block_for_concierge(pack: RulePack) -> str:
 # ---------------- answer-time guard ----------------
 def evaluate(pack: RulePack, text: str, *, question: str = "", skill_id: str = "") -> tuple[list[RuleFinding], list[str]]:
     """Check a drafted answer against the pack. Returns (findings, detected product ids)."""
-    haystack = f"{question}\n{text}"
-    pids = detect_products(pack, haystack, skill_id=skill_id)
+    pids = detect_products(pack, text, skill_id=skill_id)  # what the ANSWER is about; the question is not the ad
     findings: list[RuleFinding] = []
     if not pids:
         return findings, pids
+    promotional = is_promotional(pack, text)
     norm = normalize(text)
     for rule in rules_for_products(pack, pids):
         f = RuleFinding(rule_id=rule.id, clause=rule.clause, title=rule.title, severity=rule.severity,
                         products=sorted(set(rule.products) & set(pids)))
-        if rule.applies_when and _any_pattern(text, rule.applies_when) is None:
+        if rule.trigger == "promotion" and not promotional:
+            f.verdict, f.detail = "not_applicable", "the answer mentions the product but does not offer or recommend it"
+        elif rule.applies_when and _any_pattern(text, rule.applies_when) is None:
             f.verdict, f.detail = "not_applicable", "the answer does not contain the information this rule governs"
         elif rule.check == "required_phrase":
             if any(_contains(norm, p) for p in rule.phrases) or _any_pattern(text, rule.patterns):
@@ -375,7 +415,19 @@ def disclosure_text(rule: RuleSpec, language: str) -> str:
     return rule.disclosure.get(language) or rule.disclosure.get("th") or (rule.phrases[0] if rule.phrases else "")
 
 
-def apply_disclosures(text: str, rules: list[RuleSpec], language: str) -> tuple[str, str, list[str]]:
+def product_label(pack: RulePack, product_ids: Iterable[str], language: str) -> str:
+    """How the warning block names the product it is about, so a customer knows which one it applies to."""
+    names = []
+    for pid in product_ids:
+        p = pack.product(pid)
+        if p is not None:
+            names.append((p.name_en or p.name) if language == "en" else p.name)
+        else:
+            names.append(pid)
+    return " / ".join(dict.fromkeys(names))
+
+
+def apply_disclosures(text: str, rules: list[RuleSpec], language: str, labels: Optional[dict[str, str]] = None) -> tuple[str, str, list[str]]:
     """Append the mandated warnings that are missing, verbatim, as a block at the end of the answer.
 
     Returns (answer, appended block, ids of the rules whose wording was actually added). The answer is always
@@ -383,16 +435,21 @@ def apply_disclosures(text: str, rules: list[RuleSpec], language: str) -> tuple[
     stored answer has to keep it byte for byte or the two diverge."""
     norm = normalize(text)
     seen: set[str] = set()
-    added: list[tuple[str, str]] = []  # (rule id, wording) - kept per rule so only these rules count as fixed
+    groups: dict[str, list[str]] = {}  # product label -> warnings, so each block says which product it is about
+    added: list[str] = []  # rule ids whose wording really went in - only these count as fixed
     for r in rules:
         d = disclosure_text(r, language)
         if d and not _contains(norm, d) and normalize(d) not in seen:
             seen.add(normalize(d))
-            added.append((r.id, d))
+            groups.setdefault((labels or {}).get(r.id, ""), []).append(d)
+            added.append(r.id)
     if not added:
         return text, "", []
-    block = "\n\n---\n" + "\n".join(f"⚠️ {d}" for _, d in added)
-    return text + block, block, [rid for rid, _ in added]
+    parts = []
+    for label, warnings in groups.items():
+        parts.append((f"**{label}**\n" if label else "") + "\n".join(f"⚠️ {w}" for w in warnings))
+    block = "\n\n---\n" + "\n\n".join(parts)
+    return text + block, block, added
 
 
 def guard(settings: Settings, text: str, *, question: str = "", language: str = "th", skill_id: str = "",
@@ -409,7 +466,8 @@ def guard(settings: Settings, text: str, *, question: str = "", language: str = 
     by_id = {r.id: r for r in pack.rules}
     to_append = [by_id[f.rule_id] for f in findings
                  if f.verdict == "non_compliant" and by_id[f.rule_id].enforcement == "append"]
-    fixed_text, appended, fixed_ids = apply_disclosures(text, to_append, language)
+    labels = {f.rule_id: product_label(pack, f.products, language) for f in findings}
+    fixed_text, appended, fixed_ids = apply_disclosures(text, to_append, language, labels)
     for f in findings:
         if f.rule_id in fixed_ids:  # only the rules whose wording really went into the answer
             f.fixed, f.verdict, f.detail = True, "compliant", f"{f.detail}; the required wording was added to the answer"
@@ -427,7 +485,7 @@ def guard(settings: Settings, text: str, *, question: str = "", language: str = 
 
 
 # ---------------- editing (Studio / CLI) ----------------
-FRONT_KEYS = ("id", "pack", "title", "regulation", "clause", "products", "status", "severity", "check", "enforcement",
+FRONT_KEYS = ("id", "pack", "title", "regulation", "clause", "products", "status", "trigger", "severity", "check", "enforcement",
               "phrases", "patterns", "applies_when", "disclosure", "template")
 
 

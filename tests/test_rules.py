@@ -274,7 +274,7 @@ def test_rule_can_be_written_by_hand(settings):
     rule = RL.create_rule(settings, "mccs", {
         "id": "internal-no-guarantees", "title": "ห้ามรับประกันผลอนุมัติ", "clause": "internal-1",
         "products": ["home-loan"], "check": "prohibited_phrase", "enforcement": "flag", "severity": "block",
-        "phrases": ["รับรองว่าผ่านแน่นอน"], "system_rule": "ห้ามรับประกันว่าลูกค้าจะได้รับอนุมัติ",
+        "trigger": "mention", "phrases": ["รับรองว่าผ่านแน่นอน"], "system_rule": "ห้ามรับประกันว่าลูกค้าจะได้รับอนุมัติ",
     })
     assert rule.id == "internal-no-guarantees" and rule.path.exists()
     _, report = RL.guard(settings, "สินเชื่อบ้านนี้รับรองว่าผ่านแน่นอนค่ะ", language="th", skill_id="general")
@@ -314,7 +314,8 @@ def test_streamed_delta_always_reconstructs_the_stored_answer(settings):
         text = "บัตรเครดิตใบนี้ค่าธรรมเนียมรายปี 3,000 บาท" + tail
         fixed, report = RL.guard(settings, text, language="th", skill_id="credit-card")
         assert text + report["appended"] == fixed, repr(tail)
-        assert "\n\n---\n⚠️ " in report["appended"]  # the separator survives, so the warning is its own block
+        assert report["appended"].startswith("\n\n---\n**")  # separator, then the product label, then the warnings
+        assert "\n⚠️ " in report["appended"]
 
 
 def test_only_rules_whose_wording_was_added_count_as_fixed(settings):
@@ -385,3 +386,48 @@ def test_ambiguous_product_name_is_not_guessed(settings, tmp_path):
     result = RX.import_xlsx(settings, path.read_bytes(), dry_run=True)
     assert any("looks like 3 families" in w for w in result["warnings"])
     assert not any("matched" in w and "by name similarity" in w for w in result["warnings"])
+
+
+# ---- the sales gate: a warning belongs on an offer, not on every mention ----
+def test_warnings_only_when_the_answer_offers_or_recommends(settings):
+    selling = "บัตรเครดิต Visa Platinum เหมาะกับคนเดินทางบ่อยค่ะ ค่าธรรมเนียมรายปี 3,000 บาท"
+    fixed, report = RL.guard(settings, selling, language="th", skill_id="credit-card")
+    assert report["fixed"] == ["credit-card-use-warning"] and "ใช้เท่าที่จำเป็น" in fixed
+
+    for quiet in ("เรื่องนี้ยังไม่มีรายละเอียดให้แนะนำค่ะ ลองสอบถามเจ้าหน้าที่ธนาคารได้นะคะ",
+                  "บัตรเครดิตคือบัตรที่ให้วงเงินไว้ใช้จ่ายก่อน แล้วชำระคืนภายหลังค่ะ"):
+        fixed, report = RL.guard(settings, quiet, language="th", skill_id="credit-card")
+        assert fixed == quiet and report["fixed"] == [], quiet
+        assert all(f["verdict"] in ("not_applicable", "compliant") for f in report["findings"])
+        assert any("does not offer or recommend" in f["detail"] for f in report["findings"])
+
+
+def test_the_question_alone_no_longer_triggers_a_warning(settings):
+    """The advertisement is the answer, not what the customer typed."""
+    answer = "เรื่องนี้ยังไม่มีรายละเอียดให้แนะนำค่ะ"
+    fixed, report = RL.guard(settings, answer, question="สนใจสินเชื่อบ้านของธนาคารมีไหมคะ", language="th", skill_id="general")
+    assert fixed == answer and report["checked"] == 0
+
+
+def test_prohibited_wording_still_applies_to_a_non_selling_answer(settings):
+    _, report = RL.guard(settings, "สินเชื่อบ้านของเราอนุมัติง่ายค่ะ", language="th", skill_id="general")
+    assert report["violations"] == ["no-over-indebtedness-wording"]  # trigger: mention
+    assert report["fixed"] == []  # but nothing is advertised, so no warning is attached
+
+
+def test_the_appended_block_names_the_product(settings):
+    th = "สินเชื่อบ้านบัวหลวงเหมาะกับคนซื้อบ้านหลังแรก ดอกเบี้ยปีแรก 2.75% ต่อปีค่ะ"
+    _, report = RL.guard(settings, th, language="th", skill_id="general")
+    assert report["appended"].startswith("\n\n---\n**สินเชื่อบ้าน**\n⚠️ ")
+
+    en = "Bangkok Bank credit card suits you if you travel often; the annual fee is 3,000 baht."
+    _, report_en = RL.guard(settings, en, language="en", skill_id="credit-card")
+    assert "**Bangkok Bank credit card**" in report_en["appended"]  # name_en for an English answer
+
+
+def test_one_block_per_product_family(settings):
+    text = ("เปรียบเทียบให้ค่ะ: บัตรเครดิตของธนาคารกรุงเทพ ค่าธรรมเนียมรายปี 3,000 บาท "
+            "ส่วนสินเชื่อบ้านบัวหลวง ดอกเบี้ยปีแรก 2.75% ต่อปี")
+    _, report = RL.guard(settings, text, language="th", skill_id="")
+    assert set(report["products"]) >= {"credit-card-bbl", "home-loan"}
+    assert "**บัตรเครดิตของธนาคารกรุงเทพ**" in report["appended"] and "**สินเชื่อบ้าน**" in report["appended"]

@@ -23,7 +23,8 @@ S.loaders["spane-lending"] = async () => {
       ${r.errors.length ? `<span class="pill warn">${esc(r.errors.join("; "))}</span>` : ""}</td>
     <td class="muted">${r.product_names.map(esc).join("<br>")}</td>
     <td><span class="pill ${r.check === "judgement" ? "info" : "ok"}">${esc(CHECK_LABEL[r.check] || r.check)}</span>
-      <div class="muted">${r.enforcement === "append" ? "missing wording is added to the answer" : "reported on the turn"} · ${esc(r.severity)}</div></td>
+      <div class="muted">${r.enforcement === "append" ? "missing wording is added to the answer" : "reported on the turn"} · ${esc(r.severity)}</div>
+      <div class="muted">${r.trigger === "mention" ? "on any mention" : "only when offering / recommending"}</div></td>
     <td class="muted">${r.skills.map(esc).join(", ") || '<span class="pill warn">no agent</span>'}</td>
     <td>${esc(r.status)}</td>
     <td><button class="btn-secondary rl-edit" data-id="${esc(r.id)}" data-admin>edit</button></td></tr>`).join("");
@@ -79,7 +80,7 @@ function openRule(r) {
   const v = (sel, x) => { $(sel).value = x || ""; };
   $("#dr-id").value = r ? r.id : ""; $("#dr-id").readOnly = !isNew;
   v("#dr-clause", r && r.clause); v("#dr-title-in", r && r.title); v("#dr-regulation", r && r.regulation);
-  v("#dr-status", r ? r.status : "active"); v("#dr-severity", r ? r.severity : "block");
+  v("#dr-status", r ? r.status : "active"); v("#dr-severity", r ? r.severity : "block"); v("#dr-trigger", r ? r.trigger : "promotion");
   v("#dr-check", r ? r.check : "judgement"); v("#dr-enforcement", r ? r.enforcement : "flag");
   v("#dr-phrases", r && lines(r.phrases)); v("#dr-patterns", r && lines(r.patterns)); v("#dr-applies", r && lines(r.applies_when));
   v("#dr-disc-th", r && (r.disclosure || {}).th); v("#dr-disc-en", r && (r.disclosure || {}).en);
@@ -98,7 +99,7 @@ $("#dlg-rule form").addEventListener("submit", async (e) => {
   if ($("#dr-disc-en").value.trim()) disclosure.en = $("#dr-disc-en").value.trim();
   const body = {
     pack: RL.pack, id, clause: $("#dr-clause").value, title: $("#dr-title-in").value, regulation: $("#dr-regulation").value,
-    products: picked($("#dr-products")), status: $("#dr-status").value, severity: $("#dr-severity").value,
+    products: picked($("#dr-products")), status: $("#dr-status").value, severity: $("#dr-severity").value, trigger: $("#dr-trigger").value,
     check: $("#dr-check").value, enforcement: $("#dr-enforcement").value,
     phrases: split($("#dr-phrases")), patterns: split($("#dr-patterns")), applies_when: split($("#dr-applies")),
     disclosure, template: $("#dr-template").value,

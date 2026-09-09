@@ -319,11 +319,12 @@ def rules_list(pack: str = typer.Option("mccs", help="rule pack folder under rul
         rprint(f"[yellow]no rules in rules/{pack}[/] (import a sheet with 'bankrag rules import <file.xlsx>')")
         raise typer.Exit()
     t = Table(title=f"{p.name} ({len(p.rules)} rules)")
-    for c in ("clause", "id", "products", "check", "enforce", "status"):
+    for c in ("clause", "id", "products", "check", "applies", "enforce", "status"):
         t.add_column(c, overflow="fold")
     for r in p.rules:
         style = "" if r.status == "active" else "dim"
-        t.add_row(r.clause, r.id, ", ".join(r.products), r.check, r.enforcement, r.status, style=style)
+        applies = "any mention" if r.trigger == "mention" else "offer / recommend"
+        t.add_row(r.clause, r.id, ", ".join(r.products), r.check, applies, r.enforcement, r.status, style=style)
     console.print(t)
     for prod in p.products:
         rprint(f"[cyan]{prod.id}[/] {prod.name} -> skills: {', '.join(prod.skills) or '[yellow]none: no agent carries these rules[/]'}")

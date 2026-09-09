@@ -11,6 +11,7 @@ products:
 - multipurpose-loan
 - personal-loan-unsecured
 status: active
+trigger: mention
 severity: block
 check: prohibited_phrase
 enforcement: flag

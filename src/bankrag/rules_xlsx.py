@@ -2,7 +2,7 @@
 
 The sheet (mccs-rules.xlsx) carries six columns: เล่มกฎหมาย, ข้อกฎหมาย, กฎหมาย, กฎสำหรับระบบ, ผลิตภัณฑ์ที่ต้องตรวจสอบ, สถานะ.
 Import writes one file per row and keeps the engineering frontmatter (check, enforcement, phrases, patterns,
-applies_when, disclosure, template, severity) of rules that already exist, so re-importing a refreshed sheet updates
+applies_when, disclosure, template, severity, trigger) of rules that already exist, so re-importing a refreshed sheet updates
 the legal wording without throwing away how the rule is checked. Export writes the same columns back, plus the rule id.
 """
 from __future__ import annotations
@@ -141,7 +141,7 @@ def import_xlsx(settings: Settings, data: bytes, pack_id: str = "mccs", *, dry_r
                 f"clause '{row['clause']}' already has a rule with different wording; this row was imported as a NEW rule "
                 f"'{fields['id']}' rather than overwriting the existing one - merge or retire one of them in Studio")
         if existing is not None:  # keep how the rule is checked; the sheet only owns the legal columns
-            keep = existing.model_dump(include={"severity", "check", "enforcement", "phrases", "patterns", "applies_when", "disclosure", "template", "assistant_note"})
+            keep = existing.model_dump(include={"trigger", "severity", "check", "enforcement", "phrases", "patterns", "applies_when", "disclosure", "template", "assistant_note", "extra_body"})
             rule = RuleSpec(**{**keep, **fields})
             bucket = "unchanged" if rule.model_dump(exclude={"path"}) == existing.model_dump(exclude={"path"}) else "updated"
         else:

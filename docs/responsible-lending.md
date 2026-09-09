@@ -37,6 +37,7 @@ regulation: (MCCS) ประกาศธนาคารแห่งประเ�
 clause: เอกสารแนบ 2 ข้อ 2.3.3 (1)                                  # ข้อกฎหมาย
 products: [credit-card-bbl, credit-card-other]                     # ผลิตภัณฑ์ที่ต้องตรวจสอบ
 status: active            # active | draft | retired               # สถานะ
+trigger: promotion        # promotion (only when the answer sells) | mention (any mention)
 severity: block           # block | warn
 check: required_phrase    # required_phrase | prohibited_phrase | required_pattern | judgement
 enforcement: append       # append (add the mandated wording) | flag | none
@@ -83,12 +84,26 @@ bankrag rules prompt                       # the block that goes into bank-conci
 **Answer time — the app proves it.** Before an answer leaves `ChatSession` (both the router path and the A2A concierge
 path), `rules.guard()` runs over the drafted text:
 
-1. detect the product families in the question + answer (taxonomy `match`, or the specialist's own family);
-2. take the active rules covering them, skipping those whose `applies_when` does not match the answer;
-3. decide a verdict per rule — the sheet's vocabulary: `compliant` / `non_compliant` / `undefined` / `not_applicable`;
-4. append the mandated wording verbatim for `enforcement: append` rules that are missing it, and stream that text as
-   one more delta so the customer sees the full answer;
-5. write the report to the turn's `trace.compliance`, which the "Behind the scenes" panel and Studio render.
+1. detect the product families in the **answer** (taxonomy `match`, or the specialist's own family). What the customer
+   typed is not the advertisement, so the question is not searched;
+2. decide whether the answer is *advertising*: `promotion.signals` in `PACK.md` say what offering or recommending looks
+   like (a quoted rate, fee, instalment or benefit, a comparison, a suggestion, how to apply), and `promotion.exclude`
+   holds our own "no details yet" sentences, which veto only when the answer quotes no figures. A definition, a general
+   answer or a refusal is not an advertisement and gets no warning;
+3. take the active rules covering those families, skipping the `trigger: promotion` ones when the answer is not
+   advertising, and those whose `applies_when` does not match the answer;
+4. decide a verdict per rule — the sheet's vocabulary: `compliant` / `non_compliant` / `undefined` / `not_applicable`;
+5. append the mandated wording verbatim for `enforcement: append` rules that are missing it, grouped under the **name of
+   the product family** it applies to, and stream exactly that text as one more delta so the stored answer is the one
+   the customer read:
+
+   ```
+   ---
+   **บัตรเครดิตของธนาคารกรุงเทพ**
+   ⚠️ ใช้เท่าที่จำเป็นและชำระคืนได้เต็มจำนวนตามกำหนด จะได้ไม่เสียดอกเบี้ย
+   ```
+
+6. write the report to the turn's `trace.compliance`, which the "Behind the scenes" panel and Studio render.
 
 | `check` | decided how | typical rule |
 |---|---|---|
@@ -144,5 +159,8 @@ readable id, aliases and skills. Studio does the same import through the browser
   asset-review pipeline, not here.
 - **Judgement rules are not judged per turn.** Adding them to the answer-time check means an LLM call per answer; today
   they are enforced in the prompt and surfaced as "to review" on the turn.
-- **Product detection is lexical.** A question that circles a loan without naming it ("ผ่อนบ้านยังไงดี") may not match
-  a family. The specialist's own family is used as a fallback, which is why loan families should get their own skill.
+- **Product detection is lexical.** An answer that circles a loan without naming it may not match a family. The
+  specialist's own family is used as a fallback, which is why loan families should get their own skill.
+- **The sales gate is lexical too.** `promotion.signals` is a keyword list, so an answer that recommends a product in
+  wording nobody listed gets no warning. Widen the list in `PACK.md` (or Studio) when you see a miss; the trade-off is
+  deliberate — the bank asked for warnings on the sales pitch, not on every sentence that names a product.

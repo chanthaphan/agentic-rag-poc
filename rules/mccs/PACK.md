@@ -5,9 +5,29 @@ description: ชุดกฎย่อจาก MCCS (Media Compliance Checker Sy
 sources:
 - ประกาศธนาคารแห่งประเทศไทยที่ 3/2568 (Market Conduct) เอกสารแนบ 2
 - ประกาศสำนักงาน กลต. ที่ สธ. 10/2558 และประกาศเพิ่มเติม
+promotion:
+  signals:
+  - แนะนำ\s*(ให้\s*)?(เป็น\s*)?(บัตร|สินเชื่อ|ผลิตภัณฑ์|ตัว)
+  - (เหมาะ|ตอบโจทย์|คุ้ม)(กับ|สำหรับ|มาก)
+  - น่าสนใจ|ตัวเลือกที่ดี|ควรเลือก|ขอเสนอ
+  - (?i)\b(recommend|suits? you|best (for|option)|ideal for|good choice|we offer)\b
+  - สมัคร|ยื่นกู้|ขอสินเชื่อ|เปิดวงเงิน
+  - (?i)\b(apply|sign up)\b
+  - ดอกเบี้ย[^\n]{0,40}\d
+  - \d+(\.\d+)?\s*%
+  - (ค่าธรรมเนียม|วงเงิน|รายได้ขั้นต่ำ|ผ่อน|ค่างวด)[^\n]{0,30}\d
+  - ฟรีค่า|ยกเว้นค่า|โปรโมชัน|สิทธิประโยชน์|คะแนนสะสม|เครดิตเงินคืน|เงินคืน
+  - (?i)\b(cashback|reward points|annual fee|promotion|privileges?)\b
+  - คุณสมบัติผู้สมัคร|เอกสารที่ใช้สมัคร
+  - เปรียบเทียบ|ดีกว่า|เหนือกว่า
+  - (?i)\bcompared?\b
+  exclude:
+  - ยังไม่มีรายละเอียด|ไม่มีรายละเอียดให้แนะนำ|ยังไม่มีข้อมูล|ไม่มีข้อมูล
+  - (?i)(don't|do not) have the details|no details (on|about) that
 products:
 - id: home-loan
   name: สินเชื่อบ้าน
+  name_en: Home loan
   aliases:
   - สินเชื่อที่อยู่อาศัย
   - สินเชื่อบ้านบัวหลวง
@@ -22,6 +42,7 @@ products:
   - (?i)\bmortgage\b
 - id: personal-loan-unsecured
   name: สินเชื่อส่วนบุคคลไม่มีหลักประกัน
+  name_en: Unsecured personal loan
   aliases:
   - สินเชื่อส่วนบุคคล
   - สินเชื่อบุคคล
@@ -36,6 +57,7 @@ products:
   - (?i)\bunsecured\s+loan\b
 - id: multipurpose-loan
   name: สินเชื่ออเนกประสงค์
+  name_en: Multipurpose loan
   aliases:
   - สินเชื่ออเนกประสงค์
   - multipurpose loan
@@ -47,6 +69,7 @@ products:
   - (?i)\bmulti-?purpose\s+loan\b
 - id: credit-card-bbl
   name: บัตรเครดิตของธนาคารกรุงเทพ
+  name_en: Bangkok Bank credit card
   aliases:
   - บัตรเครดิตธนาคารกรุงเทพ
   - บัตรเครดิตบัวหลวง
@@ -60,6 +83,7 @@ products:
   - (?i)\b(rudee|be\s?smart|แบ่งชำระ)\b
 - id: credit-card-other
   name: บัตรเครดิตที่ไม่ใช่ของธนาคารกรุงเทพ
+  name_en: Other banks' credit cards
   aliases:
   - บัตรเครดิตธนาคารอื่น
   - other bank credit card
@@ -80,6 +104,11 @@ An answer that mentions or recommends one of the product families above counts a
 `bankrag` applies them twice: the matching rules are compiled into the agent instructions (concierge and specialists),
 and every drafted answer is checked before it reaches the customer — missing mandatory warnings are appended verbatim,
 everything else is reported on the turn.
+
+`promotion:` is the sales gate. The rules govern การโฆษณา, so the warnings are attached only to an answer that
+offers, recommends or details a product — `signals` say what that looks like, `exclude` are our own "no details yet"
+sentences, which only veto when the answer quotes no figures at all. A definition, a refusal or a passing mention gets
+no warning; rules marked `trigger: mention` (the prohibited-wording one) still apply to every answer.
 
 `skills:` maps a product family to the skill agents that answer about it. Loan families point at `general` today;
 point them at a dedicated loan skill as soon as one exists and its agent picks the rules up on the next sync.

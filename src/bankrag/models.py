@@ -57,6 +57,7 @@ class RuleProduct(BaseModel):
 
     id: str
     name: str  # Thai name exactly as the compliance team writes it in the sheet
+    name_en: str = ""  # shown in the warning block of an English answer; falls back to `name`
     aliases: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)  # skill ids that answer about this family
     match: list[str] = Field(default_factory=list)  # regex detecting the family in a question or an answer
@@ -73,6 +74,7 @@ class RuleSpec(BaseModel):
     products: list[str] = Field(default_factory=list)  # RuleProduct ids
     status: str = "active"  # active | draft | retired
     severity: str = "block"  # block: the answer must not go out without it | warn
+    trigger: str = "promotion"  # promotion: only when the answer offers/recommends the product | mention: any mention
     check: str = "judgement"  # required_phrase | prohibited_phrase | required_pattern | judgement
     enforcement: str = "flag"  # append (add the mandated wording) | flag | none
     phrases: list[str] = Field(default_factory=list)  # required / prohibited wording
@@ -96,6 +98,7 @@ class RulePack(BaseModel):
     name: str = ""
     description: str = ""
     sources: list[str] = Field(default_factory=list)
+    promotion: dict[str, list[str]] = Field(default_factory=dict)  # signals / exclude: when an answer is advertising
     products: list[RuleProduct] = Field(default_factory=list)
     body: str = ""
     rules: list[RuleSpec] = Field(default_factory=list)

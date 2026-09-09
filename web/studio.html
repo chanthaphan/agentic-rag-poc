@@ -351,8 +351,8 @@
       <span id="rl-status" class="muted"></span>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Rules</h3><span class="muted">a rule applies to an answer that mentions one of its products</span><button id="rl-new" class="btn-secondary" data-admin>New rule</button></div>
-      <div class="tw"><table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th><th style="width:50px"></th></tr></thead><tbody></tbody></table></div>
+      <div class="panel-head"><h3>Rules</h3><span class="muted">a rule applies when an answer offers or recommends one of its products (a definition or a refusal is not an advertisement)</span><button id="rl-new" class="btn-secondary" data-admin>New rule</button></div>
+      <div class="tw"><table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:190px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th><th style="width:50px"></th></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="bd-grid">
       <div class="panel">
@@ -468,6 +468,10 @@
     <label>Regulation <small>(เล่มกฎหมาย)</small><input id="dr-regulation"></label>
     <label>Product families this rule covers<div id="dr-products" class="row wrap"></div></label>
     <div class="two"><label>Status<select id="dr-status"><option>active</option><option>draft</option><option>retired</option></select></label><label>Severity<select id="dr-severity"><option value="block">block: the answer must not go out without it</option><option value="warn">warn</option></select></label></div>
+    <label>Applies<select id="dr-trigger">
+      <option value="promotion">when the answer offers or recommends the product (a definition or a "no details yet" reply is not an advertisement)</option>
+      <option value="mention">whenever the answer mentions the product, selling or not</option>
+    </select></label>
     <div class="two">
       <label>Check<select id="dr-check">
         <option value="required_phrase">required_phrase: the wording must be present</option>
