@@ -86,7 +86,9 @@ class Settings:
     appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
     bbl_api_subscription: str  # subscription value the bangkokbank.com site sends with its own public API calls (FX, branches)
     bbl_api_base: str
-    services_mcp_key: str  # shared header key guarding our own /mcp/services endpoint (agents send it back)
+    services_mcp_key: str  # local-dev fallback guard for /mcp/services; in Azure the caller is checked by identity
+    services_mcp_callers: list[str]  # object ids allowed to call /mcp/services (the Foundry project's managed identity)
+    services_mcp_audience: str  # token audience the agent's connection asks for, i.e. the Easy Auth api://<client-id>
     public_base_url: str  # public https base of this app, so a Foundry agent can reach /mcp/services
     kb_mcp_auth: str
     kb_max_output_tokens: int
@@ -141,6 +143,8 @@ class Settings:
             bbl_api_subscription=_env("BBL_API_KEY", ""),
             bbl_api_base=_env("BBL_API_BASE", "https://www.bangkokbank.com/api").rstrip("/"),
             services_mcp_key=_env("MCP_TOOL_KEY", ""),
+            services_mcp_callers=[p.strip() for p in _env("MCP_CALLER_PRINCIPALS", "").split(",") if p.strip()],
+            services_mcp_audience=_env("MCP_AUDIENCE", ""),
             public_base_url=_env("PUBLIC_BASE_URL", "").rstrip("/"),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),

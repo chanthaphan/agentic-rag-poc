@@ -57,15 +57,19 @@ def services_tool(settings: Settings, spec: SkillSpec) -> Optional[MCPTool]:
     which travels in the agent definition the same way the KB query key does under KB_MCP_AUTH=apikey."""
     from .mcp_server import AUTH_HEADER, MCP_PATH
 
-    if not spec.tools or not settings.services_mcp_key or not settings.public_base_url:
+    if not spec.tools or not settings.public_base_url:
         return None
-    return MCPTool(
+    common = dict(
         server_label="bank-services",
         server_url=f"{settings.public_base_url}{MCP_PATH}/",
         require_approval="never",
         allowed_tools=list(spec.tools),
-        headers={AUTH_HEADER: settings.services_mcp_key},
     )
+    if settings.services_mcp_audience:  # the agent authenticates as the project's managed identity
+        return MCPTool(project_connection_id=CONN.SERVICES_CONNECTION, **common)
+    if settings.services_mcp_key:  # local / no-SSO fallback: the shared key travels in the agent definition
+        return MCPTool(headers={AUTH_HEADER: settings.services_mcp_key}, **common)
+    return None
 
 
 SHARED_KB_NOTE = (
@@ -252,6 +256,9 @@ def sync_skills(
                     KB.delete_knowledge_objects(settings, spec, client=sic)
                 if settings.kb_mcp_auth != "apikey" and not skip_connections:
                     CONN.delete_connection(settings, spec.connection_name, cred)
+            if spec.tools and settings.services_mcp_audience and not skip_connections:
+                CONN.ensure_services_connection(settings, cred)  # idempotent PUT; the agent calls us as the project MI
+                log(f"[{spec.id}] live-service connection {CONN.SERVICES_CONNECTION} ok ({', '.join(spec.tools)})")
             definition = desired_definition(settings, spec, base_body, owner, shared_by_quota=shared_by_quota)
             row.action, row.version = ensure_agent(
                 client, spec.agent_name, definition, {"source": SOURCE_TAG, "skill_id": spec.id, "skill_version": str(spec.version)},

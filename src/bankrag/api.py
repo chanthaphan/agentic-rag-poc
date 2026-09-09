@@ -1550,9 +1550,9 @@ def access_delete(email: str, request: Request):
 app.include_router(studio)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
-# Live-service tools for the agents (FX today, branches next). Mounted only when a tool key is set, because the path
-# has to sit outside the Studio/Easy Auth gate for Foundry to reach it: the header key is what protects it.
-if settings.services_mcp_key:
+# Live-service tools for the agents (FX today, branches next). In Azure the path stays behind Easy Auth and the caller
+# is pinned to the Foundry project's managed identity (MCP_CALLER_PRINCIPALS); MCP_TOOL_KEY is the local-dev guard.
+if settings.services_mcp_key or settings.services_mcp_callers:
     from contextlib import asynccontextmanager
 
     from .mcp_server import MCP_PATH, build_asgi

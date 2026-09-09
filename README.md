@@ -5,6 +5,7 @@ Proof of concept for Bangkok Bank product Q&A / recommendation built on **Micros
 - **Knowledge base**: drop `.md` / `.pdf` files into `knowledge/<product-category>/` and run `bankrag ingest`.
 - **Evals**: routing accuracy, grounded answers, DeepEval quality metrics judged by a Foundry model (LLM-as-judge), model comparison; every run exports to .xlsx from Studio.
 - **Responsible Lending**: a subset of the rules from BBL's MCCS (Media Compliance Checker System) lives in `rules/mccs/`, one file per rule. They are compiled into the concierge and specialist instructions, and every drafted answer is checked before it is sent (missing mandatory warnings are appended verbatim).
+- **Live tools**: `bank-services` answers from the bank's own APIs instead of documents (today's FX rates) through an MCP endpoint the app hosts at `/mcp/services`. A skill opts in with `tools:` in its frontmatter; the Foundry agent calls it as the project's managed identity, so the endpoint stays behind Easy Auth and no key travels in the agent definition.
 - **Skills**: one folder per product family in `skills/<id>/SKILL.md` (frontmatter + instructions). `bankrag skills sync` turns each skill into a Foundry agent wired to its own knowledge base; the `bank-router` agent picks the skill for each user message.
 
 Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](docs/howto-add-skill.md), [docs/responsible-lending.md](docs/responsible-lending.md), [docs/decisions.md](docs/decisions.md), and (after the end-to-end run) [docs/findings-for-real-app.md](docs/findings-for-real-app.md).
@@ -61,6 +62,8 @@ uv run bankrag serve               # http://localhost:8010
 | list / validate the Responsible Lending rules | `uv run bankrag rules list` · `uv run bankrag rules validate` |
 | import the compliance team's sheet | `uv run bankrag rules import mccs-rules.xlsx [--dry-run]` |
 | check an answer against the rules | `uv run bankrag rules check "…" --skill credit-card` |
+| check the live FX service + its JSON shapes | `uv run bankrag services probe` |
+| today's rate for one currency | `uv run bankrag services fx USD` |
 | tests | `uv run pytest` |
 
 ## API
@@ -81,6 +84,7 @@ export ACR_NAME=bankragacr
 ./infra/10-acr-build.sh             # builds the image in ACR (no local Docker needed); prints IMAGE=...
 IMAGE=<printed image> ./infra/11-containerapp.sh   # storage share, environment, app, secrets from .env, volume, Foundry roles
 ./infra/12-easyauth.sh              # Entra ID sign-in in front of the whole app (app registration + built-in auth)
+./infra/13-services-tool.sh         # live FX/branch tools: lets the Foundry project's identity call /mcp/services
 ```
 
 Re-deploy after a code change: run `10-acr-build.sh`, then `az containerapp update -g my-aiverse -n bankrag --image <IMAGE>`. The app identity uses managed identity for Foundry (`DefaultAzureCredential`), so no `az login` is needed inside the container. Environment: `DATA_DIR=/data` (mounted share), `SQLITE_DB_PATH` / `SQLITE_DB_BACKUP` set by `docker/entrypoint.sh`.
