@@ -114,10 +114,8 @@ class ChatSession:
         yield {"type": "conversation", "conversation_id": self.conversation_id, "rotated": rotated}
 
         owner = self.kb_owners.get(spec.id, spec)
-        future = None
-        if with_sources and owner.id == spec.id:  # skills without documents have no knowledge base
-            future = _POOL.submit(KB.retrieve, self.settings, owner.kb_name, question, ks_name=owner.ks_name, max_docs=spec.top_k)
-        yield {"type": "status", "phase": "retrieving" if owner.id == spec.id else "drafting", "skill_id": spec.id}
+        future = self._sources_future(spec, owner, question) if with_sources else None
+        yield {"type": "status", "phase": "retrieving" if future is not None else "drafting", "skill_id": spec.id}
 
         t_agent = time.perf_counter()
         stream = self.openai.responses.create(
@@ -202,6 +200,15 @@ class ChatSession:
             retrieval_context=extra.get("retrieval_texts", []),
         )}
 
+    def _sources_future(self, spec, owner, question: str):
+        """Start the Sources lookup in the background: the skill's own knowledge base when it has one, otherwise a
+        hybrid index search filtered to the skill's knowledge space (skills on the shared base, e.g. on the free tier)."""
+        if owner.id == spec.id:
+            return _POOL.submit(KB.retrieve, self.settings, owner.kb_name, question, ks_name=owner.ks_name, max_docs=spec.top_k)
+        if spec.product_category in ("all", "*", ""):
+            return None
+        return _POOL.submit(_index_references, self.settings, question, spec.product_category, spec.top_k)
+
     def _ask_concierge(self, question: str, t_start: float, *, with_sources: bool = True) -> Iterator[dict[str, Any]]:
         """Handoff mode: the bank-concierge agent picks a specialist and calls it over A2A inside Foundry (no local router)."""
         from .foundry_native import CONCIERGE_AGENT
@@ -248,9 +255,9 @@ class ChatSession:
                         delegated = _a2a_question(str(f.get("arguments") or "")) or question
                         target = self.skills.get(sid)
                         owner = self.kb_owners.get(sid, target) if target else None
-                        if target is not None and owner is not None and owner.id == target.id:
+                        if target is not None and owner is not None:
                             t_src_start = time.perf_counter()
-                            future = _POOL.submit(KB.retrieve, self.settings, owner.kb_name, delegated, ks_name=owner.ks_name, max_docs=target.top_k)
+                            future = self._sources_future(target, owner, delegated)
             elif et == "response.completed":
                 final = event.response
             elif et in ("response.failed", "response.incomplete", "error"):
@@ -517,6 +524,23 @@ def parse_response(resp: Any) -> tuple[str, list[Citation], list[dict[str, Any]]
 
 # ---------------- A2A helpers ----------------
 _A2A_SKIP = {"type", "id", "status"}
+
+
+def _index_references(settings: Settings, question: str, category: str, top_k: int) -> list[KB.Reference]:
+    """Sources for a skill without its own knowledge base: best chunk per document from the shared index, filtered by space."""
+    hits = SI.hybrid_search(settings, question, category=category, k=max(top_k * 3, 6))
+    refs: list[KB.Reference] = []
+    seen: set[str] = set()
+    for h in hits:
+        key = str(h.get("doc_id") or h.get("id") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(KB.Reference(id=key, title=str(h.get("title") or ""), source_url=str(h.get("source_url") or ""), product_name=str(h.get("product_name") or ""),
+                                 snippet=str(h.get("snippet") or ""), score=h.get("reranker_score") if h.get("reranker_score") is not None else h.get("score")))
+        if len(refs) >= top_k:
+            break
+    return refs
 
 
 def _a2a_fields(item: Any) -> dict[str, Any]:

@@ -3,8 +3,9 @@ name: General Bank Product Assistant
 id: general
 description: >-
   คำถามทั่วไปเกี่ยวกับผลิตภัณฑ์ธนาคารกรุงเทพที่ครอบคลุมหลายประเภทผลิตภัณฑ์ การเปรียบเทียบข้ามประเภท (เช่น บัตรเครดิตกับบัตรเดบิต)
-  หรือคำถามที่ยังไม่ชัดว่าเป็นผลิตภัณฑ์ใด. Cross-product or generic Bangkok Bank questions, comparisons across categories,
-  or questions where the product type is unclear.
+  หรือคำถามที่ยังไม่ชัดว่าเป็นผลิตภัณฑ์ใด (ไม่รวมความรู้ทางการเงินทั่วไปและการรู้ทันมิจฉาชีพ ซึ่งเป็นของ financial-knowledge).
+  Cross-product or generic Bangkok Bank questions, comparisons across categories, or questions where the product type
+  is unclear. Not for general financial-literacy or scam-awareness questions, which belong to financial-knowledge.
 product_category: all
 keywords: [ธนาคารกรุงเทพ, Bangkok Bank, ผลิตภัณฑ์, products, เปรียบเทียบ, compare, ช่วยเลือก, which product, สาขา, branch]
 model: gpt-4.1-mini
