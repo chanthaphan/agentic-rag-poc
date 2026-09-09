@@ -351,13 +351,13 @@
       <span id="rl-status" class="muted"></span>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Rules</h3><span class="muted">the sheet's rows; a rule applies to an answer that mentions one of its products</span></div>
-      <table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th></tr></thead><tbody></tbody></table>
+      <div class="panel-head"><h3>Rules</h3><span class="muted">a rule applies to an answer that mentions one of its products</span><button id="rl-new" class="btn-secondary" data-admin>New rule</button></div>
+      <table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th><th style="width:50px"></th></tr></thead><tbody></tbody></table>
     </div>
     <div class="bd-grid">
       <div class="panel">
-        <div class="panel-head"><h3>Product families</h3><span class="muted">which skill agent carries each family's rules</span></div>
-        <table class="list" id="rl-products"><thead><tr><th>family</th><th style="width:150px">skills</th><th style="width:70px">rules</th></tr></thead><tbody></tbody></table>
+        <div class="panel-head"><h3>Product families</h3><span class="muted">which skill agent carries each family's rules</span><button id="rl-new-product" class="btn-secondary" data-admin>New family</button></div>
+        <table class="list" id="rl-products"><thead><tr><th>family</th><th style="width:170px">skills that carry it</th><th style="width:60px">rules</th><th style="width:60px"></th></tr></thead><tbody></tbody></table>
       </div>
       <div class="panel">
         <div class="panel-head"><h3>Try an answer</h3><span class="muted">runs the same guard the chat runs before an answer is sent</span></div>
@@ -445,6 +445,51 @@
     <label>Description<textarea id="n-description" rows="3"></textarea></label>
     <label>Keywords (comma separated)<input id="n-keywords"></label>
     <div class="toolbar"><button value="ok">Create</button><button value="cancel" class="btn-secondary" formnovalidate>Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="dlg-product">
+  <form method="dialog" class="form">
+    <h2 id="dp-title">Product family</h2>
+    <p class="muted">A rule applies to an answer when one of its product families is detected. <b>Skills</b> decides which agents carry that family's rules in their instructions, and is the fallback when the text alone is not conclusive.</p>
+    <label>Family id <small>(lowercase, dashes; referenced by the rules)</small><input id="dp-id" required pattern="[a-z0-9][a-z0-9-]*"></label>
+    <label>Name <small>(exactly as the MCCS sheet writes it, so imports match this family)</small><input id="dp-name" required></label>
+    <label>Skills that answer about this family <small>(their agents get these rules on the next sync)</small><div id="dp-skills" class="row wrap"></div></label>
+    <label>Aliases <small>(one per line; other names for the same family)</small><textarea id="dp-aliases" rows="3" spellcheck="false"></textarea></label>
+    <label>Detection patterns <small>(one regex per line; how the family is spotted in a question or an answer)</small><textarea id="dp-match" rows="3" spellcheck="false"></textarea></label>
+    <div class="toolbar"><button value="ok">Save</button><button value="cancel" class="btn-secondary" formnovalidate>Cancel</button><button value="delete" class="btn-danger" id="dp-delete" formnovalidate>Delete</button><span id="dp-status" class="muted"></span></div>
+  </form>
+</dialog>
+<dialog id="dlg-rule">
+  <form method="dialog" class="form">
+    <h2 id="dr-title">Rule</h2>
+    <p class="muted">The two legal sections come from the MCCS export and are overwritten by the next import; the note and everything below it are ours and survive an import.</p>
+    <div class="two"><label>Rule id<input id="dr-id" required pattern="[a-z0-9][a-z0-9-]*"></label><label>Clause <small>(ข้อกฎหมาย)</small><input id="dr-clause"></label></div>
+    <label>Title<input id="dr-title-in"></label>
+    <label>Regulation <small>(เล่มกฎหมาย)</small><input id="dr-regulation"></label>
+    <label>Product families this rule covers<div id="dr-products" class="row wrap"></div></label>
+    <div class="two"><label>Status<select id="dr-status"><option>active</option><option>draft</option><option>retired</option></select></label><label>Severity<select id="dr-severity"><option value="block">block: the answer must not go out without it</option><option value="warn">warn</option></select></label></div>
+    <div class="two">
+      <label>Check<select id="dr-check">
+        <option value="required_phrase">required_phrase: the wording must be present</option>
+        <option value="prohibited_phrase">prohibited_phrase: the wording must not appear</option>
+        <option value="required_pattern">required_pattern: required figures must match a regex</option>
+        <option value="judgement">judgement: agent instructions + human/eval review</option>
+      </select></label>
+      <label>Enforcement<select id="dr-enforcement">
+        <option value="append">append: add the mandated wording to the answer</option>
+        <option value="flag">flag: report it on the turn</option>
+        <option value="none">none</option>
+      </select></label>
+    </div>
+    <label>Phrases <small>(one per line; required or prohibited wording, matched verbatim)</small><textarea id="dr-phrases" rows="3" spellcheck="false"></textarea></label>
+    <label>Patterns <small>(one regex per line)</small><textarea id="dr-patterns" rows="3" spellcheck="false"></textarea></label>
+    <label>Applies when <small>(one regex per line; empty = whenever a product family matches)</small><textarea id="dr-applies" rows="2" spellcheck="false"></textarea></label>
+    <div class="two"><label>Disclosure (Thai) <small>(appended when missing)</small><textarea id="dr-disc-th" rows="2"></textarea></label><label>Disclosure (English)<textarea id="dr-disc-en" rows="2"></textarea></label></div>
+    <label>Required wording / format <small>(shown to the agent and the reviewer)</small><textarea id="dr-template" rows="2"></textarea></label>
+    <label>กฎหมาย (legal text) <small>(from MCCS)</small><textarea id="dr-legal" rows="4"></textarea></label>
+    <label>กฎสำหรับระบบ (system rule) <small>(from MCCS; goes into the agent instructions)</small><textarea id="dr-system" rows="4"></textarea></label>
+    <label>หมายเหตุสำหรับผู้ช่วย (assistant note) <small>(ours: how it applies to a chat answer)</small><textarea id="dr-note" rows="4"></textarea></label>
+    <div class="toolbar"><button value="ok">Save</button><button value="cancel" class="btn-secondary" formnovalidate>Cancel</button><button value="delete" class="btn-danger" id="dr-delete" formnovalidate>Delete</button><span id="dr-msg" class="muted"></span></div>
   </form>
 </dialog>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>

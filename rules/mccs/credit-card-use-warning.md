@@ -5,8 +5,8 @@ title: คำเตือนการใช้บัตรเครดิต "�
 regulation: (MCCS) ประกาศธนาคารแห่งประเทศไทยที่ 3/2568, ประกาศสำนักงาน กลต. ที่ สธ. 10/2558 และประกาศเพิ่มเติม
 clause: เอกสารแนบ 2 ข้อ 2.3.3 (1)
 products:
-- credit-card-other
 - credit-card-bbl
+- credit-card-other
 status: active
 severity: block
 check: required_phrase

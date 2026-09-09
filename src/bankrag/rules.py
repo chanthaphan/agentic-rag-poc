@@ -425,6 +425,75 @@ def update_rule(settings: Settings, pack_id: str, rule_id: str, form: dict) -> R
     return write_rule(settings, pack_id, updated)
 
 
+def create_rule(settings: Settings, pack_id: str, form: dict) -> RuleSpec:
+    """A rule written by hand in Studio (not every rule has to come from an MCCS export)."""
+    rule_id = str(form.get("id", "")).strip()
+    if not ID_RE.match(rule_id):
+        raise ValueError("id must be lowercase letters, digits and dashes")
+    if rule_path(settings, pack_id, rule_id).exists():
+        raise FileExistsError(f"rule '{rule_id}' already exists in pack '{pack_id}'")
+    data = {k: v for k, v in form.items() if k in FRONT_KEYS or k in ("legal_text", "system_rule", "assistant_note")}
+    rule = RuleSpec(**{**data, "id": rule_id, "pack": pack_id})
+    errors, _ = validate_rule(rule, active_pack(settings, pack_id))
+    if errors:
+        raise ValueError("; ".join(errors))
+    return write_rule(settings, pack_id, rule)
+
+
+# ---- product families (PACK.md) ----
+PRODUCT_KEYS = ("id", "name", "aliases", "skills", "match")
+
+
+def write_products(settings: Settings, pack_id: str, products: list[RuleProduct]) -> RulePack:
+    """Replace the product taxonomy in PACK.md, keeping the rest of the file (metadata + body) untouched."""
+    p = rules_dir(settings) / pack_id / PACK_FILE
+    if not p.exists():
+        raise FileNotFoundError(f"pack '{pack_id}' does not exist")
+    post = frontmatter.load(p)
+    post.metadata["products"] = [x.model_dump(include=set(PRODUCT_KEYS)) for x in products]
+    p.write_text(frontmatter.dumps(post, sort_keys=False, allow_unicode=True, width=100000) + "\n", encoding="utf-8")
+    _cache.pop(pack_id, None)
+    return active_pack(settings, pack_id)
+
+
+def upsert_product(settings: Settings, pack_id: str, product_id: str, form: dict) -> RuleProduct:
+    """Create or update one product family: its name, aliases, detection patterns and the skills that carry its rules."""
+    if not ID_RE.match(product_id):
+        raise ValueError(f"invalid product id '{product_id}'")
+    pack = active_pack(settings, pack_id)
+    listy = lambda k: [str(x).strip() for x in (form.get(k) or []) if str(x).strip()]  # noqa: E731
+    current = pack.product(product_id)
+    updated = RuleProduct(
+        id=product_id,
+        name=str(form.get("name") or (current.name if current else "")).strip(),
+        aliases=listy("aliases") if "aliases" in form else (current.aliases if current else []),
+        skills=listy("skills") if "skills" in form else (current.skills if current else []),
+        match=listy("match") if "match" in form else (current.match if current else []),
+    )
+    if not updated.name:
+        raise ValueError("name is required (it is how the rules sheet refers to this family)")
+    for pattern in updated.match:
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise ValueError(f"bad regex {pattern!r}: {e}") from e
+    products = [updated if x.id == product_id else x for x in pack.products]
+    if current is None:
+        products.append(updated)
+    write_products(settings, pack_id, products)
+    return updated
+
+
+def delete_product(settings: Settings, pack_id: str, product_id: str) -> None:
+    pack = active_pack(settings, pack_id)
+    if pack.product(product_id) is None:
+        raise FileNotFoundError(f"product '{product_id}' does not exist in pack '{pack_id}'")
+    used = [r.id for r in pack.rules if product_id in r.products]
+    if used:
+        raise ValueError(f"still used by {len(used)} rule(s): {', '.join(used[:5])}")
+    write_products(settings, pack_id, [x for x in pack.products if x.id != product_id])
+
+
 def delete_rule(settings: Settings, pack_id: str, rule_id: str) -> None:
     p = rule_path(settings, pack_id, rule_id)
     if not p.exists():

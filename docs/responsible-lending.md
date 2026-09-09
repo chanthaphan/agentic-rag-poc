@@ -5,6 +5,10 @@ SEC notification สธ. 10/2558), any communication that mentions a loan or a c
 fixed warnings, must state a reference rate with its date whenever it quotes an interest rate, and must never make
 borrowing sound effortless. An answer the assistant sends to a customer is such a communication.
 
+Bangkok Bank already checks its marketing media against those rules in **MCCS (Media Compliance Checker System)**.
+This POC takes a **subset of the MCCS rule set** — the 12 rows exported as `mccs-rules.xlsx` — and applies it to the
+assistant's answers instead of to an advertisement. Same rules, same wording, a different medium.
+
 So the assistant needs two things: the concierge has to **know, before it answers, that some product families are
 regulated**, and the app has to **prove afterwards that the answer that went out complied**. Both come from one store.
 
@@ -58,8 +62,10 @@ products:
     match: ['บัตรเครดิต', '(?i)\bcredit\s+card\b']   # how the family is detected in a question or an answer
 ```
 
-Loan families point at `general` today because there is no loan skill yet; add one and move the `skills:` entry, and
-its agent picks the rules up on the next sync — no code change.
+`skills:` is the answer to "which skill uses which product family". Loan families point at `general` today because
+there is no loan skill yet; tick a different skill (in Studio, or in this file) and its agent carries those rules from
+the next sync — no code change. It also decides the fallback when the answer's wording alone is not conclusive: an
+answer from a specialist whose single family is regulated is treated as being about that family.
 
 ## How a rule reaches an answer
 
@@ -95,10 +101,28 @@ path), `rules.guard()` runs over the drafted text:
 pretending to check them. A `required_pattern` violation is never auto-fixed: the missing figures are facts the app
 does not have, so the rule tells the agent to drop the number instead of publishing an incomplete disclosure.
 
+## Editing without Excel
+
+Studio → Settings → **Responsible lending** edits the same files, and a change applies to the answer-time guard
+immediately (the pack is re-read when a file changes); the agents pick it up on the next `skills sync`.
+
+| what | where |
+|---|---|
+| which skill carries a product family | **Product families → edit** → tick the skills; the same dialog holds the family's aliases and detection regexes |
+| a rule's status, severity, check type, enforcement, wording, regexes, disclosure | **Rules → edit** |
+| a rule's legal text / system rule (from MCCS) and our assistant note | same dialog; the two MCCS sections are overwritten by the next import, the note is not |
+| a rule that has no MCCS row (an internal policy) | **New rule** |
+| a product family MCCS mentions but the pack did not know | **New family**, or the placeholder an import created |
+
+The same edits are available as `PUT /rules/{id}`, `POST /rules`, `DELETE /rules/{id}`,
+`PUT /rules/products/{id}`, `DELETE /rules/products/{id}` (Studio admin), or by editing the files directly and
+running `bankrag rules validate`. Every write is validated the way the loader reads it — a bad regex, an unknown
+product or a missing disclosure is refused rather than silently breaking the guard.
+
 ## Keeping the sheet as the source
 
-The compliance team works in `mccs-rules.xlsx`. Import merges it into the files, keeping the engineering frontmatter
-and our assistant notes:
+The compliance team works in MCCS and exports `mccs-rules.xlsx`. Import merges that sheet into the files, keeping
+the engineering frontmatter and our assistant notes:
 
 ```bash
 bankrag rules import ~/Downloads/mccs-rules.xlsx --dry-run   # what would change
@@ -108,9 +132,8 @@ bankrag skills sync                                          # push the change i
 ```
 
 Rows match existing rules by rule id, else by clause + the opening of the legal text. A product name the pack does not
-know is not dropped: it is added to `PACK.md` as `p-<hash>` and reported, so a reviewer gives it an id, aliases and
-skills. Studio → Settings → **Responsible lending** does the same through the browser (preview, then confirm), lists
-what each agent carries, and has a "Try an answer" box that runs the same guard over arbitrary text.
+know is not dropped: it is added to `PACK.md` as `p-<hash>` and reported, so a reviewer opens it and gives it a
+readable id, aliases and skills. Studio does the same import through the browser (preview, then confirm).
 
 `bankrag rules export` writes the sheet back with the same columns plus the rule id and how each rule is checked.
 

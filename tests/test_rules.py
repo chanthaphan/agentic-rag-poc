@@ -221,3 +221,61 @@ def test_a_broken_rule_pack_does_not_break_the_chat(settings, monkeypatch):
     monkeypatch.setattr(session, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=1.0, language="th", reason="test"))
     answer = next(e["answer"] for e in session.ask_stream("q", with_sources=False) if e["type"] == "done")
     assert answer.text == "บัตรเครดิต" and "bad pack" in answer.trace["compliance"]["error"]
+
+
+def test_product_family_mapping_can_be_edited(settings):
+    pack = RL.load_pack(settings)
+    assert RL.products_for_skill(pack, "general") == ["home-loan", "personal-loan-unsecured", "multipurpose-loan"]
+
+    RL.upsert_product(settings, "mccs", "home-loan", {"name": "สินเชื่อบ้าน", "skills": ["home-loan-advisor"]})
+    pack = RL.load_pack(settings)
+    assert pack.product("home-loan").skills == ["home-loan-advisor"]
+    assert pack.product("home-loan").match  # untouched keys keep their value
+    assert "home-loan" not in RL.products_for_skill(pack, "general")
+
+    RL.upsert_product(settings, "mccs", "car-loan", {"name": "สินเชื่อรถยนต์", "skills": ["general"], "match": [r"สินเชื่อรถ"]})
+    assert RL.detect_products(RL.load_pack(settings), "สนใจสินเชื่อรถยนต์") == ["car-loan"]
+    RL.delete_product(settings, "mccs", "car-loan")
+    assert RL.load_pack(settings).product("car-loan") is None
+
+    with pytest.raises(ValueError, match="still used by"):
+        RL.delete_product(settings, "mccs", "credit-card-bbl")
+    with pytest.raises(ValueError, match="bad regex"):
+        RL.upsert_product(settings, "mccs", "home-loan", {"name": "x", "match": ["("]})
+
+
+def test_rule_can_be_written_by_hand(settings):
+    rule = RL.create_rule(settings, "mccs", {
+        "id": "internal-no-guarantees", "title": "ห้ามรับประกันผลอนุมัติ", "clause": "internal-1",
+        "products": ["home-loan"], "check": "prohibited_phrase", "enforcement": "flag", "severity": "block",
+        "phrases": ["รับรองว่าผ่านแน่นอน"], "system_rule": "ห้ามรับประกันว่าลูกค้าจะได้รับอนุมัติ",
+    })
+    assert rule.id == "internal-no-guarantees" and rule.path.exists()
+    _, report = RL.guard(settings, "สินเชื่อบ้านนี้รับรองว่าผ่านแน่นอนค่ะ", language="th", skill_id="general")
+    assert "internal-no-guarantees" in report["violations"]
+    with pytest.raises(FileExistsError):
+        RL.create_rule(settings, "mccs", {"id": "internal-no-guarantees", "products": ["home-loan"], "system_rule": "x"})
+    with pytest.raises(ValueError, match="products is empty"):
+        RL.create_rule(settings, "mccs", {"id": "nowhere", "system_rule": "x"})
+    RL.delete_rule(settings, "mccs", "internal-no-guarantees")
+    assert not any(r.id == "internal-no-guarantees" for r in RL.load_pack(settings).rules)
+
+
+def test_rule_and_product_endpoints(tmp_path, monkeypatch):
+    c = _api_client(tmp_path, monkeypatch)
+    admin = ("admin", "secret")
+    assert "credit-card" in c.get("/rules").json()["skills"]  # the picker's options
+
+    assert c.put("/rules/products/home-loan", json={"name": "สินเชื่อบ้าน", "skills": ["general"]}).status_code == 401
+    r = c.put("/rules/products/home-loan", json={"name": "สินเชื่อบ้าน", "skills": ["credit-card"]}, auth=admin)
+    assert r.status_code == 200 and r.json()["skills"] == ["credit-card"]
+    block = c.get("/rules/prompt", params={"skill": "credit-card"}).json()["block"]
+    assert "สินเชื่อบ้าน" in block  # the family moved, so the credit-card agent now carries its rules
+    assert c.delete("/rules/products/home-loan", auth=admin).status_code == 400  # still used by rules
+
+    assert c.post("/rules", json={"id": "house-rule", "products": ["home-loan"], "system_rule": "x", "check": "judgement"}, auth=admin).status_code == 200
+    assert c.post("/rules", json={"id": "house-rule", "products": ["home-loan"], "system_rule": "x"}, auth=admin).status_code == 409
+    assert c.post("/rules", json={"id": "bad id!", "system_rule": "x"}, auth=admin).status_code == 400
+    assert len(c.get("/rules").json()["rules"]) == 13
+    assert c.delete("/rules/house-rule", auth=admin).status_code == 200
+    assert c.delete("/rules/house-rule", auth=admin).status_code == 404

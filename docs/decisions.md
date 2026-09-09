@@ -59,7 +59,7 @@ minutes after the answer rather than with it.
 
 
 ## 26. Responsible Lending rules are versioned files, applied in the prompt and checked on the answer
-The MCCS advertising rules (BOT 3/2568) live in `rules/<pack>/` as one markdown file per rule: the regulator's text
+A subset of the rules from BBL's MCCS (Media Compliance Checker System, BOT 3/2568) lives in `rules/<pack>/` as one markdown file per rule: the regulator's text
 verbatim in the body, the machine-readable part (products, how it is checked, what wording is required) in the
 frontmatter, plus an assistant note that survives re-importing the compliance team's spreadsheet. Files, not a
 database table, because they are legal text that wants review and diffs, and because the bundle already moves

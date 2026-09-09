@@ -851,6 +851,7 @@ def list_rules(pack: str = "mccs"):
     return {
         "pack": {"id": p.id, "name": p.name, "description": p.description, "sources": p.sources, "body": p.body},
         "packs": RL.list_packs(settings),
+        "skills": sorted(skills),
         "products": [{**x.model_dump(), "rules": [r.id for r in p.rules if x.id in r.products],
                       "unknown_skills": [s for s in x.skills if s not in skills]} for x in p.products],
         "rules": [{**r.model_dump(exclude={"path"}),
@@ -885,6 +886,57 @@ def rules_check(data: dict):
     fixed, report = RL.guard(settings, text, question=str(data.get("question", "")), language=str(data.get("language", "th")),
                              skill_id=str(data.get("skill", "")), pack_id=str(data.get("pack", "mccs")))
     return {"text": fixed, "report": report}
+
+
+@studio.post("/rules", dependencies=[Depends(require_admin)])
+def create_rule_endpoint(form: dict):
+    from . import rules as RL
+
+    try:
+        r = RL.create_rule(settings, str(form.get("pack", "mccs")), form)
+    except FileExistsError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return r.model_dump(exclude={"path"})
+
+
+@studio.delete("/rules/{rule_id}", dependencies=[Depends(require_admin)])
+def delete_rule_endpoint(rule_id: str, pack: str = "mccs"):
+    from . import rules as RL
+
+    try:
+        RL.delete_rule(settings, pack, rule_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "deleted": rule_id}
+
+
+@studio.put("/rules/products/{product_id}", dependencies=[Depends(require_admin)])
+def upsert_product_endpoint(product_id: str, form: dict):
+    """Which skill agents carry a product family's rules, plus how the family is detected in a question or answer."""
+    from . import rules as RL
+
+    try:
+        p = RL.upsert_product(settings, str(form.get("pack", "mccs")), product_id, form)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return p.model_dump()
+
+
+@studio.delete("/rules/products/{product_id}", dependencies=[Depends(require_admin)])
+def delete_product_endpoint(product_id: str, pack: str = "mccs"):
+    from . import rules as RL
+
+    try:
+        RL.delete_product(settings, pack, product_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "deleted": product_id}
 
 
 @studio.put("/rules/{rule_id}", dependencies=[Depends(require_admin)])
