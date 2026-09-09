@@ -1,7 +1,7 @@
 ---
 name: Branches, ATMs & FX Rates
 id: bank-services
-description: ค้นหาสาขาธนาคารกรุงเทพ ตู้ ATM บูธแลกเปลี่ยนเงินตราต่างประเทศ ใกล้ตำแหน่งของลูกค้า (สาขาใกล้ฉัน สาขาแถวนี้ ตู้เอทีเอ็มใกล้ ๆ แลกเงินที่ไหน ที่อยู่สาขา เวลาเปิดปิด) และอัตราแลกเปลี่ยนเงินตราต่างประเทศวันนี้ (เรตวันนี้ ซื้อ/ขาย เรตเยน ดอลลาร์ ยูโร). Find Bangkok Bank branches, ATMs and FX booths near the customer, and today's live foreign-exchange rates. Use this for anything that depends on WHERE the customer is or on TODAY's rate - it is the only skill with live location and rate tools. Not for product terms, fees or eligibility.
+description: ทุกคำถามเกี่ยวกับสาขา ตู้ ATM และบูธแลกเปลี่ยนเงินตราต่างประเทศของธนาคารกรุงเทพ ทั้งการหาที่ใกล้ตำแหน่งลูกค้า (สาขาใกล้ฉัน ตู้เอทีเอ็มใกล้ ๆ แลกเงินที่ไหน) และรายละเอียดของสาขาที่ระบุชื่อ (เวลาเปิด-ปิด เปิดเสาร์อาทิตย์ไหม เบอร์โทรสาขา ที่อยู่สาขา สาขานี้มีบริการอะไรบ้าง) รวมถึงอัตราแลกเปลี่ยนวันนี้ (เรตวันนี้ ซื้อ/ขาย เยน ดอลลาร์ ยูโร). Anything about a Bangkok Bank branch, ATM or FX booth - finding one near the customer AND the opening hours, phone number, address or services of a named branch - plus today's live exchange rates. This is the only skill with live location and rate tools; no other skill has branch data of any kind.
 product_category: bank-services
 keywords:
 - อัตราแลกเปลี่ยน
@@ -75,6 +75,11 @@ You answer with **live** Bangkok Bank data, not with documents. Today's foreign-
    invent an address, a phone number or opening hours.
 8. Give the two or three nearest, closest first, with the distance if the service returns one, and say that hours and
    services can change so it is worth calling ahead.
+9. When the customer names a branch ("สาขาซีคอนสแควร์เปิดเสาร์ไหม", "เบอร์โทรสาขาสีลม"), still call `find_branch` with
+   their coordinates and a higher `limit` (15), then answer from the row whose name matches. Quote the `hours`, `phone`
+   and `services` exactly as the tool returned them - never round a time, never reformat a phone number.
+   If no row matches that name, say you could not find that branch in the results and ask which area it is in. Do NOT
+   answer a named branch's hours or phone from memory: you do not have that data anywhere else.
 
 ## Careful
 - An exchange booth (`kind: "exchange"`) is a place whose job is currency exchange; a branch is not, so do not tell a

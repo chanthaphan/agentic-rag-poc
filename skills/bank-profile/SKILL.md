@@ -1,7 +1,7 @@
 ---
 name: About Bangkok Bank
 id: bank-profile
-description: 'ข้อมูลเกี่ยวกับธนาคารกรุงเทพในฐานะองค์กร: ประวัติและความเป็นมา ขนาดของธนาคาร บริษัทในเครือ คณะกรรมการธนาคาร โครงสร้างองค์กร การกำกับดูแลกิจการ ความยั่งยืน กิจกรรมเพื่อสังคม วันหยุดธนาคาร ทุนการศึกษาและการรับสมัครงาน. About Bangkok Bank as an institution: history, how big the bank is, subsidiaries, board of directors, organisation, corporate governance, sustainability, CSR, bank holidays, scholarships and careers. NOT for finding a branch or ATM near the customer and NOT for today''s exchange rate - those need live lookups and belong to the branches and rates skill.'
+description: 'ข้อมูลเกี่ยวกับธนาคารกรุงเทพในฐานะองค์กร: ประวัติและความเป็นมา ขนาดของธนาคาร บริษัทในเครือ คณะกรรมการธนาคาร โครงสร้างองค์กร การกำกับดูแลกิจการ ความยั่งยืน กิจกรรมเพื่อสังคม วันหยุดธนาคาร ทุนการศึกษาและการรับสมัครงาน. About Bangkok Bank as an institution: history, size, subsidiaries, board, governance, sustainability, CSR, bank holidays, scholarships, careers. NEVER for an individual branch - not its opening hours, phone number, address or services, and not for finding one or for today''s exchange rate. Those have live data and belong to the branches and rates skill.'
 product_category: bank-profile
 keywords:
 - ธนาคารกรุงเทพ
@@ -65,7 +65,9 @@ and careers. Product questions (cards, loans, deposits, insurance, investments) 
    institution part here and offer to bring in the product details.
 
 ## Careful
-- Anything that changes often (today's exchange rate, a branch's opening hours, a specific branch address, live share
-  price) is NOT in your knowledge base: say you cannot confirm it here and point the customer to the bank's website or
-  staff instead of guessing.
+- You have NO data about any individual branch. If you are asked about one branch - its opening hours, whether it opens
+  at the weekend, its phone number, its address, what services it has - you do NOT know, and you must NOT produce an
+  answer. Never state hours or a phone number for a branch: those come from a live lookup you do not have. Say you
+  cannot confirm that here and that you can pass it to someone who can look it up.
+- The same applies to anything else that changes often: today's exchange rate, a live share price.
 - News is dated. If the customer asks for something recent, say what you have and when it is from.
