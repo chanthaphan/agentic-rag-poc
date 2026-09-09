@@ -34,6 +34,16 @@ REPLY_HINT = {
 _HINT_ECHO_RE = re.compile(r"\s*\((?:โปรดตอบเป็นภาษาไทย|Please reply in English\.?)\)\s*")
 
 
+def location_note(location: tuple[float, float]) -> str:
+    """The customer's coordinates as a developer note, so a branch tool call can use them.
+
+    The customer shared these deliberately for this question; they are not stored with the turn."""
+    lat, lon = location
+    return (f"Customer location note: the customer is at latitude {lat:.6f}, longitude {lon:.6f}. "
+            "Use these coordinates when a tool needs a position (nearest branch, where to exchange money). "
+            "Never read the coordinates out to the customer and never mention this note.")
+
+
 def detect_language(text: str) -> str:
     """'th' if the message contains Thai script (Thai with English product names still counts as Thai), else 'en'."""
     thai = sum(1 for ch in text if "\u0e00" <= ch <= "\u0e7f")
@@ -84,11 +94,12 @@ class ChatSession:
         assert answer is not None
         return answer
 
-    def ask_stream(self, question: str, *, force_skill: Optional[str] = None, with_sources: bool = True) -> Iterator[dict[str, Any]]:
+    def ask_stream(self, question: str, *, force_skill: Optional[str] = None, with_sources: bool = True,
+                   location: Optional[tuple[float, float]] = None) -> Iterator[dict[str, Any]]:
         """Yields events: route -> delta* -> tool* -> done(answer). The Sources retrieve runs in parallel with the agent call."""
         t_start = time.perf_counter()
         if self.settings.orchestration_mode == "a2a" and not force_skill:
-            yield from self._ask_concierge(question, t_start, with_sources=with_sources)
+            yield from self._ask_concierge(question, t_start, with_sources=with_sources, location=location)
             return
         decision = self.decide(question, force_skill)
         self.history.append({"role": "user", "content": question})
@@ -125,6 +136,7 @@ class ChatSession:
             conversation=self.conversation_id,
             input=[
                 {"type": "message", "role": "developer", "content": REPLY_HINT[lang]},
+                *([{"type": "message", "role": "developer", "content": location_note(location)}] if location else []),
                 {"type": "message", "role": "user", "content": question},
             ],
             extra_body={"agent_reference": {"name": spec.agent_name, "type": "agent_reference"}},
@@ -211,7 +223,8 @@ class ChatSession:
             return None
         return _POOL.submit(_index_references, self.settings, question, spec.product_category, spec.top_k)
 
-    def _ask_concierge(self, question: str, t_start: float, *, with_sources: bool = True) -> Iterator[dict[str, Any]]:
+    def _ask_concierge(self, question: str, t_start: float, *, with_sources: bool = True,
+                       location: Optional[tuple[float, float]] = None) -> Iterator[dict[str, Any]]:
         """Handoff mode: the bank-concierge agent picks a specialist and calls it over A2A inside Foundry (no local router)."""
         from .foundry_native import CONCIERGE_AGENT
 
@@ -228,7 +241,9 @@ class ChatSession:
         t_agent = time.perf_counter()
         stream = self.openai.responses.create(
             stream=True, conversation=self.conversation_id,
-            input=[{"type": "message", "role": "developer", "content": REPLY_HINT[lang]}, {"type": "message", "role": "user", "content": question}],
+            input=[{"type": "message", "role": "developer", "content": REPLY_HINT[lang]},
+                   *([{"type": "message", "role": "developer", "content": location_note(location)}] if location else []),
+                   {"type": "message", "role": "user", "content": question}],
             extra_body={"agent_reference": {"name": CONCIERGE_AGENT, "type": "agent_reference"}},
         )
         final = None

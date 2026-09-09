@@ -18,7 +18,7 @@ class StubSession:
         rec.conversation_id, rec.prev_skill = "conv_x", "credit-card"
         return rec
 
-    def ask_stream(self, q, force_skill=None, with_sources=True):
+    def ask_stream(self, q, force_skill=None, with_sources=True, location=None):
         yield {"type": "route", "skill_id": "credit-card", "confidence": 0.9, "language": "th", "reason": "r", "agent_name": "bank-credit-card", "route_ms": 5}
         yield {"type": "status", "phase": "retrieving", "skill_id": "credit-card"}
         yield {"type": "delta", "text": "สวัส"}

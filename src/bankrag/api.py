@@ -109,6 +109,8 @@ class ChatRequest(BaseModel):
     force_skill: Optional[str] = None
     with_sources: bool = True
     source: str = "app"  # app | studio
+    lat: Optional[float] = None  # the customer's position, sent only when they allow it for a "near me" question
+    lon: Optional[float] = None
 
 
 class ChatResponse(BaseModel):
@@ -338,7 +340,8 @@ def chat_stream(req: ChatRequest, request: Request):
     def gen():
         yield f"data: {json.dumps({'type': 'session', 'session_id': sid}, ensure_ascii=False)}\n\n"
         try:
-            for ev in session.ask_stream(req.message, force_skill=req.force_skill, with_sources=req.with_sources):
+            for ev in session.ask_stream(req.message, force_skill=req.force_skill, with_sources=req.with_sources,
+                                              location=(req.lat, req.lon) if req.lat is not None and req.lon is not None else None):
                 if ev["type"] == "done":
                     ans: Answer = ev["answer"]
                     with _lock:

@@ -218,6 +218,103 @@ def countries(settings: Settings, lang: str = "en") -> Any:
     return _get(settings, f"{LOC_SERVICE}/GetCountry{'Th' if lang == 'th' else 'En'}")
 
 
+# The Locate Us page's own type codes. Confirmed from its network calls: BRC, ATM, ATMPLUS. There may be more (an
+# exchange booth, a CDM); an unrecognised code is passed through uppercased rather than rejected, so a new one works
+# the day it is discovered without a code change.
+KIND_BRANCH = "BRC"
+KIND_ATM = "ATM"
+KIND_ATM_PLUS = "ATMPLUS"
+_KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
+          "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
+          "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS}
+
+
+def resolve_kind(kind: str) -> str:
+    """'branch' / 'atm' / 'atm plus' (or a raw code) -> the code the locator expects."""
+    k = str(kind or "").strip().lower()
+    return _KINDS.get(k, k.upper() or KIND_BRANCH)
+
+
+@dataclass
+class Place:
+    name: str = ""
+    address: str = ""
+    district: str = ""
+    province: str = ""
+    phone: str = ""
+    hours: str = ""
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    distance_km: Optional[float] = None
+    services: str = ""
+
+
+_PLACE_KEYS = {
+    "name": ("BranchName", "Name", "name", "branchName", "Title", "LocationName"),
+    "address": ("Address", "address", "FullAddress", "Addr", "AddressTh", "AddressEn"),
+    "district": ("District", "district", "Amphur", "Area"),
+    "province": ("Province", "province", "City"),
+    "phone": ("Tel", "Telephone", "Phone", "phone", "TelNo"),
+    "hours": ("OpenTime", "OpeningHours", "Hours", "ServiceTime", "Time"),
+    "lat": ("Latitude", "latitude", "Lat", "lat"),
+    "lon": ("Longitude", "longitude", "Lng", "lng", "Lon", "lon"),
+    "distance_km": ("Distance", "distance", "DistanceKm"),
+    "services": ("Service", "Services", "ServiceType", "Type", "Facilities"),
+}
+
+
+def normalize_places(data: Any) -> list[Place]:
+    """Branch rows, normalised the same defensive way as the rates: unknown spellings degrade to blank, not a crash."""
+    out: list[Place] = []
+    for row in _rate_rows(data):
+        p = Place()
+        for field, keys in _PLACE_KEYS.items():
+            raw = _first(row, keys)
+            if raw in (None, ""):
+                continue
+            if field in ("lat", "lon", "distance_km"):
+                setattr(p, field, _to_float(raw))
+            else:
+                setattr(p, field, str(raw).strip())
+        if p.name or p.address:
+            out.append(p)
+    return out
+
+
+def search_places_raw(settings: Settings, province: str, lat: float, lon: float, *,
+                      district: str = "0", kind: str = KIND_BRANCH, lang: str = "th") -> Any:
+    """The Locate Us search: /Search{Thailand}{Lang}WithLocation/{province}/{district}/{lat}/{lon}/{kind}.
+
+    The coordinates are what make it a 'near me' search; the service orders the results by distance from them."""
+    from urllib.parse import quote
+
+    where = "SearchThaiLandTh" if lang == "th" else "SearchThaiLandEn"
+    path = f"{LOC_SERVICE}/{where}WithLocation/{quote(province)}/{quote(str(district))}/{lat}/{lon}/{quote(kind)}"
+    return _get(settings, path)
+
+
+def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "", district: str = "0",
+                kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
+    """The tool entry point: the branches nearest a pair of coordinates."""
+    try:
+        raw = search_places_raw(settings, province, lat, lon, district=district, kind=kind, lang=lang)
+    except ServiceError as e:
+        return {"found": False, "error": str(e),
+                "say": "The branch lookup is not available right now; point the customer at the bank's Locate Us page."}
+    places = normalize_places(raw)[:limit]
+    if not places:
+        return {"found": False, "province": province,
+                "say": "No branch came back for that spot. Ask the customer which province or district they mean, "
+                       "or suggest the bank's Locate Us page."}
+    return {
+        "found": True,
+        "near": {"lat": lat, "lon": lon},
+        "province": province,
+        "branches": [{k: v for k, v in vars(p).items() if v not in (None, "")} for p in places],
+        "disclaimer": "Opening hours and services can change; suggest calling the branch before travelling.",
+    }
+
+
 def locator_endpoint(settings: Settings, path: str) -> Any:
     """Escape hatch for a locator path whose exact shape we confirm from the live Locate-Us page (branch search by
     province / district / geo). `path` is appended to the location service, e.g. 'GetBranchByProvince/10'."""

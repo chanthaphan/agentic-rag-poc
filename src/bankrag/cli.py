@@ -333,6 +333,7 @@ def services_probe(lang: str = typer.Option("en", help="th | en")):
         (f"FX today round 2 ({lang})", lambda: SV.fx_rates_raw(s, date.today(), 2, lang)),
         (f"Provinces ({lang})", lambda: SV.provinces(s, lang)),
         (f"Countries ({lang})", lambda: SV.countries(s, lang)),
+        ("Branches near Bangkok", lambda: SV.search_places_raw(s, "กรุงเทพมหานคร", 13.697057591968564, 100.64558570030171)),
     ]
     for name, fn in checks:
         try:
@@ -360,6 +361,19 @@ def services_probe(lang: str = typer.Option("en", help="th | en")):
         parsed = sum(1 for r in rates if r.buying is not None or r.selling is not None)
         rprint(f"[{'green' if parsed else 'yellow'}]{parsed}/{len(rates)} have a buying/selling number "
                f"({'parsing looks right' if parsed else 'field names differ - send the shape above so I can fix normalize_fx'})[/]")
+
+
+@services_app.command("branches")
+def services_branches(lat: float = typer.Argument(..., help="latitude, e.g. 13.6970"),
+                      lon: float = typer.Argument(..., help="longitude, e.g. 100.6455"),
+                      province: str = typer.Option("", help="Thai province name, e.g. กรุงเทพมหานคร"),
+                      limit: int = typer.Option(5)):
+    """Branches nearest a pair of coordinates, exactly as the find_branch tool would return them."""
+    import json as _json
+
+    from . import services as SV
+
+    rprint(_json.dumps(SV.find_branch(_settings(), lat, lon, province=province, limit=limit), ensure_ascii=False, indent=1))
 
 
 @services_app.command("fx")

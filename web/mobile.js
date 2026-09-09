@@ -121,6 +121,23 @@ async function readSSE(response, onEvent) {
     }
   }
 }
+// "where is the nearest branch" needs the customer's position. Ask the browser only for questions that are actually
+// about a place, so nobody sees a location prompt for a question about an annual fee, and never block the answer on it.
+const PLACE_RE = /(สาขา|ใกล้ฉัน|ใกล้ ?ๆ|แถวนี้|ที่ไหน|อยู่ไหน|แลกเงิน|ตู้ ?atm|เอทีเอ็ม|branch|near ?me|nearby|where.*(branch|exchange|atm)|atm)/i;
+function currentPosition(timeoutMs = 6000) {
+  if (!navigator.geolocation || !PLACE_RE.test(currentPosition.q || "")) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => finish(null), timeoutMs);  // a slow or ignored permission prompt must not hold the answer
+    navigator.geolocation.getCurrentPosition(
+      (p) => finish({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => finish(null),  // declined or unavailable: the assistant asks which province instead
+      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 300000 },
+    );
+  });
+}
+
 async function send(text) {
   const q = (text ?? $("#input").value).trim();
   if (!q || state.busy) return;
@@ -129,7 +146,9 @@ async function send(text) {
   const draft = { role: "assistant", text: "", streaming: true, suggestions: [] };
   let bubble = null;
   try {
-    const res = await fetch(new URL("/chat/stream", location.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: state.sessionId, message: q }) });
+    currentPosition.q = q;
+    const here = await currentPosition();
+    const res = await fetch(new URL("/chat/stream", location.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: state.sessionId, message: q, ...(here || {}) }) });
     if (!res.ok || !res.body) { let t = await res.text(); try { t = JSON.parse(t).detail || t; } catch {} throw new Error(t || res.statusText); }
     await readSSE(res, (ev) => {
       if (ev.type === "session") { state.sessionId = ev.session_id; try { localStorage.setItem("bankrag_session", state.sessionId); } catch {} }

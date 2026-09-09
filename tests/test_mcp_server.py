@@ -112,3 +112,15 @@ def test_closed_when_nothing_is_configured(settings):
     with TestClient(app) as client:
         r = client.post("/", json=INIT, headers={"content-type": "application/json", "accept": "application/json, text/event-stream"})
         assert r.status_code == 401 and "not configured" in r.text
+
+
+def test_branch_tool_is_registered_and_passes_coordinates(settings, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(SV, "find_branch", lambda s, lat, lon, **kw: seen.update(lat=lat, lon=lon, **kw) or {"found": True, "branches": []})
+    server = MS.build_server(settings)
+    import anyio
+
+    names = [t.name for t in anyio.run(server.list_tools)]
+    assert MS.TOOL_BRANCH in names
+    anyio.run(lambda: server.call_tool(MS.TOOL_BRANCH, {"lat": 13.7, "lon": 100.6, "province": "กรุงเทพมหานคร"}))
+    assert seen["lat"] == 13.7 and seen["lon"] == 100.6 and seen["province"] == "กรุงเทพมหานคร"

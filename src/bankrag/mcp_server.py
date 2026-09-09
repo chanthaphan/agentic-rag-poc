@@ -2,8 +2,9 @@
 
 The knowledge base answers from documents; this answers from the bank's live APIs, which is what a rate or a branch
 needs. Foundry agents reach it the same way they reach the knowledge base: an `MCPTool` pointed at a URL. The
-difference is that this endpoint is ours, so it is mounted on the app (`/mcp/services`) and guarded by a shared header
-key (`MCP_TOOL_KEY`) - the same POC pattern as `KB_MCP_AUTH=apikey`.
+difference is that this endpoint is ours, so it is mounted on the app (`/mcp/services`). In Azure it stays behind the
+app's Easy Auth and the caller is pinned to the Foundry project's managed identity (`MCP_CALLER_PRINCIPALS`);
+`MCP_TOOL_KEY` is the local-dev guard, where there is no Easy Auth to authenticate anyone.
 
 The transport is stateless streamable HTTP with JSON responses: no session to keep, no SSE to hold open, so it can be
 mounted straight into FastAPI and survives a container replica moving.
@@ -23,6 +24,7 @@ from . import services as SV
 MCP_PATH = "/mcp/services"
 AUTH_HEADER = "x-tool-key"
 TOOL_FX = "fx_rate"
+TOOL_BRANCH = "find_branch"
 
 
 def build_server(settings: Settings) -> MCPServer:
@@ -45,6 +47,21 @@ def build_server(settings: Settings) -> MCPServer:
         except SV.ServiceError as e:
             return {"found": False, "currency": currency.upper(), "error": str(e),
                     "say": "The live rate is not available right now; suggest the bank's website or staff."}
+
+    @server.tool(
+        name=TOOL_BRANCH,
+        description="Bangkok Bank branches nearest to a pair of coordinates, closest first. Use when the customer asks "
+                    "where a branch or an ATM is, which is nearest, or where they can exchange currency. The customer's "
+                    "coordinates are given to you in the conversation when they have shared their location; if they "
+                    "are not there, ask which province or district instead of guessing.",
+    )
+    def find_branch(lat: float, lon: float, province: str = "", kind: str = "branch", limit: int = 5) -> dict[str, Any]:
+        """lat/lon: the customer's position. province: optional Thai province name. kind: 'branch', 'atm' or 'atm plus'."""
+        try:
+            return SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
+        except SV.ServiceError as e:
+            return {"found": False, "error": str(e),
+                    "say": "The branch lookup is not available right now; suggest the bank's Locate Us page."}
 
     return server
 

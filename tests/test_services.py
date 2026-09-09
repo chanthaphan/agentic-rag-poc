@@ -105,3 +105,62 @@ def test_endpoint_paths(settings, monkeypatch):
     assert seen["path"] == "locationsearchservice/GetProvinceTh"
     SV.countries(settings, "en")
     assert seen["path"] == "locationsearchservice/GetCountryEn"
+
+
+# ---- branch locator ----
+def test_branch_search_builds_the_captured_path(settings, monkeypatch):
+    """Matches the real Locate Us call: /SearchThaiLandThWithLocation/{province}/{district}/{lat}/{lon}/{kind}."""
+    seen = {}
+    def record(s, p):
+        seen["path"] = p
+        return []
+    monkeypatch.setattr(SV, "_get", record)
+    SV.search_places_raw(settings, "กรุงเทพมหานคร", 13.697057591968564, 100.64558570030171)
+    assert seen["path"] == (
+        "locationsearchservice/SearchThaiLandThWithLocation/"
+        "%E0%B8%81%E0%B8%A3%E0%B8%B8%E0%B8%87%E0%B9%80%E0%B8%97%E0%B8%9E%E0%B8%A1%E0%B8%AB%E0%B8%B2%E0%B8%99%E0%B8%84%E0%B8%A3"
+        "/0/13.697057591968564/100.64558570030171/BRC")
+    SV.search_places_raw(settings, "Bangkok", 13.0, 100.0, lang="en", district="5", kind="ATM")
+    assert seen["path"] == "locationsearchservice/SearchThaiLandEnWithLocation/Bangkok/5/13.0/100.0/ATM"
+
+
+def test_normalize_places_is_tolerant(settings):
+    rows = [{"BranchName": "สาขาสีลม", "Address": "1 ถนนสีลม", "Province": "กรุงเทพมหานคร",
+             "Latitude": "13.7", "Longitude": "100.5", "Distance": "1.2", "Tel": "02-000-0000"},
+            {"Name": "Silom 2", "FullAddress": "2 Silom Rd"}]
+    got = SV.normalize_places(rows)
+    assert [p.name for p in got] == ["สาขาสีลม", "Silom 2"]
+    assert got[0].lat == 13.7 and got[0].distance_km == 1.2 and got[0].phone == "02-000-0000"
+    assert SV.normalize_places([{"nothing": "useful"}]) == []  # no name and no address: not a place
+    assert SV.normalize_places("boom") == []
+
+
+def test_find_branch_returns_the_nearest(settings, monkeypatch):
+    monkeypatch.setattr(SV, "search_places_raw", lambda *a, **k: [
+        {"BranchName": "A", "Address": "1", "Distance": "0.4"},
+        {"BranchName": "B", "Address": "2", "Distance": "1.1"},
+        {"BranchName": "C", "Address": "3", "Distance": "9.9"}])
+    out = SV.find_branch(settings, 13.7, 100.6, limit=2)
+    assert out["found"] and [b["name"] for b in out["branches"]] == ["A", "B"]
+    assert out["near"] == {"lat": 13.7, "lon": 100.6}
+    assert "can change" in out["disclaimer"]
+    assert all("lat" not in b for b in out["branches"])  # blank fields are dropped, not sent as nulls
+
+
+def test_find_branch_when_nothing_comes_back_or_it_fails(settings, monkeypatch):
+    monkeypatch.setattr(SV, "search_places_raw", lambda *a, **k: [])
+    out = SV.find_branch(settings, 13.7, 100.6)
+    assert out["found"] is False and "province or district" in out["say"]
+
+    def boom(*a, **k):
+        raise SV.ServiceError("503 from the bank API")
+    monkeypatch.setattr(SV, "search_places_raw", boom)
+    out2 = SV.find_branch(settings, 13.7, 100.6)
+    assert out2["found"] is False and "Locate Us" in out2["say"] and "503" in out2["error"]
+
+
+def test_kind_codes_map_and_pass_through():
+    assert SV.resolve_kind("branch") == "BRC" and SV.resolve_kind("สาขา") == "BRC"
+    assert SV.resolve_kind("atm") == "ATM" and SV.resolve_kind("ATM Plus") == "ATMPLUS"
+    assert SV.resolve_kind("") == "BRC"
+    assert SV.resolve_kind("CDM") == "CDM"  # a code we have not seen yet still reaches the service
