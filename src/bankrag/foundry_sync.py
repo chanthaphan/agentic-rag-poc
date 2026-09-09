@@ -92,18 +92,21 @@ def desired_definition(settings: Settings, spec: SkillSpec, base_body: str, kb_o
     A skill without documents gets NO tool and must say its knowledge base is empty (keeps the POC honest).
     `shared_by_quota`: documents exist but the search tier has no knowledge-source quota left -> use the shared base with a scoping note."""
     instructions = compose_instructions(base_body, spec, RL.prompt_block_for_skill(RL.active_pack(settings), spec))
+    # decide the live tool FIRST: the instructions must describe the tools the agent actually gets. A skill can declare
+    # `tools:` while the deployment has no endpoint configured for them, and telling an agent to use a tool it does not
+    # have makes it fail or promise a lookup it cannot do.
+    live = services_tool(settings, spec)  # live lookups are independent of whether the skill has documents
     tools = [kb_tool(settings, spec)]
     if kb_owner is not None and kb_owner.id != spec.id:
         if shared_by_quota:
             instructions += SHARED_KB_NOTE.format(category=spec.product_category)
             tools = [kb_tool(settings, spec, kb_owner)]
-        elif not spec.tools:
-            instructions += EMPTY_KB_NOTE.format(category=spec.product_category)
-            tools = []
-        else:  # a tool-only skill (live lookups, no documents): it must use its tool, not refuse
+        elif live is not None:  # a tool-only skill (live lookups, no documents): it must use its tool, not refuse
             instructions += TOOL_ONLY_NOTE.format(tools=", ".join(spec.tools))
             tools = []
-    live = services_tool(settings, spec)  # live lookups are independent of whether the skill has documents
+        else:
+            instructions += EMPTY_KB_NOTE.format(category=spec.product_category)
+            tools = []
     if live is not None:
         tools = tools + [live]
     return PromptAgentDefinition(
