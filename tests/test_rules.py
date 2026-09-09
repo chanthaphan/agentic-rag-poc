@@ -420,9 +420,10 @@ def test_the_appended_block_names_the_product(settings):
     _, report = RL.guard(settings, th, language="th", skill_id="general")
     assert report["appended"].startswith("\n\n---\n**สินเชื่อบ้าน**\n⚠️ ")
 
-    en = "Bangkok Bank credit card suits you if you travel often; the annual fee is 3,000 baht."
+    en = "This credit card suits you if you travel often; the annual fee is 3,000 baht."
     _, report_en = RL.guard(settings, en, language="en", skill_id="credit-card")
-    assert "**Bangkok Bank credit card**" in report_en["appended"]  # name_en for an English answer
+    assert "**Credit card**" in report_en["appended"]  # the short English label, not the sheet's long name
+    assert "บัตรเครดิต" not in report_en["appended"]  # an English answer does not mix in Thai
 
 
 def test_one_block_per_product_family(settings):
@@ -430,4 +431,4 @@ def test_one_block_per_product_family(settings):
             "ส่วนสินเชื่อบ้านบัวหลวง ดอกเบี้ยปีแรก 2.75% ต่อปี")
     _, report = RL.guard(settings, text, language="th", skill_id="")
     assert set(report["products"]) >= {"credit-card-bbl", "home-loan"}
-    assert "**บัตรเครดิตของธนาคารกรุงเทพ**" in report["appended"] and "**สินเชื่อบ้าน**" in report["appended"]
+    assert "**บัตรเครดิต**" in report["appended"] and "**สินเชื่อบ้าน**" in report["appended"]

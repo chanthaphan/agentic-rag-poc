@@ -285,23 +285,21 @@ INTRO = (
     "OFFERS or RECOMMENDS a regulated product below - quotes its rate, fee, instalment or benefits, compares it, "
     "suggests it to the customer, or explains how to apply - is an advertisement under these rules.\n"
     "An answer that only defines a term, answers a general question, or says you have no details yet is NOT an "
-    "advertisement: do not attach the warnings to it. The wording you must never use applies to every answer.\n"
-    "Required wording must be reproduced EXACTLY, with no edit, translation or paraphrase."
+    "advertisement. The wording you must never use applies to every answer.\n"
+    "DO NOT WRITE THE WARNINGS YOURSELF. The app appends the exact mandated wording, in the customer's language, under "
+    "the product name, after your answer. Your job is to make the answer itself compliant."
 )
 FOOTER = (
     "## How to comply\n"
-    "- When you are offering or recommending the product, end the answer with a short block that NAMES the product "
-    "family in bold and carries the required warning(s) verbatim, one per line:\n"
-    "  ---\n"
-    "  **<product family>**\n"
-    "  ⚠️ <required warning, word for word>\n"
+    "- Never write a required warning, and never write your own version of one ('use it only when you need to', 'pay in "
+    "full to avoid interest', 'borrow only what you can repay'). The app adds the official wording after your answer, so "
+    "writing it yourself only makes the customer read it twice. End your answer with the product facts.\n"
     "- If you cannot state every figure a rule requires (reference rate and its date, effective rate range, calculation "
     "assumptions), do NOT quote an interest rate, a fee waiver or an instalment amount at all: describe the product "
     "qualitatively and tell the customer where the exact figures are confirmed.\n"
     "- Never use wording that encourages borrowing beyond need, promises approval without a credit check, or makes "
     "borrowing sound effortless, in any language.\n"
-    "- These warnings are required even when the customer did not ask about interest, and even in a short answer, "
-    "as long as the answer is offering or recommending the product."
+    "- Do not describe the warnings, mention that they are required, or refer to this section in the answer."
 )
 
 
@@ -351,7 +349,7 @@ def prompt_block_for_concierge(pack: RulePack) -> str:
         if rs:
             clauses = sorted({r.clause or r.id for r in rs})
             lines.append(f"- {p.name}: {len(rs)} rule(s) — {', '.join(clauses)}")
-    required = [f'  - {", ".join(pack.product(p).name if pack.product(p) else p for p in r.products)}: "{r.phrases[0]}"'
+    required = [f'  - {product_label(pack, r.products, "th")}: "{r.phrases[0]}"'
                 for r in rules if r.check == "required_phrase" and r.phrases]
     return "\n".join([
         HEADER,
@@ -361,15 +359,12 @@ def prompt_block_for_concierge(pack: RulePack) -> str:
         *lines,
         "",
         "## Before you relay a specialist's answer",
-        "- Decide first whether the answer offers or recommends one of these products. If it only defines a term, answers"
-        " generally, or says there are no details yet, relay it as it is: no warning belongs on it.",
-        "- If it does offer or recommend, check the answer carries the warning that family requires. If it is missing, add"
-        " a block at the end that names the product family in bold with the warning verbatim under it, and never reword"
-        " or translate the warning itself:",
-        "      ---",
-        "      **<product family>**",
-        "      ⚠️ <required warning>",
-        *(["- Required warnings:", *required] if required else []),
+        "- DO NOT ADD THE WARNINGS YOURSELF and do not write your own version of one. The app appends the exact mandated"
+        " wording, in the customer's language, under the product name, after the answer you send. Relay the specialist's"
+        " answer and stop at the product facts.",
+        "- If the specialist's answer already contains a warning in its own words, leave it out of what you relay: the"
+        " official wording is added for you, and two versions of the same warning read as a mistake.",
+        *(["- For reference, the wording the app appends (never type it yourself):", *required] if required else []),
         "- If the answer quotes an interest rate, a fee waiver or an instalment amount without the assumptions and the"
         " reference-rate date the rules require, drop the figure from the answer and point the customer to the bank for"
         " the exact terms rather than sending an incomplete disclosure.",
@@ -420,11 +415,13 @@ def product_label(pack: RulePack, product_ids: Iterable[str], language: str) -> 
     names = []
     for pid in product_ids:
         p = pack.product(pid)
-        if p is not None:
-            names.append((p.name_en or p.name) if language == "en" else p.name)
-        else:
+        if p is None:
             names.append(pid)
-    return " / ".join(dict.fromkeys(names))
+        elif language == "en":
+            names.append(p.label_en or p.label or p.name)
+        else:
+            names.append(p.label or p.name)
+    return " / ".join(dict.fromkeys(names))  # two families with the same short label read as one
 
 
 def apply_disclosures(text: str, rules: list[RuleSpec], language: str, labels: Optional[dict[str, str]] = None) -> tuple[str, str, list[str]]:
@@ -552,7 +549,7 @@ def create_rule(settings: Settings, pack_id: str, form: dict) -> RuleSpec:
 
 
 # ---- product families (PACK.md) ----
-PRODUCT_KEYS = ("id", "name", "aliases", "skills", "match")
+PRODUCT_KEYS = ("id", "name", "label", "label_en", "aliases", "skills", "match")
 
 
 def write_products(settings: Settings, pack_id: str, products: list[RuleProduct]) -> RulePack:
@@ -577,6 +574,8 @@ def upsert_product(settings: Settings, pack_id: str, product_id: str, form: dict
     updated = RuleProduct(
         id=product_id,
         name=str(form.get("name") or (current.name if current else "")).strip(),
+        label=str(form.get("label", current.label if current else "")).strip(),
+        label_en=str(form.get("label_en", current.label_en if current else "")).strip(),
         aliases=listy("aliases") if "aliases" in form else (current.aliases if current else []),
         skills=listy("skills") if "skills" in form else (current.skills if current else []),
         match=listy("match") if "match" in form else (current.match if current else []),

@@ -10,14 +10,15 @@ promotion:
   - แนะนำ\s*(ให้\s*)?(เป็น\s*)?(บัตร|สินเชื่อ|ผลิตภัณฑ์|ตัว)
   - (เหมาะ|ตอบโจทย์|คุ้ม)(กับ|สำหรับ|มาก)
   - น่าสนใจ|ตัวเลือกที่ดี|ควรเลือก|ขอเสนอ
-  - (?i)\b(recommend|suits? you|best (for|option)|ideal for|good choice|we offer)\b
+  - (?i)\b(recommend\w*|suits?|suitable|ideal|perfect|best (for|option|choice)|good choice|we offer|here are)\b
   - สมัคร|ยื่นกู้|ขอสินเชื่อ|เปิดวงเงิน
-  - (?i)\b(apply|sign up)\b
+  - (?i)\b(apply|applying|sign up)\b
   - ดอกเบี้ย[^\n]{0,40}\d
   - \d+(\.\d+)?\s*%
   - (ค่าธรรมเนียม|วงเงิน|รายได้ขั้นต่ำ|ผ่อน|ค่างวด)[^\n]{0,30}\d
   - ฟรีค่า|ยกเว้นค่า|โปรโมชัน|สิทธิประโยชน์|คะแนนสะสม|เครดิตเงินคืน|เงินคืน
-  - (?i)\b(cashback|reward points|annual fee|promotion|privileges?)\b
+  - (?i)\b(cashback|cash back|reward points?|annual fees?|interest rates?|credit limits?|instal?lments?)\b
+  - (?i)\b(income requirements?|minimum income|privileges?|benefits?|lounge|miles|points)\b
   - คุณสมบัติผู้สมัคร|เอกสารที่ใช้สมัคร
   - เปรียบเทียบ|ดีกว่า|เหนือกว่า
   - (?i)\bcompared?\b
@@ -27,7 +28,8 @@ promotion:
 products:
 - id: home-loan
   name: สินเชื่อบ้าน
-  name_en: Home loan
+  label: สินเชื่อบ้าน
+  label_en: Home loan
   aliases:
   - สินเชื่อที่อยู่อาศัย
   - สินเชื่อบ้านบัวหลวง
@@ -38,11 +40,12 @@ products:
   - general
   match:
   - สินเชื่อ\s*(บ้าน|ที่อยู่อาศัย)
-  - (?i)\b(home|housing)\s+loan\b
+  - (?i)\b(home|housing)\s+loans?\b
   - (?i)\bmortgage\b
 - id: personal-loan-unsecured
   name: สินเชื่อส่วนบุคคลไม่มีหลักประกัน
-  name_en: Unsecured personal loan
+  label: สินเชื่อส่วนบุคคล
+  label_en: Personal loan
   aliases:
   - สินเชื่อส่วนบุคคล
   - สินเชื่อบุคคล
@@ -53,11 +56,12 @@ products:
   - general
   match:
   - สินเชื่อ(ส่วน)?บุคคล
-  - (?i)\bpersonal\s+loan\b
+  - (?i)\bpersonal\s+loans?\b
   - (?i)\bunsecured\s+loan\b
 - id: multipurpose-loan
   name: สินเชื่ออเนกประสงค์
-  name_en: Multipurpose loan
+  label: สินเชื่ออเนกประสงค์
+  label_en: Multipurpose loan
   aliases:
   - สินเชื่ออเนกประสงค์
   - multipurpose loan
@@ -69,7 +73,8 @@ products:
   - (?i)\bmulti-?purpose\s+loan\b
 - id: credit-card-bbl
   name: บัตรเครดิตของธนาคารกรุงเทพ
-  name_en: Bangkok Bank credit card
+  label: บัตรเครดิต
+  label_en: Credit card
   aliases:
   - บัตรเครดิตธนาคารกรุงเทพ
   - บัตรเครดิตบัวหลวง
@@ -79,11 +84,12 @@ products:
   - credit-card
   match:
   - บัตรเครดิต
-  - (?i)\bcredit\s+card\b
+  - (?i)\bcredit\s+cards?\b
   - (?i)\b(rudee|be\s?smart|แบ่งชำระ)\b
 - id: credit-card-other
   name: บัตรเครดิตที่ไม่ใช่ของธนาคารกรุงเทพ
-  name_en: Other banks' credit cards
+  label: บัตรเครดิต
+  label_en: Credit card
   aliases:
   - บัตรเครดิตธนาคารอื่น
   - other bank credit card
@@ -109,6 +115,9 @@ everything else is reported on the turn.
 offers, recommends or details a product — `signals` say what that looks like, `exclude` are our own "no details yet"
 sentences, which only veto when the answer quotes no figures at all. A definition, a refusal or a passing mention gets
 no warning; rules marked `trigger: mention` (the prohibited-wording one) still apply to every answer.
+
+`label:` / `label_en:` are the short names the warning block shows the customer ("บัตรเครดิต", "Credit card").
+`name:` stays exactly as the MCCS sheet writes it, because that is what an import matches on.
 
 `skills:` maps a product family to the skill agents that answer about it. Loan families point at `general` today;
 point them at a dedicated loan skill as soon as one exists and its agent picks the rules up on the next sync.

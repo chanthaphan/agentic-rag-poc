@@ -453,6 +453,7 @@
     <p class="muted">A rule applies to an answer when one of its product families is detected. <b>Skills</b> decides which agents carry that family's rules in their instructions, and is the fallback when the text alone is not conclusive.</p>
     <label>Family id <small>(lowercase, dashes; referenced by the rules)</small><input id="dp-id" required pattern="[a-z0-9][a-z0-9-]*"></label>
     <label>Name <small>(exactly as the MCCS sheet writes it, so imports match this family)</small><input id="dp-name" required></label>
+    <div class="two"><label>Short label <small>(what the warning block shows the customer, e.g. "บัตรเครดิต")</small><input id="dp-label"></label><label>Short label (English)<input id="dp-label-en"></label></div>
     <label>Skills that answer about this family <small>(their agents get these rules on the next sync)</small><div id="dp-skills" class="row wrap"></div></label>
     <label>Aliases <small>(one per line; other names for the same family)</small><textarea id="dp-aliases" rows="3" spellcheck="false"></textarea></label>
     <label>Detection patterns <small>(one regex per line; how the family is spotted in a question or an answer)</small><textarea id="dp-match" rows="3" spellcheck="false"></textarea></label>

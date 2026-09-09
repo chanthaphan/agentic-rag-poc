@@ -93,15 +93,19 @@ path), `rules.guard()` runs over the drafted text:
 3. take the active rules covering those families, skipping the `trigger: promotion` ones when the answer is not
    advertising, and those whose `applies_when` does not match the answer;
 4. decide a verdict per rule — the sheet's vocabulary: `compliant` / `non_compliant` / `undefined` / `not_applicable`;
-5. append the mandated wording verbatim for `enforcement: append` rules that are missing it, grouped under the **name of
-   the product family** it applies to, and stream exactly that text as one more delta so the stored answer is the one
-   the customer read:
+5. append the mandated wording verbatim for `enforcement: append` rules that are missing it, grouped under the family's
+   short customer-facing label (`label` / `label_en` in `PACK.md`, not the long name the MCCS sheet uses), and stream
+   exactly that text as one more delta so the stored answer is the one the customer read:
 
    ```
    ---
-   **บัตรเครดิตของธนาคารกรุงเทพ**
+   **บัตรเครดิต**
    ⚠️ ใช้เท่าที่จำเป็นและชำระคืนได้เต็มจำนวนตามกำหนด จะได้ไม่เสียดอกเบี้ย
    ```
+
+   The app owns this block: the agents are told never to write a warning or their own version of one, so the customer
+   never reads the same warning twice. An English answer gets the English label and the English disclosure — except
+   where the regulator mandates a Thai phrase with no official English version (ข้อ 2.2.1 (1)), which stays Thai.
 
 6. write the report to the turn's `trace.compliance`, which the "Behind the scenes" panel and Studio render.
 

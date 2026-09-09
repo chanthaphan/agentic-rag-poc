@@ -19,7 +19,7 @@ applies_when:
 - (?i)interest[^\n]{0,40}\d
 disclosure:
   th: รายละเอียดการคำนวณเพิ่มเติมดูได้ที่เว็บไซต์ธนาคารกรุงเทพ หรือสอบถามเจ้าหน้าที่ธนาคาร
-  en: รายละเอียดการคำนวณเพิ่มเติมดูได้ที่เว็บไซต์ธนาคารกรุงเทพ (Full calculation details are available on the Bangkok Bank website or from bank staff.)
+  en: Full calculation details are available on the Bangkok Bank website, or ask Bangkok Bank staff
 template: แสดงสมมติฐานและตัวอย่างการคำนวณ หรือระบุช่องทาง เช่น "รายละเอียดการคำนวณเพิ่มเติมดูได้ที่เว็บไซต์"
 ---
 

@@ -18,7 +18,6 @@ patterns:
 - (?i)floating\s+interest\s+rate.{0,40}(change|increase).{0,60}bank
 disclosure:
   th: อัตราดอกเบี้ยลอยตัวสามารถเปลี่ยนแปลงเพิ่มขึ้นหรือลงได้ตามประกาศธนาคาร
-  en: อัตราดอกเบี้ยลอยตัวสามารถเปลี่ยนแปลงเพิ่มขึ้นหรือลงได้ตามประกาศธนาคาร (The floating interest rate may rise or fall according to the bank's announcements.)
 template: '"อัตราดอกเบี้ยลอยตัวสามารถเปลี่ยนแปลงเพิ่มขึ้นหรือลงได้ตามประกาศธนาคาร" ต้องปรากฏโดยไม่มีการแก้ไขหรือดัดแปลงข้อความ'
 ---
 

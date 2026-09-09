@@ -28,7 +28,7 @@ S.loaders["spane-lending"] = async () => {
     <td class="muted">${r.skills.map(esc).join(", ") || '<span class="pill warn">no agent</span>'}</td>
     <td>${esc(r.status)}</td>
     <td><button class="btn-secondary rl-edit" data-id="${esc(r.id)}" data-admin>edit</button></td></tr>`).join("");
-  $("#rl-products tbody").innerHTML = d.products.map((p) => `<tr><td>${esc(p.name)}<div class="muted">${esc(p.id)}</div></td>
+  $("#rl-products tbody").innerHTML = d.products.map((p) => `<tr><td>${esc(p.name)}<div class="muted">${esc(p.id)} · warning says "${esc(p.label || p.name)}"</div></td>
     <td class="muted">${p.skills.map(esc).join(", ") || '<span class="pill warn">none: no agent carries these rules</span>'}${p.unknown_skills.length ? ` <span class="pill warn">unknown: ${esc(p.unknown_skills.join(", "))}</span>` : ""}</td>
     <td>${p.rules.length}</td>
     <td><button class="btn-secondary rl-edit-product" data-id="${esc(p.id)}" data-admin>edit</button></td></tr>`).join("");
@@ -46,6 +46,7 @@ function openProduct(p) {
   $("#dp-title").textContent = isNew ? "New product family" : `Product family: ${p.name}`;
   $("#dp-id").value = p ? p.id : ""; $("#dp-id").readOnly = !isNew;
   $("#dp-name").value = p ? p.name : "";
+  $("#dp-label").value = p ? p.label : ""; $("#dp-label-en").value = p ? p.label_en : "";
   $("#dp-aliases").value = p ? lines(p.aliases) : "";
   $("#dp-match").value = p ? lines(p.match) : "";
   boxes($("#dp-skills"), RL.skills, p ? p.skills : []);
@@ -63,7 +64,7 @@ $("#dlg-product form").addEventListener("submit", async (e) => {
       await api(`/rules/products/${encodeURIComponent(id)}?pack=${RL.pack}`, { method: "DELETE" });
       msg = `removed ${id}`;
     } else {
-      await api(`/rules/products/${encodeURIComponent(id)}`, json({ pack: RL.pack, name: $("#dp-name").value, skills: picked($("#dp-skills")), aliases: split($("#dp-aliases")), match: split($("#dp-match")) }, "PUT"));
+      await api(`/rules/products/${encodeURIComponent(id)}`, json({ pack: RL.pack, name: $("#dp-name").value, label: $("#dp-label").value, label_en: $("#dp-label-en").value, skills: picked($("#dp-skills")), aliases: split($("#dp-aliases")), match: split($("#dp-match")) }, "PUT"));
       msg = `saved ${id} — sync the agents so they pick the change up`;
     }
     $("#dlg-product").close();

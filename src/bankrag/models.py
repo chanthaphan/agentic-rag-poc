@@ -57,7 +57,8 @@ class RuleProduct(BaseModel):
 
     id: str
     name: str  # Thai name exactly as the compliance team writes it in the sheet
-    name_en: str = ""  # shown in the warning block of an English answer; falls back to `name`
+    label: str = ""  # short customer-facing name for the warning block ("บัตรเครดิต"); falls back to `name`
+    label_en: str = ""  # the same for an English answer ("Credit card"); falls back to `label` / `name`
     aliases: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)  # skill ids that answer about this family
     match: list[str] = Field(default_factory=list)  # regex detecting the family in a question or an answer
