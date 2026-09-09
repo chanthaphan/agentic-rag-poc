@@ -374,6 +374,8 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
 def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "", district: str = "0",
                 kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
     """The tool entry point: the branches nearest a pair of coordinates."""
+    if not province:
+        log.warning("find_branch called with no province: the locator path needs one, results are likely empty")
     try:
         raw = search_places_raw(settings, province, lat, lon, district=district, kind=kind, lang=lang)
     except ServiceError as e:

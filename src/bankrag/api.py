@@ -28,9 +28,16 @@ from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills,
 
 import logging as _logging
 
+# Audit lines go to a plain handler of their own: uvicorn's rich handler wraps and truncates at the console width, and
+# a truncated audit line is worse than none - the part that gets cut is exactly the arguments and the outcome.
+_audit_handler = _logging.StreamHandler()
+_audit_handler.setFormatter(_logging.Formatter("%(asctime)s AUDIT %(name)s %(message)s"))
+for _n in ("bankrag.services", "bankrag.audit"):
+    _lg = _logging.getLogger(_n)
+    _lg.setLevel(_logging.INFO)
+    _lg.handlers = [_audit_handler]
+    _lg.propagate = False  # do not also hand it to the rich handler that truncates
 _audit = _logging.getLogger("bankrag.audit")
-for _n in ("bankrag.services", "bankrag.audit"):  # live calls, tool calls and compliance actions are auditable
-    _logging.getLogger(_n).setLevel(_logging.INFO)
 
 app = FastAPI(title="bankrag POC", version="0.2.0")
 settings = Settings.load()
