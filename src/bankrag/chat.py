@@ -15,7 +15,8 @@ from . import rules as RL
 from .router import usage_dict
 from .pricing import load_pricing, turn_cost
 from .config import Settings
-from .foundry_sync import plan_kb_owners
+from . import search_index as SI
+from .foundry_sync import _load_state, plan_kb_owners
 from .foundry import project_client
 from .models import Answer, Citation, RouteDecision, SessionRecord, SkillSpec
 
@@ -57,6 +58,16 @@ class ChatSession:
         self.prev_skill: Optional[str] = None
         self.turns_in_conversation = 0
         self.kb_owners = plan_kb_owners(settings, skills)
+        # the sync state records the knowledge base each agent really got (a skill with documents still lands on the
+        # shared base when the search tier's quota is exhausted); trust it over the plan so Sources look in the right place
+        try:
+            agents = (_load_state(settings) or {}).get("agents") or {}
+            for spec in skills.values():
+                kb = str((agents.get(spec.agent_name) or {}).get("kb") or "")
+                if kb and kb != spec.kb_name:
+                    self.kb_owners[spec.id] = next((o for o in skills.values() if o.kb_name == kb), self.kb_owners.get(spec.id, spec))
+        except Exception:  # noqa: BLE001 - the plan is a fine fallback
+            pass
 
     # ---- routing policy ----
     def decide(self, question: str, force_skill: Optional[str] = None) -> RouteDecision:
