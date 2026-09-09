@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "FOUNDRY_NATIVE_SKILLS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL")
+OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "FOUNDRY_NATIVE_SKILLS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL")
 _overlay: dict[str, str] = {}
 
 
@@ -83,6 +83,8 @@ class Settings:
     foundry_native_skills: bool
     orchestration_mode: str  # router | a2a
     concierge_model: str
+    suggestions_mode: str  # dynamic: written from the turn | static: the skill's frontmatter list
+    suggestions_model: str
     appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
     bbl_api_subscription: str  # subscription value the bangkokbank.com site sends with its own public API calls (FX, branches)
     bbl_api_base: str
@@ -139,6 +141,8 @@ class Settings:
             foundry_native_skills=_env("FOUNDRY_NATIVE_SKILLS", "1").strip().lower() in ("1", "true", "yes", "on"),
             orchestration_mode=(_env("ORCHESTRATION_MODE", "router").strip().lower() or "router"),
             concierge_model=_env("CONCIERGE_MODEL", ""),
+            suggestions_mode=(_env("SUGGESTIONS_MODE", "dynamic").strip().lower() or "dynamic"),
+            suggestions_model=_env("SUGGESTIONS_MODEL", ""),
             appinsights_app_id=_env("APPINSIGHTS_APP_ID", ""),
             bbl_api_subscription=_env("BBL_API_KEY", ""),
             bbl_api_base=_env("BBL_API_BASE", "https://www.bangkokbank.com/api").rstrip("/"),

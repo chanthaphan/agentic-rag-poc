@@ -612,7 +612,8 @@ def get_app_settings():
     eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
            "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
            "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model, "FOUNDRY_NATIVE_SKILLS": "1" if settings.foundry_native_skills else "0",
-           "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model}
+           "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model,
+           "SUGGESTIONS_MODE": settings.suggestions_mode, "SUGGESTIONS_MODEL": settings.suggestions_model}
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
 
 

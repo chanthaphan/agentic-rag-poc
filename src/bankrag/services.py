@@ -229,6 +229,11 @@ KIND_FCD = "FCD"  # a branch that handles foreign-currency deposit accounts: ope
 KIND_WEALTH_LOUNGE = "BEV"  # Wealth Lounge
 KIND_BUSINESS_CENTER = "BUC"  # สำนักธุรกิจ / Business Center, for business banking rather than a retail counter
 _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
+          # the Locate Us "Select Service" labels, verbatim in both languages
+          "bangkok bank branches": KIND_BRANCH, "สาขาธนาคารกรุงเทพ": KIND_BRANCH,
+          "atm+": KIND_ATM_PLUS,
+          "fx booth": KIND_FX_BOOTH, "บูธแลกเปลี่ยนเงินตราต่างประเทศ": KIND_FX_BOOTH,
+          "บริการเงินฝากเงินตราต่างประเทศ": KIND_FCD,
           "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
           "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS,
           "fxb": KIND_FX_BOOTH, "fx": KIND_FX_BOOTH, "exchange": KIND_FX_BOOTH, "fx booth": KIND_FX_BOOTH,

@@ -204,7 +204,8 @@ class ChatSession:
             route_reason=decision.reason,
             text=text,
             language=lang,
-            suggestions=pick_suggestions(spec, asked, self.skills, language=lang),
+            suggestions=suggestions_for(self.settings, self.openai, spec, asked, self.skills,
+                                        question=question, answer=text, language=lang, trace=trace),
             citations=citations,
             references=references,
             agent_name=spec.agent_name,
@@ -324,7 +325,9 @@ class ChatSession:
         asked = [h["content"] for h in self.history if h["role"] == "user"]
         yield {"type": "done", "answer": Answer(
             skill_id=specialist, confidence=1.0, route_reason=f"concierge handed off to {spec.agent_name if spec else 'no specialist'} over A2A" if spec else "concierge answered without a handoff",
-            text=text, language=lang, suggestions=pick_suggestions(spec or self.skills.get("general"), asked, self.skills, language=lang),
+            text=text, language=lang,
+            suggestions=suggestions_for(self.settings, self.openai, spec or self.skills.get("general"), asked, self.skills,
+                                        question=question, answer=text, language=lang, trace=trace),
             citations=citations, references=references, agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
             retrieval_context=(extra.get("retrieval_texts") or []) + _a2a_outputs(tool_calls),
         )}
@@ -413,6 +416,71 @@ def strip_markers(text: str) -> str:
     text = _HINT_ECHO_RE.sub(" ", _MARKER_RE.sub("", text))
     text = strip_source_talk(text)
     return re.sub(r"[ \t]+\n", "\n", text).strip()
+
+
+SUGGEST_PROMPT = (
+    "You write the three follow-up questions a Bangkok Bank customer would most likely tap next, in {lang_name}.\n"
+    "Base them on THIS exchange, not on the product catalogue: follow the thread the customer is actually on, and go "
+    "one step further than the answer already went (a condition it mentioned but did not detail, the next step to take "
+    "it up, the obvious comparison, the thing the answer said to check).\n"
+    "Rules: each is a question the customer asks the bank, first person, 4-12 words, no numbering, no quotes. "
+    "Do not repeat a question already asked. Do not ask something the answer already fully answered. "
+    "If the answer said there were no details on something, do not ask that same thing again.\n"
+    "Reply as a JSON array of exactly 3 strings and nothing else."
+)
+
+
+def dynamic_suggestions(openai_client, question: str, answer: str, language: str, model: str,
+                        asked: Optional[list[str]] = None) -> list[str]:
+    """Follow-ups written from the turn that just happened, so they track the conversation instead of the catalogue.
+
+    Returns [] on any failure or timeout: the caller falls back to the skill's static list, because a missing chip row
+    is a much smaller problem than a slow or broken answer."""
+    lang_name = "Thai" if language == "th" else "English"
+    already = "\n".join(f"- {a}" for a in (asked or [])[-5:])
+    try:
+        resp = openai_client.responses.create(
+            model=model,
+            input=[
+                {"type": "message", "role": "developer", "content": SUGGEST_PROMPT.format(lang_name=lang_name)},
+                {"type": "message", "role": "user",
+                 "content": f"Customer asked: {question}\n\nAssistant answered:\n{answer[:2500]}"
+                            + (f"\n\nAlready asked earlier (do not repeat):\n{already}" if already else "")},
+            ],
+            max_output_tokens=200,
+        )
+        raw = (getattr(resp, "output_text", "") or "").strip()
+    except Exception:  # noqa: BLE001 - suggestions are a nicety; never fail the answer for them
+        return []
+    m = re.search(r"\[.*\]", raw, re.S)
+    if not m:
+        return []
+    try:
+        items = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    out: list[str] = []
+    seen = {a.strip().lower() for a in (asked or [])}
+    for x in items:
+        s = str(x).strip().strip('"').lstrip("-•").strip()
+        if 3 < len(s) <= 120 and s.lower() not in seen and s not in out:
+            out.append(s)
+    return out[:3]
+
+
+def suggestions_for(settings: Settings, openai_client, spec, asked: list[str], skills: dict, *, question: str,
+                    answer: str, language: str, trace: dict[str, Any]) -> list[str]:
+    """Dynamic follow-ups when SUGGESTIONS_MODE allows it, with the skill's static list as the fallback."""
+    static = pick_suggestions(spec, asked, skills, language=language) if spec else []
+    if settings.suggestions_mode != "dynamic" or not answer.strip():
+        trace["suggestions"] = {"mode": "static"}
+        return static
+    t0 = time.perf_counter()
+    model = settings.suggestions_model or settings.router_model
+    dyn = dynamic_suggestions(openai_client, question, answer, language, model, asked)
+    trace["suggestions"] = {"mode": "dynamic" if dyn else "static (dynamic returned nothing)",
+                            "model": model, "ms": int((time.perf_counter() - t0) * 1000)}
+    return dyn or static
 
 
 def pick_suggestions(spec: Optional[SkillSpec], asked: list[str], skills: dict[str, SkillSpec], n: int = 3, language: Optional[str] = None) -> list[str]:

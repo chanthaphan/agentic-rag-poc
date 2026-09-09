@@ -33,6 +33,7 @@ const TR = (() => {
       .map((f) => `${f.fixed ? "added" : "missing"}: ${f.clause} ${f.title}`).join("<br>");
     html += `<div class="tc-row"><span class="k">compliance</span><span class="v">${tag} <span class="dp-tag dim">${esc((c.product_names || []).join(", "))}</span>${fix ? ` <span class="dp-tag ok">${fix} warning added</span>` : ""}${rev ? ` <span class="dp-tag">${rev} to review</span>` : ""}${detail ? `<div class="sub">${esc(c.pack)} · ${detail}</div>` : ""}</span></div>`;
   }
+  if (tr.suggestions) html += `<div class="tc-row"><span class="k">follow-ups</span><span class="v"><span class="dp-tag ${tr.suggestions.mode === "dynamic" ? "ok" : "dim"}">${esc(tr.suggestions.mode)}</span>${tr.suggestions.ms ? ` <span class="dp-tag dim">${tr.suggestions.ms} ms</span>` : ""}${tr.suggestions.model ? ` <span class="dp-tag dim">${esc(tr.suggestions.model)}</span>` : ""}</span></div>`;
   if (tr.reasoning && tr.reasoning.length) html += `<div class="tc-row"><span class="k">thinking</span><span class="v">${tr.reasoning.map(esc).join("<br>")}</span></div>`;
   if (u.agent || u.router) {
     const ai = (u.agent || {}).input_tokens || 0, ao = (u.agent || {}).output_tokens || 0, ri = (u.router || {}).input_tokens || 0, ro = (u.router || {}).output_tokens || 0;
