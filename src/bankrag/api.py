@@ -845,13 +845,17 @@ def list_rules(pack: str = "mccs"):
     """The rule pack as Studio shows it: products (with the skills that carry them) and one row per rule."""
     from . import rules as RL
 
-    p = RL.active_pack(settings, pack)
+    try:
+        p = RL.active_pack(settings, pack)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     skills, _ = _skills()
     checks = RL.validate_pack(p)
     return {
         "pack": {"id": p.id, "name": p.name, "description": p.description, "sources": p.sources, "body": p.body},
         "packs": RL.list_packs(settings),
         "skills": sorted(skills),
+        "pack_errors": checks.get("(pack)", ([], []))[0],  # e.g. duplicate product ids: not attached to any rule row
         "products": [{**x.model_dump(), "rules": [r.id for r in p.rules if x.id in r.products],
                       "unknown_skills": [s for s in x.skills if s not in skills]} for x in p.products],
         "rules": [{**r.model_dump(exclude={"path"}),
@@ -866,7 +870,10 @@ def rules_prompt(pack: str = "mccs", skill: str = ""):
     """The compiled block that goes into an agent's instructions (empty skill = the concierge's)."""
     from . import rules as RL
 
-    p = RL.active_pack(settings, pack)
+    try:
+        p = RL.active_pack(settings, pack)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     if not skill:
         return {"target": "concierge", "block": RL.prompt_block_for_concierge(p)}
     skills, _ = _skills()
@@ -875,7 +882,10 @@ def rules_prompt(pack: str = "mccs", skill: str = ""):
     return {"target": skill, "block": RL.prompt_block_for_skill(p, skills[skill])}
 
 
-@app.post("/rules/check")
+MAX_CHECK_CHARS = 20000  # a chat answer is a few thousand characters; the guard runs every rule regex over this
+
+
+@studio.post("/rules/check")
 def rules_check(data: dict):
     """Run the answer-time guard over any text: what a turn would be flagged for, and what would be appended."""
     from . import rules as RL
@@ -883,8 +893,13 @@ def rules_check(data: dict):
     text = str(data.get("text", "")).strip()
     if not text:
         raise HTTPException(400, "text required")
-    fixed, report = RL.guard(settings, text, question=str(data.get("question", "")), language=str(data.get("language", "th")),
-                             skill_id=str(data.get("skill", "")), pack_id=str(data.get("pack", "mccs")))
+    if len(text) > MAX_CHECK_CHARS:
+        raise HTTPException(413, f"text is {len(text)} characters; the check accepts up to {MAX_CHECK_CHARS}")
+    try:
+        fixed, report = RL.guard(settings, text, question=str(data.get("question", ""))[:MAX_CHECK_CHARS], language=str(data.get("language", "th")),
+                                 skill_id=str(data.get("skill", "")), pack_id=str(data.get("pack", "mccs")))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     return {"text": fixed, "report": report}
 
 
@@ -952,11 +967,17 @@ def update_rule_endpoint(rule_id: str, form: dict):
     return r.model_dump(exclude={"path"})
 
 
-@app.get("/rules.xlsx")
+@studio.get("/rules.xlsx")
 def rules_xlsx_export(pack: str = "mccs"):
+    """The whole rule set as a sheet: Studio-only, like /bundle.zip."""
+    from . import rules as RL
     from .rules_xlsx import export_xlsx
 
-    data = export_xlsx(settings, pack)
+    try:
+        RL.pack_dir(settings, pack)  # validated before it reaches a path or the Content-Disposition header
+        data = export_xlsx(settings, pack)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{pack}-rules.xlsx"'})
 
@@ -1042,12 +1063,12 @@ def ingest_endpoint(category: Optional[str] = None, full: bool = False, role: st
 @app.get("/knowledge/retrieve")
 def retrieve_endpoint(q: str, skill: str = "credit-card", max_docs: int = 5):
     from . import knowledge_base as KB
-    from .foundry_sync import plan_kb_owners
+    from .foundry_sync import synced_kb_owners
 
     skills, _ = _skills()
     if skill not in skills:
         raise HTTPException(404, "skill not found")
-    spec = plan_kb_owners(settings, skills)[skill]
+    spec = synced_kb_owners(settings, skills)[skill]
     try:
         return [r.model_dump() for r in KB.retrieve(settings, spec.kb_name, q, ks_name=spec.ks_name, max_docs=max_docs)]
     except Exception as e:  # noqa: BLE001

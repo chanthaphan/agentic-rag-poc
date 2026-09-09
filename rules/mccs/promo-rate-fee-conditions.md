@@ -5,8 +5,8 @@ title: โฆษณาด้วยดอกเบี้ย/ค่าธรรม
 regulation: (MCCS) ประกาศธนาคารแห่งประเทศไทยที่ 3/2568
 clause: เอกสารแนบ 2 ข้อ 2.1
 products:
-- multipurpose-loan
 - home-loan
+- multipurpose-loan
 - personal-loan-unsecured
 status: active
 severity: warn

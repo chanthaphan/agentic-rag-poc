@@ -91,6 +91,25 @@ def plan_kb_owners(settings: Settings, skills: dict[str, SkillSpec], facets: Opt
     return owners
 
 
+def synced_kb_owners(settings: Settings, skills: dict[str, SkillSpec]) -> dict[str, SkillSpec]:
+    """Which knowledge base each skill's agent really got, for callers that must query the same one it retrieves from.
+
+    `plan_kb_owners` answers what the NEXT sync would do; the sync state records what the last one actually did (a
+    skill with documents still lands on the shared base when the search tier has no knowledge-source quota left).
+    Falls back to the plan when there is no state yet or it cannot be read."""
+    owners = plan_kb_owners(settings, skills)
+    try:
+        agents = (_load_state(settings) or {}).get("agents") or {}
+    except Exception:  # noqa: BLE001 - the plan is a fine fallback
+        return owners
+    by_kb = {s.kb_name: s for s in skills.values()}
+    for spec in skills.values():
+        kb = str((agents.get(spec.agent_name) or {}).get("kb") or "")
+        if kb and kb != spec.kb_name and kb in by_kb:
+            owners[spec.id] = by_kb[kb]
+    return owners
+
+
 def spec_hash(definition: PromptAgentDefinition) -> str:
     data = definition.as_dict() if hasattr(definition, "as_dict") else dict(definition)
     canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))

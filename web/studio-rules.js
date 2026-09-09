@@ -15,7 +15,8 @@ S.loaders["spane-lending"] = async () => {
   Object.assign(RL, { pack: d.pack.id, rules: d.rules, products: d.products, skills: d.skills || [] });
   const active = d.rules.filter((r) => r.status === "active").length;
   $("#rl-intro").innerHTML = `<b>${esc(d.pack.name)}</b> — ${esc(d.pack.description)}<br>${d.rules.length} rule(s), ${active} active, from ${d.pack.sources.map(esc).join("; ")}.
-    Rules are files in <code>rules/${esc(d.pack.id)}/</code>: they are compiled into the concierge and specialist instructions on the next sync, and every answer is checked against them before it is sent.`;
+    Rules are files in <code>rules/${esc(d.pack.id)}/</code>: they are compiled into the concierge and specialist instructions on the next sync, and every answer is checked against them before it is sent.
+    ${(d.pack_errors || []).map((e) => `<div><span class="pill warn">${esc(e)}</span></div>`).join("")}`;
   $("#rl-table tbody").innerHTML = d.rules.map((r) => `<tr class="${r.status === "active" ? "" : "dim"}">
     <td class="muted">${esc(r.clause)}</td>
     <td><b>${esc(r.title)}</b><div class="muted">${esc(r.system_rule.slice(0, 180))}${r.system_rule.length > 180 ? "…" : ""}</div>

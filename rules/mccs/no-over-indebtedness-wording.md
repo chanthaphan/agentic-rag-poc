@@ -5,10 +5,10 @@ title: ห้ามใช้ข้อความที่กระตุ้น�
 regulation: (MCCS) ประกาศธนาคารแห่งประเทศไทยที่ 3/2568
 clause: เอกสารแนบ 2 ข้อ 2.3.1
 products:
-- multipurpose-loan
-- home-loan
 - credit-card-bbl
 - credit-card-other
+- home-loan
+- multipurpose-loan
 - personal-loan-unsecured
 status: active
 severity: block

@@ -17,7 +17,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from .config import Settings
 from .models import RulePack, RuleProduct, RuleSpec
-from .rules import PACK_FILE, active_pack, load_pack, normalize, write_rule
+from .rules import PACK_FILE, active_pack, load_pack, normalize, pack_dir, write_rule
 
 COLUMNS = {  # sheet header -> rule field
     "เล่มกฎหมาย": "regulation",
@@ -47,28 +47,38 @@ def _clause_id(clause: str, taken: set[str]) -> str:
     return rid
 
 
-def _match_product(pack: RulePack, name: str) -> Optional[str]:
+def _match_product(pack: RulePack, name: str) -> tuple[Optional[str], str]:
+    """(product id, note). Exact on the name or an alias, else a name-similarity match - but only when exactly one
+    family is similar, so a broad sheet name like 'สินเชื่อ' is never bound silently to whichever family comes first."""
     n = normalize(name)
     for p in pack.products:
         if n == normalize(p.name) or any(n == normalize(a) for a in p.aliases):
-            return p.id
-    for p in pack.products:  # the sheet sometimes shortens a name ("บัตรเครดิต" for the BBL family)
-        if n and (n in normalize(p.name) or normalize(p.name) in n):
-            return p.id
-    return None
+            return p.id, ""
+    similar = [p for p in pack.products if n and (n in normalize(p.name) or normalize(p.name) in n)]
+    if len(similar) == 1:
+        return similar[0].id, f"product '{name.strip()}' matched '{similar[0].name}' by name similarity, not exactly: check it is the family you mean"
+    if len(similar) > 1:
+        return None, f"product '{name.strip()}' looks like {len(similar)} families ({', '.join(p.id for p in similar)}); it was added as a new family instead of guessing"
+    return None, ""
 
 
 def _match_rule(pack: RulePack, row: dict) -> Optional[RuleSpec]:
-    """An existing rule for this row: same id, else same clause + the same opening of the legal text."""
+    """The existing rule this row updates: the same id, else the same clause AND the same opening of the legal text.
+
+    A clause on its own is not an identity - this pack already has three rules under 'ข้อ 2.2.1 (1)' - so a new row
+    that reuses a clause with different wording becomes a new rule instead of overwriting an unrelated one."""
     if row.get("id"):
         hit = next((r for r in pack.rules if r.id == row["id"]), None)
         if hit is not None:
             return hit
     clause, legal = normalize(row.get("clause", "")), normalize(row.get("legal_text", ""))
     same_clause = [r for r in pack.rules if normalize(r.clause) == clause]
-    if len(same_clause) == 1:
-        return same_clause[0]
-    return next((r for r in same_clause if normalize(r.legal_text)[:60] == legal[:60]), None)
+    exact = [r for r in same_clause if normalize(r.legal_text)[:60] == legal[:60]]
+    if exact:
+        return exact[0]
+    if len(same_clause) == 1 and (not legal or not normalize(same_clause[0].legal_text)):
+        return same_clause[0]  # one side has no legal text to compare, so the clause is all we have
+    return None
 
 
 def read_rows(data: bytes) -> list[dict]:
@@ -98,11 +108,14 @@ def import_xlsx(settings: Settings, data: bytes, pack_id: str = "mccs", *, dry_r
     taken = {r.id for r in pack.rules}
     new_products: list[RuleProduct] = []
     result = {"pack": pack_id, "rows": len(rows), "created": [], "updated": [], "unchanged": [], "new_products": [], "warnings": []}
+    pending: list[RuleSpec] = []
     for row in rows:
         existing = _match_rule(pack, row)
         pids: list[str] = []
         for name in [n for n in re.split(r"[,;]", row.get("products", "")) if n.strip()]:
-            pid = _match_product(pack, name)
+            pid, note = _match_product(pack, name)
+            if note:
+                result["warnings"].append(note)
             if pid is None:
                 pid = f"p-{hashlib.sha1(normalize(name).encode()).hexdigest()[:6]}"
                 if not any(p.id == pid for p in pack.products + new_products):
@@ -118,11 +131,15 @@ def import_xlsx(settings: Settings, data: bytes, pack_id: str = "mccs", *, dry_r
             "title": row.get("title") or (existing.title if existing else _clean(row.get("system_rule", ""))[:70]),
             "regulation": row.get("regulation", ""),
             "clause": row.get("clause", ""),
-            "products": pids,
+            "products": sorted(pids),
             "status": (row.get("status") or "active").lower(),
             "legal_text": row.get("legal_text", ""),
             "system_rule": row.get("system_rule", ""),
         }
+        if existing is None and row.get("clause") and any(normalize(r.clause) == normalize(row["clause"]) for r in pack.rules):
+            result["warnings"].append(
+                f"clause '{row['clause']}' already has a rule with different wording; this row was imported as a NEW rule "
+                f"'{fields['id']}' rather than overwriting the existing one - merge or retire one of them in Studio")
         if existing is not None:  # keep how the rule is checked; the sheet only owns the legal columns
             keep = existing.model_dump(include={"severity", "check", "enforcement", "phrases", "patterns", "applies_when", "disclosure", "template", "assistant_note"})
             rule = RuleSpec(**{**keep, **fields})
@@ -132,10 +149,14 @@ def import_xlsx(settings: Settings, data: bytes, pack_id: str = "mccs", *, dry_r
             bucket = "created"
         taken.add(rule.id)
         result[bucket].append(rule.id)
-        if not dry_run and bucket != "unchanged":
+        if bucket != "unchanged":
+            pending.append(rule)
+    if not dry_run:
+        # families first: a rule must never be on disk referencing a product id PACK.md does not have yet
+        if new_products:
+            _append_products(settings, pack_id, new_products)
+        for rule in pending:
             write_rule(settings, pack_id, rule)
-    if new_products and not dry_run:
-        _append_products(settings, pack_id, new_products)
     result["new_products"] = [p.id for p in new_products]
     return result
 
@@ -144,7 +165,7 @@ def _append_products(settings: Settings, pack_id: str, products: list[RuleProduc
     """Add product families the sheet mentioned but the pack did not know, so nothing is silently dropped."""
     import frontmatter
 
-    p = settings.rules_dir / pack_id / PACK_FILE
+    p = pack_dir(settings, pack_id) / PACK_FILE
     post = frontmatter.load(p)
     post.metadata["products"] = list(post.metadata.get("products") or []) + [
         {"id": x.id, "name": x.name, "aliases": [], "skills": [], "match": x.match} for x in products]

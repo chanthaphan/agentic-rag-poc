@@ -6,8 +6,8 @@ regulation: (MCCS) ประกาศธนาคารแห่งประเ�
 clause: เอกสารแนบ 2 ข้อ 2.3.3
 products:
 - home-loan
-- personal-loan-unsecured
 - multipurpose-loan
+- personal-loan-unsecured
 status: active
 severity: block
 check: required_phrase

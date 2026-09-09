@@ -5,9 +5,9 @@ title: คำเตือนอัตราดอกเบี้ยลอยต�
 regulation: (MCCS) ประกาศธนาคารแห่งประเทศไทยที่ 3/2568, ประกาศสำนักงาน กลต. ที่ สธ. 10/2558 และประกาศเพิ่มเติม
 clause: เอกสารแนบ 2 ข้อ 2.2.1 (1)
 products:
-- personal-loan-unsecured
-- multipurpose-loan
 - home-loan
+- multipurpose-loan
+- personal-loan-unsecured
 status: active
 severity: block
 check: required_phrase

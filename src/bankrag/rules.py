@@ -16,6 +16,7 @@ Verdicts follow the sheet's vocabulary: compliant / non_compliant / undefined (a
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from pathlib import Path
 from typing import Iterable, Optional
@@ -32,12 +33,20 @@ CHECKS = ("required_phrase", "prohibited_phrase", "required_pattern", "judgement
 ENFORCEMENTS = ("append", "flag", "none")
 SEVERITIES = ("block", "warn")
 SECTION_RE = re.compile(r"^#{1,6}[ \t]*(?P<head>[^\n]*)$", re.M)
-SECTION_KEYS = (("assistant_note", ("หมายเหตุ", "assistant note", "note")), ("legal_text", ("กฎหมาย", "legal")), ("system_rule", ("ระบบ", "system")))
+# order matters: a heading is classified by the first entry it matches, so the two MCCS sections win over the note
+SECTION_KEYS = (("legal_text", ("กฎหมาย", "legal")), ("system_rule", ("ระบบ", "system")), ("assistant_note", ("หมายเหตุ", "assistant note")))
 _QUOTES = {"“": '"', "”": '"', "‘": "'", "’": "'", "«": '"', "»": '"'}
 
 
 def rules_dir(settings: Settings) -> Path:
     return settings.rules_dir
+
+
+def pack_dir(settings: Settings, pack_id: str) -> Path:
+    """The pack folder, with the id validated: it reaches us from a request body / query string."""
+    if not ID_RE.match(pack_id or ""):
+        raise ValueError(f"invalid pack id '{pack_id}'")
+    return rules_dir(settings) / pack_id
 
 
 # ---------------- text matching ----------------
@@ -67,20 +76,28 @@ def _any_pattern(text: str, patterns: Iterable[str]) -> Optional[str]:
 
 # ---------------- load ----------------
 def _split_body(body: str) -> dict[str, str]:
-    """The markdown body as its three sections: กฎหมาย (verbatim law), กฎสำหรับระบบ (verbatim instruction from the
-    sheet) and หมายเหตุ (our note on how it applies in chat). An unstructured body counts as the system rule."""
+    """The markdown body as its three known sections: กฎหมาย (verbatim law), กฎสำหรับระบบ (verbatim instruction from
+    the sheet) and หมายเหตุ (our note on how it applies in chat). Anything else is kept verbatim in `extra_body` so a
+    save from Studio cannot silently delete a section someone added. An unstructured body counts as the system rule."""
     heads = list(SECTION_RE.finditer(body))
     if not heads:
-        return {"legal_text": "", "system_rule": body.strip(), "assistant_note": ""}
-    out = {"legal_text": "", "system_rule": "", "assistant_note": ""}
+        return {"legal_text": "", "system_rule": body.strip(), "assistant_note": "", "extra_body": ""}
+    out = {"legal_text": "", "system_rule": "", "assistant_note": "", "extra_body": ""}
+    extra: list[str] = []
     for i, m in enumerate(heads):
         head = m.group("head").lower()
         end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
         key = next((k for k, words in SECTION_KEYS if any(w in head for w in words)), "")
         if key and not out[key]:
             out[key] = body[m.end():end].strip()
+        else:  # an unknown heading, or a second copy of a known one: keep the whole section
+            extra.append(body[m.start():end].strip())
+    if heads[0].start() > 0 and body[:heads[0].start()].strip():
+        extra.insert(0, body[:heads[0].start()].strip())
+    out["extra_body"] = "\n\n".join(x for x in extra if x)
     if not out["system_rule"] and not out["legal_text"]:
         out["system_rule"] = body.strip()
+        out["extra_body"] = ""
     return out
 
 
@@ -108,13 +125,14 @@ def parse_rule(path: Path, pack_id: str = "") -> RuleSpec:
         legal_text=sections["legal_text"],
         system_rule=sections["system_rule"],
         assistant_note=sections["assistant_note"],
+        extra_body=sections["extra_body"],
         path=path,
     )
 
 
 def load_pack(settings: Settings, pack_id: str = "mccs") -> RulePack:
     """Read rules/<pack>/: PACK.md (products + pack metadata) and every other .md file as a rule."""
-    d = rules_dir(settings) / pack_id
+    d = pack_dir(settings, pack_id)
     if not (d / PACK_FILE).exists():
         return RulePack(id=pack_id, path=d)
     post = frontmatter.load(d / PACK_FILE)
@@ -126,19 +144,40 @@ def load_pack(settings: Settings, pack_id: str = "mccs") -> RulePack:
                     rules=sorted(rules, key=lambda r: (r.clause, r.id)), path=d)
 
 
-_cache: dict[str, tuple[float, RulePack]] = {}
+_cache: dict[tuple[str, str], tuple[tuple, float, RulePack]] = {}  # (rules_dir, pack) -> (stamp, checked_at, pack)
+_STAMP_TTL = 2.0  # seconds between stat() sweeps; RULES_DIR is an SMB share in the container, so they are not free
+
+
+def _stamp(d: Path) -> tuple:
+    """Changes when any rule file is written, added or removed (a file count alone misses an edit, a max mtime
+    alone misses a deletion made outside delete_rule - a git checkout or a restore on the share)."""
+    if not d.exists():
+        return (0, 0.0)
+    mtimes = [f.stat().st_mtime for f in d.glob("*.md")]
+    return (len(mtimes), max(mtimes, default=0.0))
 
 
 def active_pack(settings: Settings, pack_id: str = "mccs") -> RulePack:
-    """load_pack() cached on the folder's newest mtime, so Studio edits apply without a restart."""
-    d = rules_dir(settings) / pack_id
-    stamp = max((f.stat().st_mtime for f in d.glob("*.md")), default=0.0) if d.exists() else 0.0
-    hit = _cache.get(pack_id)
+    """load_pack() cached on the folder's file count + newest mtime, so an edit from Studio, the CLI or the share
+    applies without a restart. The stamp itself is re-checked at most every _STAMP_TTL seconds."""
+    d = pack_dir(settings, pack_id)
+    key = (str(rules_dir(settings)), pack_id)  # two Settings in one process must not share an entry
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit is not None and now - hit[1] < _STAMP_TTL:
+        return hit[2]
+    stamp = _stamp(d)
     if hit is not None and hit[0] == stamp:
-        return hit[1]
+        _cache[key] = (stamp, now, hit[2])
+        return hit[2]
     pack = load_pack(settings, pack_id)
-    _cache[pack_id] = (stamp, pack)
+    _cache[key] = (stamp, now, pack)
     return pack
+
+
+def forget(settings: Settings, pack_id: str) -> None:
+    """Drop the cached pack after our own write, so the next read is immediate rather than TTL-delayed."""
+    _cache.pop((str(rules_dir(settings)), pack_id), None)
 
 
 def list_packs(settings: Settings) -> list[str]:
@@ -336,13 +375,24 @@ def disclosure_text(rule: RuleSpec, language: str) -> str:
     return rule.disclosure.get(language) or rule.disclosure.get("th") or (rule.phrases[0] if rule.phrases else "")
 
 
-def apply_disclosures(text: str, rules: list[RuleSpec], language: str) -> tuple[str, list[str]]:
-    """Append the mandated warnings that are missing, verbatim, as a block at the end of the answer."""
-    added = [d for d in (disclosure_text(r, language) for r in rules) if d and not _contains(normalize(text), d)]
+def apply_disclosures(text: str, rules: list[RuleSpec], language: str) -> tuple[str, str, list[str]]:
+    """Append the mandated warnings that are missing, verbatim, as a block at the end of the answer.
+
+    Returns (answer, appended block, ids of the rules whose wording was actually added). The answer is always
+    `text + block`, never a rewrite of `text`: a streaming caller has already sent `text` to the customer, so the
+    stored answer has to keep it byte for byte or the two diverge."""
+    norm = normalize(text)
+    seen: set[str] = set()
+    added: list[tuple[str, str]] = []  # (rule id, wording) - kept per rule so only these rules count as fixed
+    for r in rules:
+        d = disclosure_text(r, language)
+        if d and not _contains(norm, d) and normalize(d) not in seen:
+            seen.add(normalize(d))
+            added.append((r.id, d))
     if not added:
-        return text, []
-    block = "\n\n---\n" + "\n".join(f"⚠️ {a}" for a in added)
-    return text.rstrip() + block, added
+        return text, "", []
+    block = "\n\n---\n" + "\n".join(f"⚠️ {d}" for _, d in added)
+    return text + block, block, [rid for rid, _ in added]
 
 
 def guard(settings: Settings, text: str, *, question: str = "", language: str = "th", skill_id: str = "",
@@ -359,22 +409,21 @@ def guard(settings: Settings, text: str, *, question: str = "", language: str = 
     by_id = {r.id: r for r in pack.rules}
     to_append = [by_id[f.rule_id] for f in findings
                  if f.verdict == "non_compliant" and by_id[f.rule_id].enforcement == "append"]
-    fixed_text, added = apply_disclosures(text, to_append, language)
-    fixed_ids = {r.id for r in to_append}
+    fixed_text, appended, fixed_ids = apply_disclosures(text, to_append, language)
     for f in findings:
-        if f.rule_id in fixed_ids and added:
+        if f.rule_id in fixed_ids:  # only the rules whose wording really went into the answer
             f.fixed, f.verdict, f.detail = True, "compliant", f"{f.detail}; the required wording was added to the answer"
     report = {
         "pack": pack.id,
         "products": pids,
         "product_names": [pack.product(p).name for p in pids if pack.product(p)],
         "checked": len(findings),
-        "fixed": sorted(fixed_ids) if added else [],
+        "fixed": sorted(fixed_ids),
         "violations": [f.rule_id for f in findings if f.verdict == "non_compliant"],
         "review": [f.rule_id for f in findings if f.verdict == "undefined"],
         "findings": [f.model_dump() for f in findings],
     }
-    return fixed_text, {**report, "appended": fixed_text[len(text):] if added else ""}
+    return fixed_text, {**report, "appended": appended}
 
 
 # ---------------- editing (Studio / CLI) ----------------
@@ -383,17 +432,21 @@ FRONT_KEYS = ("id", "pack", "title", "regulation", "clause", "products", "status
 
 
 def rule_path(settings: Settings, pack_id: str, rule_id: str) -> Path:
-    if not ID_RE.match(rule_id) or not ID_RE.match(pack_id):
+    if not ID_RE.match(rule_id or ""):
         raise ValueError(f"invalid rule id '{rule_id}'")
-    return rules_dir(settings) / pack_id / f"{rule_id}.md"
+    return pack_dir(settings, pack_id) / f"{rule_id}.md"
 
 
 def dump_rule(rule: RuleSpec) -> str:
     meta = {k: getattr(rule, k) for k in FRONT_KEYS}
+    meta["products"] = sorted(meta["products"])  # canonical order: the sheet and the Studio checkboxes disagree,
+    meta["phrases"] = list(meta["phrases"])      # and an order-only difference would rewrite files and re-version agents
     meta = {k: v for k, v in meta.items() if v not in ("", [], {}, None)}
     body = f"## กฎหมาย (legal text)\n{rule.legal_text}\n\n## กฎสำหรับระบบ (system rule)\n{rule.system_rule}\n"
     if rule.assistant_note:
         body += f"\n## หมายเหตุสำหรับผู้ช่วย (assistant note)\n{rule.assistant_note}\n"
+    if rule.extra_body:  # sections we do not understand are written back untouched
+        body += f"\n{rule.extra_body}\n"
     return frontmatter.dumps(frontmatter.Post(body, **meta), sort_keys=False, allow_unicode=True, width=100000) + "\n"
 
 
@@ -401,7 +454,7 @@ def write_rule(settings: Settings, pack_id: str, rule: RuleSpec) -> RuleSpec:
     p = rule_path(settings, pack_id, rule.id)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(dump_rule(rule), encoding="utf-8")
-    _cache.pop(pack_id, None)
+    forget(settings, pack_id)
     return parse_rule(p, pack_id)
 
 
@@ -415,7 +468,7 @@ def update_rule(settings: Settings, pack_id: str, rule_id: str, form: dict) -> R
     for k, v in form.items():
         if k in FRONT_KEYS and k != "id":
             data[k] = v
-    for k in ("legal_text", "system_rule", "assistant_note"):
+    for k in ("legal_text", "system_rule", "assistant_note", "extra_body"):
         if k in form:
             data[k] = str(form[k])
     updated = RuleSpec(**{**data, "id": rule_id, "pack": pack_id})
@@ -432,7 +485,7 @@ def create_rule(settings: Settings, pack_id: str, form: dict) -> RuleSpec:
         raise ValueError("id must be lowercase letters, digits and dashes")
     if rule_path(settings, pack_id, rule_id).exists():
         raise FileExistsError(f"rule '{rule_id}' already exists in pack '{pack_id}'")
-    data = {k: v for k, v in form.items() if k in FRONT_KEYS or k in ("legal_text", "system_rule", "assistant_note")}
+    data = {k: v for k, v in form.items() if k in FRONT_KEYS or k in ("legal_text", "system_rule", "assistant_note", "extra_body")}
     rule = RuleSpec(**{**data, "id": rule_id, "pack": pack_id})
     errors, _ = validate_rule(rule, active_pack(settings, pack_id))
     if errors:
@@ -446,13 +499,13 @@ PRODUCT_KEYS = ("id", "name", "aliases", "skills", "match")
 
 def write_products(settings: Settings, pack_id: str, products: list[RuleProduct]) -> RulePack:
     """Replace the product taxonomy in PACK.md, keeping the rest of the file (metadata + body) untouched."""
-    p = rules_dir(settings) / pack_id / PACK_FILE
+    p = pack_dir(settings, pack_id) / PACK_FILE
     if not p.exists():
         raise FileNotFoundError(f"pack '{pack_id}' does not exist")
     post = frontmatter.load(p)
     post.metadata["products"] = [x.model_dump(include=set(PRODUCT_KEYS)) for x in products]
     p.write_text(frontmatter.dumps(post, sort_keys=False, allow_unicode=True, width=100000) + "\n", encoding="utf-8")
-    _cache.pop(pack_id, None)
+    forget(settings, pack_id)
     return active_pack(settings, pack_id)
 
 
@@ -499,4 +552,4 @@ def delete_rule(settings: Settings, pack_id: str, rule_id: str) -> None:
     if not p.exists():
         raise FileNotFoundError(f"rule '{rule_id}' does not exist in pack '{pack_id}'")
     p.unlink()
-    _cache.pop(pack_id, None)
+    forget(settings, pack_id)

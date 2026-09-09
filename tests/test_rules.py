@@ -109,15 +109,36 @@ def test_import_keeps_engineering_fields_and_flags_unknown_products(settings, tm
     wb.save(path)
 
     result = RX.import_xlsx(settings, path.read_bytes())
-    assert result["updated"] == ["credit-card-use-warning"] and result["created"] == ["rule-2-9-9"]
+    # the first row reuses a clause but rewrites the legal text, so it becomes its own rule instead of overwriting
+    assert set(result["created"]) == {"rule-2-2-3-3-1", "rule-2-9-9"} and result["updated"] == []
+    assert any("already has a rule with different wording" in w for w in result["warnings"])
     assert result["new_products"] and any("สินเชื่อรถยนต์" in w for w in result["warnings"])
     RL._cache.clear()
     pack = RL.load_pack(settings)
     kept = next(r for r in pack.rules if r.id == "credit-card-use-warning")
-    assert kept.system_rule == "ปรับถ้อยคำใหม่จากทีม compliance"  # the sheet owns the legal columns
+    assert kept.system_rule.startswith("ถ้ามีการกล่าวถึงบัตรเครดิต")  # untouched: the row did not match it
     assert kept.check == "required_phrase" and kept.enforcement == "append" and kept.phrases and kept.assistant_note
     fresh = next(r for r in pack.rules if r.id == "rule-2-9-9")
     assert fresh.check == "judgement" and fresh.status == "draft" and fresh.products == result["new_products"]
+
+
+def test_import_updates_a_rule_whose_legal_text_still_matches(settings, tmp_path):
+    """The sheet owns the two legal columns: a row matching an existing rule rewrites them and keeps the checks."""
+    from openpyxl import Workbook
+
+    rule = next(r for r in RL.load_pack(settings).rules if r.id == "credit-card-use-warning")
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["เล่มกฎหมาย", "ข้อกฎหมาย", "กฎหมาย", "กฎสำหรับระบบ", "ผลิตภัณฑ์ที่ต้องตรวจสอบ", "สถานะ"])
+    ws.append([rule.regulation, rule.clause, rule.legal_text, "ปรับถ้อยคำใหม่จากทีม compliance", "บัตรเครดิตของธนาคารกรุงเทพ", "active"])
+    path = tmp_path / "same.xlsx"
+    wb.save(path)
+
+    result = RX.import_xlsx(settings, path.read_bytes())
+    assert result["updated"] == ["credit-card-use-warning"] and result["created"] == []
+    kept = next(r for r in RL.load_pack(settings).rules if r.id == "credit-card-use-warning")
+    assert kept.system_rule == "ปรับถ้อยคำใหม่จากทีม compliance"
+    assert kept.check == "required_phrase" and kept.enforcement == "append" and kept.phrases and kept.assistant_note
 
 
 def test_retired_rules_stop_applying(settings):
@@ -156,6 +177,7 @@ def _api_client(tmp_path, monkeypatch):
 
 def test_rules_endpoints(tmp_path, monkeypatch):
     c = _api_client(tmp_path, monkeypatch)
+    admin = ("admin", "secret")
     d = c.get("/rules").json()
     assert len(d["rules"]) == 12 and d["pack"]["id"] == "mccs"
     card = next(r for r in d["rules"] if r["id"] == "credit-card-use-warning")
@@ -167,11 +189,15 @@ def test_rules_endpoints(tmp_path, monkeypatch):
     assert c.get("/rules/prompt").json()["target"] == "concierge"
     assert c.get("/rules/prompt", params={"skill": "nope"}).status_code == 404
 
-    r = c.post("/rules/check", json={"text": "บัตรเครดิตใบนี้ค่าธรรมเนียมรายปี 3,000 บาท", "skill": "credit-card"}).json()
+    assert c.post("/rules/check", json={"text": "บัตรเครดิต"}).status_code == 401  # a Studio tool, like /bundle.zip
+    r = c.post("/rules/check", json={"text": "บัตรเครดิตใบนี้ค่าธรรมเนียมรายปี 3,000 บาท", "skill": "credit-card"}, auth=admin).json()
     assert r["report"]["fixed"] == ["credit-card-use-warning"] and "ใช้เท่าที่จำเป็น" in r["text"]
-    assert c.post("/rules/check", json={"text": " "}).status_code == 400
+    assert c.post("/rules/check", json={"text": " "}, auth=admin).status_code == 400
+    assert c.post("/rules/check", json={"text": "บัตรเครดิต" * 5000}, auth=admin).status_code == 413
+    assert c.get("/rules", params={"pack": "../secrets"}).status_code == 400  # pack ids never reach a path unchecked
 
-    assert c.get("/rules.xlsx").headers["content-type"].startswith("application/vnd.openxml")
+    assert c.get("/rules.xlsx").status_code == 401
+    assert c.get("/rules.xlsx", auth=admin).headers["content-type"].startswith("application/vnd.openxml")
     assert c.put("/rules/credit-card-use-warning", json={"status": "draft"}).status_code == 401
     assert c.put("/rules/credit-card-use-warning", json={"status": "draft"}, auth=("admin", "secret")).json()["status"] == "draft"
     assert c.put("/rules/nope", json={"status": "draft"}, auth=("admin", "secret")).status_code == 404
@@ -197,7 +223,7 @@ def test_chat_appends_the_missing_warning_and_traces_it(settings, monkeypatch):
 
     text = "บัตรเครดิต Visa Platinum ค่าธรรมเนียมรายปี 3,000 บาทค่ะ"
     skills = load_skills(ROOT / "skills")
-    monkeypatch.setattr(chat_mod, "plan_kb_owners", lambda s, sk: dict(sk))
+    monkeypatch.setattr(chat_mod, "synced_kb_owners", lambda s, sk: dict(sk))
     session = chat_mod.ChatSession(settings, skills, project=_Ev(get_openai_client=lambda: _fake_openai(text)))
     monkeypatch.setattr(session, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=1.0, language="th", reason="test"))
 
@@ -215,7 +241,7 @@ def test_a_broken_rule_pack_does_not_break_the_chat(settings, monkeypatch):
     from bankrag.models import RouteDecision
 
     monkeypatch.setattr(chat_mod.RL, "guard", lambda *a, **kw: (_ for _ in ()).throw(ValueError("bad pack")))
-    monkeypatch.setattr(chat_mod, "plan_kb_owners", lambda s, sk: dict(sk))
+    monkeypatch.setattr(chat_mod, "synced_kb_owners", lambda s, sk: dict(sk))
     skills = load_skills(ROOT / "skills")
     session = chat_mod.ChatSession(settings, skills, project=_Ev(get_openai_client=lambda: _fake_openai("บัตรเครดิต")))
     monkeypatch.setattr(session, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=1.0, language="th", reason="test"))
@@ -279,3 +305,83 @@ def test_rule_and_product_endpoints(tmp_path, monkeypatch):
     assert len(c.get("/rules").json()["rules"]) == 13
     assert c.delete("/rules/house-rule", auth=admin).status_code == 200
     assert c.delete("/rules/house-rule", auth=admin).status_code == 404
+
+
+# ---- regressions ----
+def test_streamed_delta_always_reconstructs_the_stored_answer(settings):
+    """The client has already received `text`, so the answer we store must be exactly text + what we stream after it."""
+    for tail in ("", " ", "\n", "   \n\n", "\t\n \n"):
+        text = "บัตรเครดิตใบนี้ค่าธรรมเนียมรายปี 3,000 บาท" + tail
+        fixed, report = RL.guard(settings, text, language="th", skill_id="credit-card")
+        assert text + report["appended"] == fixed, repr(tail)
+        assert "\n\n---\n⚠️ " in report["appended"]  # the separator survives, so the warning is its own block
+
+
+def test_only_rules_whose_wording_was_added_count_as_fixed(settings):
+    """A second append-rule whose disclosure resolves to nothing must not ride on the first one's fix."""
+    card = next(r for r in RL.load_pack(settings).rules if r.id == "credit-card-use-warning")
+    RL.write_rule(settings, "mccs", RuleSpec(**{**card.model_dump(), "id": "english-only-disclosure", "clause": "test-1",
+                                               "check": "required_pattern", "patterns": [r"NEVER_MATCHES"], "phrases": [],
+                                               "disclosure": {"en": "English only"}, "enforcement": "append"}))
+    _, report = RL.guard(settings, "บัตรเครดิตใบนี้ค่าธรรมเนียมรายปี 3,000 บาท", language="th", skill_id="credit-card")
+    assert report["fixed"] == ["credit-card-use-warning"]
+    stuck = next(f for f in report["findings"] if f["rule_id"] == "english-only-disclosure")
+    assert stuck["verdict"] == "non_compliant" and not stuck["fixed"]
+
+
+def test_unknown_sections_survive_a_save(settings):
+    path = RL.rule_path(settings, "mccs", "credit-card-use-warning")
+    path.write_text(path.read_text(encoding="utf-8") + "\n## ตัวอย่างที่ผิด (examples)\nอย่าเขียนแบบนี้\n", encoding="utf-8")
+    RL._cache.clear()
+    assert "ตัวอย่างที่ผิด" in next(r for r in RL.load_pack(settings).rules if r.id == "credit-card-use-warning").extra_body
+    RL.update_rule(settings, "mccs", "credit-card-use-warning", {"status": "draft"})
+    saved = path.read_text(encoding="utf-8")
+    assert "## ตัวอย่างที่ผิด (examples)" in saved and "อย่าเขียนแบบนี้" in saved
+    rule = next(r for r in RL.load_pack(settings).rules if r.id == "credit-card-use-warning")
+    assert rule.status == "draft" and rule.legal_text and rule.system_rule and rule.assistant_note
+
+
+def test_cache_is_per_directory_and_notices_a_deleted_rule(settings, tmp_path):
+    import shutil
+
+    other = Settings.load(ROOT)
+    other.rules_dir = tmp_path / "other-rules"
+    shutil.copytree(settings.rules_dir, other.rules_dir)
+    RL.rule_path(other, "mccs", "credit-card-use-warning").unlink()
+    RL._STAMP_TTL, ttl = 0.0, RL._STAMP_TTL  # the stamp is re-read on every call in this test
+    try:
+        assert len(RL.active_pack(settings, "mccs").rules) == 12
+        assert len(RL.active_pack(other, "mccs").rules) == 11  # a different rules_dir must not reuse the entry
+        RL.rule_path(settings, "mccs", "instalment-assumptions").unlink()  # removed behind our back, not via delete_rule
+        assert len(RL.active_pack(settings, "mccs").rules) == 11
+    finally:
+        RL._STAMP_TTL = ttl
+
+
+def test_import_writes_products_before_the_rules_that_use_them(settings, tmp_path):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["เล่มกฎหมาย", "ข้อกฎหมาย", "กฎหมาย", "กฎสำหรับระบบ", "ผลิตภัณฑ์ที่ต้องตรวจสอบ", "สถานะ"])
+    ws.append(["ประกาศ ธปท. 3/2568", "ข้อ 7.1", "กฎใหม่", "ห้ามทำแบบนี้", "สินเชื่อรถยนต์", "active"])
+    path = tmp_path / "new.xlsx"
+    wb.save(path)
+    RX.import_xlsx(settings, path.read_bytes())
+    pack = RL.load_pack(settings)
+    for rid, (errors, _) in RL.validate_pack(pack).items():
+        assert errors == [], (rid, errors)  # no rule may reference a product PACK.md does not have
+
+
+def test_ambiguous_product_name_is_not_guessed(settings, tmp_path):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["เล่มกฎหมาย", "ข้อกฎหมาย", "กฎหมาย", "กฎสำหรับระบบ", "ผลิตภัณฑ์ที่ต้องตรวจสอบ", "สถานะ"])
+    ws.append(["ประกาศ ธปท. 3/2568", "ข้อ 8.1", "กฎใหม่", "ห้ามทำแบบนี้", "สินเชื่อ", "active"])  # matches 3 families
+    path = tmp_path / "broad.xlsx"
+    wb.save(path)
+    result = RX.import_xlsx(settings, path.read_bytes(), dry_run=True)
+    assert any("looks like 3 families" in w for w in result["warnings"])
+    assert not any("matched" in w and "by name similarity" in w for w in result["warnings"])

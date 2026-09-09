@@ -214,9 +214,9 @@ def retrieve_cmd(question: str, skill: str = typer.Option("credit-card"), max_do
 
     s = _settings()
     skills, _ = _skills(s)
-    from .foundry_sync import plan_kb_owners
+    from .foundry_sync import synced_kb_owners
 
-    spec = plan_kb_owners(s, skills)[skill]
+    spec = synced_kb_owners(s, skills)[skill]
     refs = KB.retrieve(s, spec.kb_name, question, ks_name=spec.ks_name, max_docs=max_docs)
     for r in refs:
         rprint(f"[bold]{r.title}[/] ({r.doc_type}, score={r.score}) {r.source_url}\n  {r.snippet[:200]}")

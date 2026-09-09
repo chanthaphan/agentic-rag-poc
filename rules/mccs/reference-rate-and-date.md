@@ -5,9 +5,9 @@ title: ต้องแสดงอัตราดอกเบี้ยอ้า�
 regulation: (MCCS) ประกาศธนาคารแห่งประเทศไทยที่ 3/2568
 clause: เอกสารแนบ 2 ข้อ 2.2.1 (1)
 products:
+- home-loan
 - multipurpose-loan
 - personal-loan-unsecured
-- home-loan
 status: active
 severity: block
 check: required_pattern

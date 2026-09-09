@@ -83,6 +83,7 @@ class RuleSpec(BaseModel):
     legal_text: str = ""  # กฎหมาย, verbatim
     system_rule: str = ""  # กฎสำหรับระบบ, verbatim: the compliance team's instruction
     assistant_note: str = ""  # how the rule applies to a chat answer; written by us, kept across sheet imports
+    extra_body: str = ""  # any other markdown section in the file, kept verbatim so a save never drops it
     path: Optional[Path] = None
 
     @property
