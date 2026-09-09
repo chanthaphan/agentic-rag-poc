@@ -12,6 +12,7 @@ from azure.ai.projects.models import MCPTool, PromptAgentDefinition
 
 from . import connections as CONN
 from . import knowledge_base as KB
+from . import rules as RL
 from .ingest.progress import report as progress
 from .config import Settings
 from .foundry import credential, project_client
@@ -60,7 +61,7 @@ def desired_definition(settings: Settings, spec: SkillSpec, base_body: str, kb_o
     """Skills whose category has documents get their own KB tool; `general` (no filter) always has one.
     A skill without documents gets NO tool and must say its knowledge base is empty (keeps the POC honest).
     `shared_by_quota`: documents exist but the search tier has no knowledge-source quota left -> use the shared base with a scoping note."""
-    instructions = compose_instructions(base_body, spec)
+    instructions = compose_instructions(base_body, spec, RL.prompt_block_for_skill(RL.active_pack(settings), spec))
     tools = [kb_tool(settings, spec)]
     if kb_owner is not None and kb_owner.id != spec.id:
         if shared_by_quota:
@@ -220,7 +221,7 @@ def sync_skills(
     if settings.foundry_native_skills or register_native:
         for spec in targets:
             try:
-                action, version = FN.publish_skill(client, spec, base_body, state, log)
+                action, version = FN.publish_skill(client, spec, base_body, state, log, RL.prompt_block_for_skill(RL.active_pack(settings), spec))
                 report.rows.append(SyncRow(skill_id=f"{spec.id} (registry)", agent=FN.registry_name(spec.id), action=action if action != "published" else "updated", version=version))
             except Exception as e:  # noqa: BLE001
                 report.rows.append(SyncRow(skill_id=f"{spec.id} (registry)", agent=FN.registry_name(spec.id), action="error", note=f"{type(e).__name__}: {str(e)[:200]}"))

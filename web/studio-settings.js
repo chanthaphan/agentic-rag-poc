@@ -58,7 +58,7 @@ $("#bd-file").addEventListener("change", async (e) => {
   const fd = new FormData(); fd.append("file", f);
   try {
     const info = await api("/bundle/inspect", { method: "POST", body: fd }); BD.info = info;
-    const label = { skills: "Skills", knowledge: "Knowledge", evals: "Eval questions", config: "Prices & settings" };
+    const label = { skills: "Skills", rules: "Responsible Lending rules", knowledge: "Knowledge", evals: "Eval questions", config: "Prices & settings" };
     $("#bd-parts").innerHTML = Object.entries(info.parts).map(([p, s]) => `<tr><td>${label[p]}</td><td>${s.files}</td><td>${s.new ? `<span class="pill ok">${s.new}</span>` : ""}</td><td>${s.changed ? `<span class="pill warn">${s.changed}</span>` : ""}</td><td class="muted">${s.same || ""}</td><td class="muted">${s.files ? fmtBytes(s.bytes) : ""}</td><td><input type="checkbox" class="bd-imp" value="${p}" ${s.files ? "checked" : "disabled"}></td></tr>`).join("");
     const cats = Object.entries(info.categories).map(([c, n]) => `${c} (${n})`).join(", ");
     $("#bd-detail").innerHTML = `${info.skills.length ? `skills: ${esc(info.skills.join(", "))}` : "no skills"} · ${cats ? `knowledge: ${esc(cats)}${info.pdfs ? ` · ${info.pdfs} PDF` : ""}` : "no knowledge"}${info.skipped.length ? ` · <span class="pill warn">${info.skipped.length} unknown file(s) skipped</span>` : ""}`;

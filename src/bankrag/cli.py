@@ -16,9 +16,11 @@ app = typer.Typer(help="Bangkok Bank product agent POC: Foundry agents + Azure A
 setup_app = typer.Typer(help="Provision search index, knowledge bases, project connections")
 skills_app = typer.Typer(help="Validate, list and sync skills to Foundry")
 eval_app = typer.Typer(help="Evaluate routing and answers")
+rules_app = typer.Typer(help="Responsible Lending rules: list, validate, import from / export to xlsx, check an answer")
 app.add_typer(setup_app, name="setup")
 app.add_typer(skills_app, name="skills")
 app.add_typer(eval_app, name="eval")
+app.add_typer(rules_app, name="rules")
 console = Console()
 
 
@@ -303,6 +305,111 @@ def eval_rag(file: Optional[Path] = typer.Option(None, help="defaults to evals/r
     run = run_rag(s, skills, cases, log=lambda m: rprint(("[green]" if m.startswith("ok") else "[red]") + m.replace("[", "\\[") + "[/]"))
     save_eval_run(s, run)
     rprint(f"\npassed: {run['summary']['passed']}/{run['summary']['questions']}  cost ${run['summary']['total_cost_usd']:.4f}  run {run['id']}")
+
+
+# ---------------- responsible lending rules ----------------
+@rules_app.command("list")
+def rules_list(pack: str = typer.Option("mccs", help="rule pack folder under rules/")):
+    """Every rule in the pack: which products it covers, how it is checked, and which skill agents carry it."""
+    from . import rules as RL
+
+    s = _settings()
+    p = RL.active_pack(s, pack)
+    if not p.rules:
+        rprint(f"[yellow]no rules in rules/{pack}[/] (import a sheet with 'bankrag rules import <file.xlsx>')")
+        raise typer.Exit()
+    t = Table(title=f"{p.name} ({len(p.rules)} rules)")
+    for c in ("clause", "id", "products", "check", "enforce", "status"):
+        t.add_column(c, overflow="fold")
+    for r in p.rules:
+        style = "" if r.status == "active" else "dim"
+        t.add_row(r.clause, r.id, ", ".join(r.products), r.check, r.enforcement, r.status, style=style)
+    console.print(t)
+    for prod in p.products:
+        rprint(f"[cyan]{prod.id}[/] {prod.name} -> skills: {', '.join(prod.skills) or '[yellow]none: no agent carries these rules[/]'}")
+
+
+@rules_app.command("validate")
+def rules_validate(pack: str = typer.Option("mccs")):
+    """Check the pack the way the app loads it (products, regexes, required fields)."""
+    from . import rules as RL
+
+    s = _settings()
+    p = RL.active_pack(s, pack)
+    bad = 0
+    for rid, (errors, warnings) in RL.validate_pack(p).items():
+        bad += len(errors)
+        for e in errors:
+            rprint(f"[red]{rid}: {e}[/]")
+        for w in warnings:
+            rprint(f"[yellow]{rid}: {w}[/]")
+        if not errors and not warnings:
+            rprint(f"[green]{rid}: ok[/]")
+    raise typer.Exit(code=1 if bad else 0)
+
+
+@rules_app.command("import")
+def rules_import(file: Path = typer.Argument(..., help="the compliance team's .xlsx"),
+                 pack: str = typer.Option("mccs"),
+                 dry_run: bool = typer.Option(False, "--dry-run", help="report what would change without writing")):
+    """Write / update rules/<pack>/ from the sheet. How each rule is checked is preserved."""
+    from .rules_xlsx import import_xlsx
+
+    s = _settings()
+    r = import_xlsx(s, file.read_bytes(), pack, dry_run=dry_run)
+    rprint(f"{r['rows']} rows -> [green]{len(r['created'])} created[/], [yellow]{len(r['updated'])} updated[/], {len(r['unchanged'])} unchanged"
+           + (" [dim](dry run: nothing written)[/]" if dry_run else ""))
+    for rid in r["created"] + r["updated"]:
+        rprint(f"  {rid}")
+    for w in r["warnings"]:
+        rprint(f"[yellow]! {w}[/]")
+
+
+@rules_app.command("export")
+def rules_export(out: Path = typer.Argument(Path("rules-export.xlsx")), pack: str = typer.Option("mccs")):
+    """Write the pack back to a sheet (same columns, plus the rule id and how it is checked)."""
+    from .rules_xlsx import export_xlsx
+
+    out.write_bytes(export_xlsx(_settings(), pack))
+    rprint(f"[green]wrote {out}[/]")
+
+
+@rules_app.command("check")
+def rules_check(text: str = typer.Argument(..., help="an answer to check"),
+                skill: str = typer.Option("", help="the skill that produced it (helps product detection)"),
+                language: str = typer.Option("th"), pack: str = typer.Option("mccs")):
+    """Run the answer-time guard over a piece of text: what it would be flagged for, and what gets appended."""
+    from . import rules as RL
+
+    s = _settings()
+    fixed, report = RL.guard(s, text, language=language, skill_id=skill, pack_id=pack)
+    if not report:
+        rprint("[yellow]no rules loaded[/]")
+        raise typer.Exit()
+    rprint(f"products: {', '.join(report.get('product_names') or []) or '[dim]none detected: no rule applies[/]'}")
+    colour = {"compliant": "green", "non_compliant": "red", "undefined": "yellow", "not_applicable": "dim"}
+    for f in report.get("findings", []):
+        rprint(f"[{colour.get(f['verdict'], '')}]{f['verdict']:<15}[/] {f['clause']} {f['rule_id']}"
+               + (f" [dim]- {f['detail']}[/]" if f["detail"] else "") + (" [green](fixed)[/]" if f["fixed"] else ""))
+    if fixed != text:
+        rprint(f"\n[green]answer after the guard:[/]\n{fixed}")
+
+
+@rules_app.command("prompt")
+def rules_prompt(skill: str = typer.Option("", help="skill id; empty prints the concierge block"), pack: str = typer.Option("mccs")):
+    """Print the block that is compiled into an agent's instructions."""
+    from . import rules as RL
+
+    s = _settings()
+    p = RL.active_pack(s, pack)
+    if not skill:
+        print(RL.prompt_block_for_concierge(p))
+        raise typer.Exit()
+    skills, _ = _skills(s)
+    if skill not in skills:
+        rprint(f"[red]unknown skill '{skill}'[/]")
+        raise typer.Exit(code=1)
+    print(RL.prompt_block_for_skill(p, skills[skill]) or "(no rules cover this skill's products)")
 
 
 def main() -> None:

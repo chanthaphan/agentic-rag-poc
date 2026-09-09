@@ -52,6 +52,69 @@ class SkillSpec(BaseModel):
         return self.filter
 
 
+class RuleProduct(BaseModel):
+    """One regulated product family from the rules sheet (column 'ผลิตภัณฑ์ที่ต้องตรวจสอบ')."""
+
+    id: str
+    name: str  # Thai name exactly as the compliance team writes it in the sheet
+    aliases: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)  # skill ids that answer about this family
+    match: list[str] = Field(default_factory=list)  # regex detecting the family in a question or an answer
+
+
+class RuleSpec(BaseModel):
+    """A Responsible Lending rule: the regulator's text plus what the app needs to apply and check it."""
+
+    id: str
+    pack: str = ""
+    title: str = ""
+    regulation: str = ""  # เล่มกฎหมาย
+    clause: str = ""  # ข้อกฎหมาย
+    products: list[str] = Field(default_factory=list)  # RuleProduct ids
+    status: str = "active"  # active | draft | retired
+    severity: str = "block"  # block: the answer must not go out without it | warn
+    check: str = "judgement"  # required_phrase | prohibited_phrase | required_pattern | judgement
+    enforcement: str = "flag"  # append (add the mandated wording) | flag | none
+    phrases: list[str] = Field(default_factory=list)  # required / prohibited wording
+    patterns: list[str] = Field(default_factory=list)  # regex for required_pattern and wording variants
+    applies_when: list[str] = Field(default_factory=list)  # regex on the answer; empty = whenever a product matches
+    disclosure: dict[str, str] = Field(default_factory=dict)  # th / en text appended when enforcement == append
+    template: str = ""  # the wording the answer must carry (shown to the agent and the reviewer)
+    legal_text: str = ""  # กฎหมาย, verbatim
+    system_rule: str = ""  # กฎสำหรับระบบ, verbatim: the compliance team's instruction
+    assistant_note: str = ""  # how the rule applies to a chat answer; written by us, kept across sheet imports
+    path: Optional[Path] = None
+
+    @property
+    def label(self) -> str:
+        return f"{self.clause} {self.title}".strip()
+
+
+class RulePack(BaseModel):
+    id: str
+    name: str = ""
+    description: str = ""
+    sources: list[str] = Field(default_factory=list)
+    products: list[RuleProduct] = Field(default_factory=list)
+    body: str = ""
+    rules: list[RuleSpec] = Field(default_factory=list)
+    path: Optional[Path] = None
+
+    def product(self, pid: str) -> Optional[RuleProduct]:
+        return next((p for p in self.products if p.id == pid), None)
+
+
+class RuleFinding(BaseModel):
+    rule_id: str
+    clause: str = ""
+    title: str = ""
+    products: list[str] = Field(default_factory=list)
+    severity: str = "block"
+    verdict: str = "compliant"  # compliant | non_compliant | undefined | not_applicable
+    detail: str = ""
+    fixed: bool = False  # the mandated wording was appended to the answer
+
+
 class Chunk(BaseModel):
     id: str
     doc_id: str

@@ -119,7 +119,11 @@ function renderSync(j) {
 }
 
 // ---- preview ----
-S.loaders["pane-preview"] = () => { $("#md-preview").innerHTML = md(`# ${$("#f-name").value}\n\n> ${$("#f-description").value}\n\n${$("#f-body").value}`); };
+S.loaders["pane-preview"] = async () => {
+  $("#md-preview").innerHTML = md(`# ${$("#f-name").value}\n\n> ${$("#f-description").value}\n\n${$("#f-body").value}`);
+  // the Responsible Lending rules covering this skill's products are appended to its instructions on sync
+  try { const r = await api(`/rules/prompt?skill=${encodeURIComponent(current)}`); if (r.block) $("#md-preview").innerHTML += `<hr>${md(r.block)}`; } catch {}
+};
 
 // ---- try routing ----
 $("#try-q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#try-run").click(); });

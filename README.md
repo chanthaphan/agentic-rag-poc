@@ -4,19 +4,21 @@ Proof of concept for Bangkok Bank product Q&A / recommendation built on **Micros
 
 - **Knowledge base**: drop `.md` / `.pdf` files into `knowledge/<product-category>/` and run `bankrag ingest`.
 - **Evals**: routing accuracy, grounded answers, DeepEval quality metrics judged by a Foundry model (LLM-as-judge), model comparison; every run exports to .xlsx from Studio.
+- **Responsible Lending**: the MCCS advertising rules live in `rules/mccs/`, one file per rule. They are compiled into the concierge and specialist instructions, and every drafted answer is checked before it is sent (missing mandatory warnings are appended verbatim).
 - **Skills**: one folder per product family in `skills/<id>/SKILL.md` (frontmatter + instructions). `bankrag skills sync` turns each skill into a Foundry agent wired to its own knowledge base; the `bank-router` agent picks the skill for each user message.
 
-Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](docs/howto-add-skill.md), [docs/decisions.md](docs/decisions.md), and (after the end-to-end run) [docs/findings-for-real-app.md](docs/findings-for-real-app.md).
+Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](docs/howto-add-skill.md), [docs/responsible-lending.md](docs/responsible-lending.md), [docs/decisions.md](docs/decisions.md), and (after the end-to-end run) [docs/findings-for-real-app.md](docs/findings-for-real-app.md).
 
 ## Two front ends
 
 - **/** – customer app: the Bangkok Bank mobile prototype's Conversation screen inside an iPhone frame (BBL Sans, glass background, suggestion chips, typing dots, bottom tab bar). Conversations are persisted in SQLite (`.state/bankrag.db`, tables `sessions` and `turns` with per-answer skill, language, tokens, latency and retrieved-chunk counts) so follow-up questions keep their Foundry conversation and previous skill even after a restart; `GET /sessions/stats` aggregates usage and cost; model prices live in `pricing.yaml` (editable in Studio → Settings & usage) and every answer carries a `trace` with timings, token usage, retrieval stats and USD cost; the history button lists past chats. A "Behind the scenes" panel beside the phone shows routing, detected language, agent, tool calls and sources per turn. The language of each message (Thai or English) is detected per turn; the answer and the suggested follow-ups follow it. Answers stream token by token and render as markdown (bold, lists, tables). Foundry conversations are rotated every 6 answers (with a recap) to keep input tokens bounded.
-- **/studio** – tester workbench (login page, `STUDIO_PASSWORD`): skill editor with lint, preview, version diffs and a streamed playground; knowledge files with PDF status, chunk browser, index search, a built-in site crawler and URL import; eval runner and model comparison; conversation review with ratings and CSV export; base rules, runtime settings and bundle export/import. `/legacy` keeps the original debug page.
+- **/studio** – tester workbench (login page, `STUDIO_PASSWORD`): skill editor with lint, preview, version diffs and a streamed playground; knowledge files with PDF status, chunk browser, index search, a built-in site crawler and URL import; eval runner and model comparison; conversation review with ratings and CSV export; base rules, the Responsible Lending rule pack (import/export the compliance sheet, see which agent carries each rule, dry-run the guard on any answer), runtime settings and bundle export/import. `/legacy` keeps the original debug page.
 
 ## Layout
 
 ```
 skills/            _base (shared rules) + credit-card, debit-card, insurance, wealth, general
+rules/mccs/        Responsible Lending rules (PACK.md product taxonomy + one file per rule)
 knowledge/         credit-card/ seeded from the bblwebsite_crawler (19 products, page + PDF texts)
 src/bankrag/       config, skills, search_index, ingest/, knowledge_base, connections, foundry_sync, router, chat, api, cli
 web/               mobile.* (customer app), studio.* (tester page), index.html (legacy debug), fonts/
@@ -56,6 +58,9 @@ uv run bankrag serve               # http://localhost:8010
 | query a knowledge base directly | `uv run bankrag retrieve "..." --skill credit-card` |
 | routing accuracy | `uv run bankrag eval routing` |
 | grounded-answer checks | `uv run bankrag eval rag` |
+| list / validate the Responsible Lending rules | `uv run bankrag rules list` · `uv run bankrag rules validate` |
+| import the compliance team's sheet | `uv run bankrag rules import mccs-rules.xlsx [--dry-run]` |
+| check an answer against the rules | `uv run bankrag rules check "…" --skill credit-card` |
 | tests | `uv run pytest` |
 
 ## API
@@ -68,7 +73,7 @@ Copy `.env.example` to `.env`. Keys: `AOAI_API_KEY` (embeddings + index vectoriz
 
 ## Deploy to Azure (low cost)
 
-The app runs as one container on **Azure Container Apps (consumption)** with an **Azure Files** share for skills, knowledge, evals, prices and JSON state; the SQLite session database stays on the container's local disk and is backed up to the share every minute (restored on boot). Approximate monthly cost: container ~$10-15 at 1 replica, storage <$1, Azure Container Registry Basic $5, Free-tier search $0, models pay-per-use.
+The app runs as one container on **Azure Container Apps (consumption)** with an **Azure Files** share for skills, Responsible Lending rules, knowledge, evals, prices and JSON state; the SQLite session database stays on the container's local disk and is backed up to the share every minute (restored on boot). Approximate monthly cost: container ~$10-15 at 1 replica, storage <$1, Azure Container Registry Basic $5, Free-tier search $0, models pay-per-use.
 
 ```bash
 ./infra/00-login.sh                 # personal tenant

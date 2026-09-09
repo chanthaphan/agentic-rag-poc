@@ -26,6 +26,13 @@ const TR = (() => {
   }
   if (tm.total != null) html += `<div class="tc-row"><span class="k">timeline</span><span class="v">${bar([{ label: "route", value: tm.route, cls: "c1", text: `${tm.route ?? "-"} ms` }, { label: "agent + retrieve", value: tm.agent, cls: "c2", text: `${tm.agent ?? "-"} ms` }, { label: "sources", value: tm.sources, cls: "c3", text: `${tm.sources ?? "-"} ms` }], tm.total)}</span></div>`;
   if (rt.calls) html += `<div class="tc-row"><span class="k">retrieval</span><span class="v"><span class="dp-tag ok">${rt.documents} chunks</span> <span class="dp-tag">${fmtK(rt.output_tokens)} tokens</span> <span class="dp-tag dim">${rt.calls} call${rt.calls > 1 ? "s" : ""}</span>${(rt.query_variants || []).length ? `<div class="qv">${rt.query_variants.map((x) => `<code>${esc(x)}</code>`).join("")}</div>` : ""}</span></div>`;
+  if (tr.compliance && (tr.compliance.checked || tr.compliance.error)) {
+    const c = tr.compliance; const bad = (c.violations || []).length; const rev = (c.review || []).length; const fix = (c.fixed || []).length;
+    const tag = c.error ? `<span class="dp-tag warn">rules not applied: ${esc(c.error)}</span>` : bad ? `<span class="dp-tag warn">${bad} not compliant</span>` : `<span class="dp-tag ok">compliant</span>`;
+    const detail = (c.findings || []).filter((f) => f.verdict === "non_compliant" || f.fixed)
+      .map((f) => `${f.fixed ? "added" : "missing"}: ${f.clause} ${f.title}`).join("<br>");
+    html += `<div class="tc-row"><span class="k">compliance</span><span class="v">${tag} <span class="dp-tag dim">${esc((c.product_names || []).join(", "))}</span>${fix ? ` <span class="dp-tag ok">${fix} warning added</span>` : ""}${rev ? ` <span class="dp-tag">${rev} to review</span>` : ""}${detail ? `<div class="sub">${esc(c.pack)} · ${detail}</div>` : ""}</span></div>`;
+  }
   if (tr.reasoning && tr.reasoning.length) html += `<div class="tc-row"><span class="k">thinking</span><span class="v">${tr.reasoning.map(esc).join("<br>")}</span></div>`;
   if (u.agent || u.router) {
     const ai = (u.agent || {}).input_tokens || 0, ao = (u.agent || {}).output_tokens || 0, ri = (u.router || {}).input_tokens || 0, ro = (u.router || {}).output_tokens || 0;

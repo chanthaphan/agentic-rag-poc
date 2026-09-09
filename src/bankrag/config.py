@@ -96,6 +96,7 @@ class Settings:
     root: Path
     skills_dir: Path
     knowledge_dir: Path
+    rules_dir: Path
     state_dir: Path
     evals_dir: Path
     pricing_file: Path
@@ -144,6 +145,7 @@ class Settings:
             root=root,
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),
+            rules_dir=root / _env("RULES_DIR", "rules"),
             state_dir=root / _env("STATE_DIR", ".state"),
             evals_dir=root / _env("EVALS_DIR", "evals"),
             pricing_file=root / _env("PRICING_FILE", "pricing.yaml"),
@@ -186,3 +188,4 @@ class Settings:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
+        self.rules_dir.mkdir(parents=True, exist_ok=True)

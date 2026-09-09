@@ -57,3 +57,15 @@ OpenTelemetry GenAI attributes, and the A2A hop propagates trace context, so que
 pending turns (ingestion takes 1 to 5 minutes) and the trace card offers "check now". Trade-off: full accounting arrives
 minutes after the answer rather than with it.
 
+
+## 26. Responsible Lending rules are versioned files, applied in the prompt and checked on the answer
+The MCCS advertising rules (BOT 3/2568) live in `rules/<pack>/` as one markdown file per rule: the regulator's text
+verbatim in the body, the machine-readable part (products, how it is checked, what wording is required) in the
+frontmatter, plus an assistant note that survives re-importing the compliance team's spreadsheet. Files, not a
+database table, because they are legal text that wants review and diffs, and because the bundle already moves
+`skills/` and `knowledge/` between environments. Rules apply twice: compiled into the concierge and specialist
+instructions at sync time (so the agent knows before it answers, and a rule change re-versions exactly the affected
+agents), and enforced by `rules.guard()` on the drafted answer (missing mandatory warnings appended verbatim, other
+findings reported on the turn's trace). Trade-off: the deterministic guard cannot decide "show the key conditions
+completely and clearly" style rules, so those are prompt-enforced and reported as `undefined` for review instead of
+costing an LLM call per answer. See [responsible-lending.md](responsible-lending.md).

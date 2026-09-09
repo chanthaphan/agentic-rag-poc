@@ -33,6 +33,7 @@ from azure.ai.projects.models import (
 from azure.core.credentials import TokenCredential
 
 from . import connections as CONN
+from . import rules as RL
 from .config import Settings
 from .models import SkillSpec
 from .skills import compose_instructions
@@ -58,9 +59,9 @@ def a2a_base_url(settings: Settings, agent_name: str) -> str:
 
 
 # ---------------- skill registry ----------------
-def publish_skill(client: AIProjectClient, spec: SkillSpec, base_body: str, state: dict, log: Log) -> tuple[str, str]:
+def publish_skill(client: AIProjectClient, spec: SkillSpec, base_body: str, state: dict, log: Log, rules_block: str = "") -> tuple[str, str]:
     """Publish the composed instructions as a Foundry Skill version and make it the default. Returns (action, version)."""
-    body = compose_instructions(base_body, spec)
+    body = compose_instructions(base_body, spec, rules_block)
     h = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     reg = state.setdefault("registry", {})
     if reg.get(spec.id, {}).get("hash") == h and reg[spec.id].get("version"):
@@ -120,9 +121,12 @@ def import_registry_skill(client: AIProjectClient, settings: Settings, name: str
 
 
 def _strip_base(body: str) -> str:
-    """Registry versions we publish contain the base rules followed by '# Skill: ...'; keep only the skill part."""
+    """Registry versions we publish are base rules + '# Skill: ...' + the compiled Responsible Lending block;
+    keep only the skill part (the rules live in rules/, not in a SKILL.md)."""
     m = re.search(r"\n# Skill: [^\n]*\n\n", body)
-    return body[m.end():].strip() if m else body
+    body = body[m.end():].strip() if m else body
+    cut = body.find(RL.HEADER)
+    return (body[:cut].rstrip().removesuffix("---").rstrip() if cut > 0 else body).strip()
 
 
 # ---------------- A2A handoff ----------------
@@ -176,6 +180,10 @@ its answer to the customer.
 - Language: answer in the language of the customer's latest message (Thai or English). A developer note may state the
   customer's language: follow it strictly and never mention it. Thai replies use a consistent female voice (ค่ะ/คะ).
 - Never ask for card numbers, PINs, OTPs, passwords or ID numbers.
+- Some product families are regulated: read the Responsible Lending section below before you hand a question over and
+  before you relay an answer. It applies to the answer the customer finally reads, which is the one you send.
+
+{responsible_lending}
 """
 
 
@@ -183,4 +191,5 @@ def concierge_definition(settings: Settings, skills: dict[str, SkillSpec], conne
     ordered = sorted(skills.values(), key=lambda s: (s.id == "general", s.id))
     lines = "\n".join(f"- {s.name} (agent {s.agent_name}): {s.description.strip()}" for s in ordered if s.id in connection_ids)
     tools = [A2APreviewTool(project_connection_id=connection_ids[s.id]) for s in ordered if s.id in connection_ids]
-    return PromptAgentDefinition(model=settings.concierge_model or settings.default_chat_model, instructions=CONCIERGE_TEMPLATE.format(specialists=lines), tools=tools)
+    instructions = CONCIERGE_TEMPLATE.format(specialists=lines, responsible_lending=RL.prompt_block_for_concierge(RL.active_pack(settings)))
+    return PromptAgentDefinition(model=settings.concierge_model or settings.default_chat_model, instructions=instructions.strip() + "\n", tools=tools)

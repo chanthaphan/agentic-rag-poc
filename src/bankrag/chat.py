@@ -11,6 +11,7 @@ import tiktoken
 
 from . import knowledge_base as KB
 from . import router as R
+from . import rules as RL
 from .router import usage_dict
 from .pricing import load_pricing, turn_cost
 from .config import Settings
@@ -177,6 +178,9 @@ class ChatSession:
         except Exception as e:  # noqa: BLE001 - pricing must never break the chat
             trace["cost"] = {"error": str(e)[:120]}
         citations = resolve_citations(citations, references, lookup=lambda ids: _lookup_docs(self.settings, ids))
+        text, appended = self._apply_rules(strip_markers(text), question, lang, spec.id, trace)
+        if appended:
+            yield {"type": "delta", "text": appended}
         self.history.append({"role": "assistant", "content": text})
         self.prev_skill = spec.id
         self.turns_in_conversation += 1
@@ -186,7 +190,7 @@ class ChatSession:
             skill_id=spec.id,
             confidence=decision.confidence,
             route_reason=decision.reason,
-            text=strip_markers(text),
+            text=text,
             language=lang,
             suggestions=pick_suggestions(spec, asked, self.skills, language=lang),
             citations=citations,
@@ -286,6 +290,9 @@ class ChatSession:
         except Exception as e:  # noqa: BLE001
             trace["cost"] = {"error": str(e)[:120]}
         citations = resolve_citations(citations, references, lookup=lambda ids: _lookup_docs(self.settings, ids))
+        text, appended = self._apply_rules(strip_markers(text), question, lang, specialist, trace)
+        if appended:
+            yield {"type": "delta", "text": appended}
         self.history.append({"role": "assistant", "content": text})
         self.prev_skill = specialist if specialist in self.skills else self.prev_skill
         self.turns_in_conversation += 1
@@ -293,10 +300,23 @@ class ChatSession:
         asked = [h["content"] for h in self.history if h["role"] == "user"]
         yield {"type": "done", "answer": Answer(
             skill_id=specialist, confidence=1.0, route_reason=f"concierge handed off to {spec.agent_name if spec else 'no specialist'} over A2A" if spec else "concierge answered without a handoff",
-            text=strip_markers(text), language=lang, suggestions=pick_suggestions(spec or self.skills.get("general"), asked, self.skills, language=lang),
+            text=text, language=lang, suggestions=pick_suggestions(spec or self.skills.get("general"), asked, self.skills, language=lang),
             citations=citations, references=references, agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
             retrieval_context=(extra.get("retrieval_texts") or []) + _a2a_outputs(tool_calls),
         )}
+
+    def _apply_rules(self, text: str, question: str, language: str, skill_id: str, trace: dict[str, Any]) -> tuple[str, str]:
+        """Responsible Lending guard on the drafted answer: missing mandatory warnings are appended verbatim (returned
+        so a streaming caller can emit them) and the findings go on the trace. A broken rule pack must not take the
+        chat down, so a failure is recorded on the turn instead of raised - it is visible in the trace and in Studio."""
+        try:
+            text, report = RL.guard(self.settings, text, question=question, language=language, skill_id=skill_id)
+        except Exception as e:  # noqa: BLE001
+            trace["compliance"] = {"error": f"{type(e).__name__}: {str(e)[:200]}", "checked": 0}
+            return text, ""
+        if report:
+            trace["compliance"] = {k: v for k, v in report.items() if k != "appended"}
+        return text, report.get("appended", "")
 
     def _recap_items(self) -> list[dict[str, Any]]:
         """Seed a fresh Foundry conversation with a short recap so follow-ups keep working after rotation."""

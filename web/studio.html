@@ -101,7 +101,7 @@
           </div>
         </div>
 
-        <div class="pane" id="pane-preview"><div class="muted" style="margin-bottom:8px">What the agent receives: the base rules, then this skill. Rendered as markdown.</div><div class="md-preview" id="md-preview"></div></div>
+        <div class="pane" id="pane-preview"><div class="muted" style="margin-bottom:8px">What the agent receives: the base rules, this skill, then the Responsible Lending rules covering its products. Rendered as markdown.</div><div class="md-preview" id="md-preview"></div></div>
 
         <div class="pane" id="pane-versions">
           <div class="toolbar"><button id="ver-refresh" class="btn-secondary">Reload versions</button><span id="ver-status" class="muted"></span></div>
@@ -328,7 +328,7 @@
 
 <!-- ================= SETTINGS ================= -->
 <section id="view-settings" class="view">
-  <div class="subtabs"><button data-spane="usage" class="on">Usage &amp; prices</button><button data-spane="base">Base rules</button><button data-spane="runtime">Runtime settings</button><button data-spane="bundle">Export / import</button><button data-spane="access" id="tab-access" hidden>Access</button></div>
+  <div class="subtabs"><button data-spane="usage" class="on">Usage &amp; prices</button><button data-spane="base">Base rules</button><button data-spane="lending">Responsible lending</button><button data-spane="runtime">Runtime settings</button><button data-spane="bundle">Export / import</button><button data-spane="access" id="tab-access" hidden>Access</button></div>
   <div class="pane on" id="spane-usage">
     <h3>Usage (from .state/bankrag.db)</h3>
     <div class="cards" id="us-cards"></div>
@@ -341,6 +341,31 @@
     <p class="muted">Shared persona, language, grounding and compliance rules prepended to every skill (skills/_base/SKILL.md). Saving and syncing creates a new version of every agent.</p>
     <textarea id="base-body" rows="26" spellcheck="false"></textarea>
     <div class="toolbar"><button id="base-save" data-admin>Save</button><button id="base-save-sync" data-admin>Save &amp; sync all agents</button><span class="muted admin-note" data-tester>read-only: the base rules apply to every skill, so only a Studio admin can change them</span><span id="base-status" class="muted"></span></div>
+  </div>
+  <div class="pane" id="spane-lending">
+    <p class="muted" id="rl-intro"></p>
+    <div class="toolbar">
+      <a class="btn-secondary" id="rl-export" href="/rules.xlsx">Download rules.xlsx</a>
+      <label class="btn-secondary" data-admin>Import a rules sheet <input type="file" id="rl-file" accept=".xlsx" hidden></label>
+      <span class="muted admin-note" data-tester>read-only: rules are changed by a Studio admin</span>
+      <span id="rl-status" class="muted"></span>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Rules</h3><span class="muted">the sheet's rows; a rule applies to an answer that mentions one of its products</span></div>
+      <table class="list" id="rl-table"><thead><tr><th style="width:110px">clause</th><th>rule</th><th style="width:170px">products</th><th style="width:170px">check</th><th style="width:110px">agents</th><th style="width:70px">status</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="bd-grid">
+      <div class="panel">
+        <div class="panel-head"><h3>Product families</h3><span class="muted">which skill agent carries each family's rules</span></div>
+        <table class="list" id="rl-products"><thead><tr><th>family</th><th style="width:150px">skills</th><th style="width:70px">rules</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Try an answer</h3><span class="muted">runs the same guard the chat runs before an answer is sent</span></div>
+        <textarea id="rl-try" rows="5" spellcheck="false" placeholder="สินเชื่อบ้านบัวหลวง ดอกเบี้ยเริ่มต้น 2.75% ต่อปี ผ่อนเพียง 4,500 บาทต่อเดือน"></textarea>
+        <div class="toolbar"><label>as skill <select id="rl-try-skill"></select></label><button id="rl-try-run" class="btn-secondary">Check</button></div>
+        <div id="rl-try-out"></div>
+      </div>
+    </div>
   </div>
   <div class="pane" id="spane-runtime">
     <p class="muted">Overrides saved to .state/settings.json (they win over .env). Model changes apply to agents after a sync.</p>
@@ -380,6 +405,7 @@
           <label><input type="checkbox" class="bd-part" value="skills" checked> Skills <span class="muted">(every SKILL.md incl. base rules)</span></label>
           <label><input type="checkbox" class="bd-part" value="knowledge" checked> Knowledge <span class="muted">(markdown per knowledge space)</span></label>
           <label class="bd-sub"><input type="checkbox" id="bd-pdfs" checked> include PDFs <span class="muted">(most of the size; the extracted .md next to each PDF is always included)</span></label>
+          <label><input type="checkbox" class="bd-part" value="rules" checked> Responsible Lending rules <span class="muted">(rules/&lt;pack&gt;/)</span></label>
           <label><input type="checkbox" class="bd-part" value="evals" checked> Eval question sets</label>
           <label><input type="checkbox" class="bd-part" value="config" checked> Prices and runtime settings <span class="muted">(pricing.yaml, settings.json; no secrets)</span></label>
         </div>
@@ -430,6 +456,7 @@
 <script src="/static/studio-knowledge.js"></script>
 <script src="/static/studio-evals.js"></script>
 <script src="/static/studio-conversations.js"></script>
+<script src="/static/studio-rules.js"></script>
 <script src="/static/studio-settings.js"></script>
 </body>
 </html>

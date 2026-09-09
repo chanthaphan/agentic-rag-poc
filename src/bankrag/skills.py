@@ -88,11 +88,15 @@ def validate_skill(spec: SkillSpec, knowledge_dir: Path | None = None) -> tuple[
     return errors, warnings
 
 
-def compose_instructions(base_body: str, spec: SkillSpec) -> str:
+def compose_instructions(base_body: str, spec: SkillSpec, rules_block: str = "") -> str:
+    """base rules + the skill's own instructions + the Responsible Lending rules that cover its products (last, so the
+    agent reads the compliance obligations right before it answers)."""
     parts = []
     if base_body:
         parts.append(base_body)
     parts.append(f"# Skill: {spec.name} (id: {spec.id})\n\n{spec.body}")
+    if rules_block:
+        parts.append(rules_block)
     return "\n\n---\n\n".join(parts).strip() + "\n"
 
 

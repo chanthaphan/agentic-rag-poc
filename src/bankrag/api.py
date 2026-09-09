@@ -839,6 +839,86 @@ def registry_import(req: RegistryImport):
     return {"id": spec.id, "name": spec.name, "note": "imported as a local skill; review keywords and description, then Save & sync"}
 
 
+# ---------------- responsible lending rules ----------------
+@app.get("/rules")
+def list_rules(pack: str = "mccs"):
+    """The rule pack as Studio shows it: products (with the skills that carry them) and one row per rule."""
+    from . import rules as RL
+
+    p = RL.active_pack(settings, pack)
+    skills, _ = _skills()
+    checks = RL.validate_pack(p)
+    return {
+        "pack": {"id": p.id, "name": p.name, "description": p.description, "sources": p.sources, "body": p.body},
+        "packs": RL.list_packs(settings),
+        "products": [{**x.model_dump(), "rules": [r.id for r in p.rules if x.id in r.products],
+                      "unknown_skills": [s for s in x.skills if s not in skills]} for x in p.products],
+        "rules": [{**r.model_dump(exclude={"path"}),
+                   "product_names": [p.product(x).name if p.product(x) else x for x in r.products],
+                   "skills": sorted({s for x in r.products for s in (p.product(x).skills if p.product(x) else [])}),
+                   "errors": checks.get(r.id, ([], []))[0], "warnings": checks.get(r.id, ([], []))[1]} for r in p.rules],
+    }
+
+
+@app.get("/rules/prompt")
+def rules_prompt(pack: str = "mccs", skill: str = ""):
+    """The compiled block that goes into an agent's instructions (empty skill = the concierge's)."""
+    from . import rules as RL
+
+    p = RL.active_pack(settings, pack)
+    if not skill:
+        return {"target": "concierge", "block": RL.prompt_block_for_concierge(p)}
+    skills, _ = _skills()
+    if skill not in skills:
+        raise HTTPException(404, "skill not found")
+    return {"target": skill, "block": RL.prompt_block_for_skill(p, skills[skill])}
+
+
+@app.post("/rules/check")
+def rules_check(data: dict):
+    """Run the answer-time guard over any text: what a turn would be flagged for, and what would be appended."""
+    from . import rules as RL
+
+    text = str(data.get("text", "")).strip()
+    if not text:
+        raise HTTPException(400, "text required")
+    fixed, report = RL.guard(settings, text, question=str(data.get("question", "")), language=str(data.get("language", "th")),
+                             skill_id=str(data.get("skill", "")), pack_id=str(data.get("pack", "mccs")))
+    return {"text": fixed, "report": report}
+
+
+@studio.put("/rules/{rule_id}", dependencies=[Depends(require_admin)])
+def update_rule_endpoint(rule_id: str, form: dict):
+    from . import rules as RL
+
+    try:
+        r = RL.update_rule(settings, str(form.get("pack", "mccs")), rule_id, form)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return r.model_dump(exclude={"path"})
+
+
+@app.get("/rules.xlsx")
+def rules_xlsx_export(pack: str = "mccs"):
+    from .rules_xlsx import export_xlsx
+
+    data = export_xlsx(settings, pack)
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{pack}-rules.xlsx"'})
+
+
+@studio.post("/rules/import", dependencies=[Depends(require_admin)])
+async def rules_import(pack: str = "mccs", dry_run: bool = False, file: UploadFile = File(...)):
+    from .rules_xlsx import import_xlsx
+
+    try:
+        return import_xlsx(settings, await file.read(), pack, dry_run=dry_run)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 # ---------------- knowledge ----------------
 @app.get("/knowledge/stats")
 def knowledge_stats():
@@ -1019,7 +1099,7 @@ def knowledge_crawl(req: CrawlRequest):
 
 
 @studio.get("/bundle.zip")
-def bundle_export(parts: str = "skills,knowledge,evals,config", pdfs: bool = True):
+def bundle_export(parts: str = "skills,rules,knowledge,evals,config", pdfs: bool = True):
     from .bundle import PARTS, export_bundle
 
     wanted = [x for x in parts.split(",") if x in PARTS] or list(PARTS)
@@ -1038,7 +1118,7 @@ async def bundle_inspect(file: UploadFile = File(...)):
 
 
 @studio.post("/bundle", dependencies=[Depends(require_admin)])
-async def bundle_import(mode: str = "merge", parts: str = "skills,knowledge,evals,config", ingest: bool = False, sync: bool = False, file: UploadFile = File(...)):
+async def bundle_import(mode: str = "merge", parts: str = "skills,rules,knowledge,evals,config", ingest: bool = False, sync: bool = False, file: UploadFile = File(...)):
     """Write the bundle, then (optionally) ingest the knowledge categories that changed and sync the skills, as one job."""
     from .bundle import PARTS, import_bundle
 

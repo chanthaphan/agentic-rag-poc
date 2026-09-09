@@ -109,3 +109,7 @@ In the customer app, `GET /sessions` returns only the signed-in person's convers
 
 `observability.py` queries Application Insights (`APPINSIGHTS_APP_ID`, Entra token, Monitoring Reader) for the spans sharing the concierge response's operation, summarises tokens per agent and writes `usage.specialist`, the combined `usage.total`, `cost.specialist` and `timings_ms.specialist` into the stored turn. `api.reconcile_pending` runs in a thread every 90 s over turns flagged `handoff.usage_pending`; `POST /sessions/{id}/reconcile` does it on demand.
 
+
+## Responsible Lending
+
+`rules.py` loads `rules/<pack>/` (PACK.md product taxonomy + one file per rule) and applies it twice: `prompt_block_for_skill` / `prompt_block_for_concierge` are compiled into the agent instructions at sync time (part of the hashed definition, so a rule change re-versions the affected agents), and `guard()` runs over every drafted answer in both `ask_stream` and `_ask_concierge` — it detects the regulated product families in the question and answer, evaluates the active rules covering them, appends missing mandatory warnings verbatim (streamed as one more delta) and writes the findings to `trace.compliance`. `rules_xlsx.py` merges the compliance team's sheet into the files, keeping how each rule is checked. Routes: `GET /rules`, `GET /rules/prompt`, `POST /rules/check`, `PUT /rules/{id}` (admin), `GET /rules.xlsx`, `POST /rules/import` (admin); Studio → Settings → Responsible lending. See [responsible-lending.md](responsible-lending.md).

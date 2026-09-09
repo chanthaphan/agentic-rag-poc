@@ -8,6 +8,7 @@ RUN uv sync --frozen --no-dev --no-install-project --extra import
 COPY src ./src
 COPY web ./web
 COPY skills ./skills
+COPY rules ./rules
 COPY knowledge ./knowledge
 COPY evals ./evals
 COPY pricing.yaml README.md ./

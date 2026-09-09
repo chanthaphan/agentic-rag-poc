@@ -1,4 +1,4 @@
-"""Export / import of skills + knowledge + evals + pricing + runtime settings as one zip.
+"""Export / import of skills + Responsible Lending rules + knowledge + evals + pricing + runtime settings as one zip.
 
 Export can be limited to parts (and PDFs left out, which is most of the size). Inspect compares a bundle with the
 local files (new / changed / same) so the Studio can preview an import; import writes files and reports what changed
@@ -15,12 +15,12 @@ from typing import Callable, Iterable, Optional
 from .config import Settings, overlay_path
 
 Log = Callable[[str], None]
-PARTS = ("skills", "knowledge", "evals", "config")
+PARTS = ("skills", "rules", "knowledge", "evals", "config")
 CONFIG_FILES = ("pricing.yaml", "settings.json")
 
 
 def _base(settings: Settings, part: str) -> Path:
-    return {"skills": settings.skills_dir, "knowledge": settings.knowledge_dir, "evals": settings.evals_dir}[part]
+    return {"skills": settings.skills_dir, "rules": settings.rules_dir, "knowledge": settings.knowledge_dir, "evals": settings.evals_dir}[part]
 
 
 def _dest(settings: Settings, name: str) -> Optional[Path]:
@@ -29,7 +29,7 @@ def _dest(settings: Settings, name: str) -> Optional[Path]:
     if not p.parts or p.is_absolute() or ".." in p.parts:
         raise ValueError(f"unsafe path in bundle: {name}")
     top = p.parts[0]
-    if top in ("skills", "knowledge", "evals") and len(p.parts) > 1:
+    if top in ("skills", "rules", "knowledge", "evals") and len(p.parts) > 1:
         return _base(settings, top) / Path(*p.parts[1:])
     if name == "pricing.yaml":
         return settings.pricing_file
@@ -40,14 +40,14 @@ def _dest(settings: Settings, name: str) -> Optional[Path]:
 
 def _part_of(name: str) -> str:
     top = Path(name).parts[0]
-    return top if top in ("skills", "knowledge", "evals") else "config"
+    return top if top in ("skills", "rules", "knowledge", "evals") else "config"
 
 
 def export_bundle(settings: Settings, parts: Optional[Iterable[str]] = None, *, include_pdfs: bool = True) -> bytes:
     wanted = set(parts or PARTS)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for part in ("skills", "knowledge", "evals"):
+        for part in ("skills", "rules", "knowledge", "evals"):
             if part not in wanted:
                 continue
             base = _base(settings, part)
@@ -117,7 +117,7 @@ def import_bundle(settings: Settings, data: bytes, *, mode: str = "merge", parts
             if _part_of(n) in wanted:
                 plan.append((n, dest))
         if mode == "replace":
-            for part in ("skills", "knowledge"):
+            for part in ("skills", "rules", "knowledge"):
                 d = _base(settings, part)
                 if part in wanted and d.exists() and any(_part_of(n) == part for n, _ in plan):
                     shutil.rmtree(d)
