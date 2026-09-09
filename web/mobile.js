@@ -50,7 +50,7 @@ function render() {
     const byLang = c.starter_prompts_by_lang || {};
     c.starter_prompts = (TH ? byLang.th : byLang.en) && (TH ? byLang.th : byLang.en).length ? (TH ? byLang.th : byLang.en) : c.starter_prompts;
     body.innerHTML = `<div class="empty"><div class="greet">${esc(greeting(c.user_name))}</div>
-      <h2>${TH ? "ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพค่ะ" : "I'm here to help you<br>with Bangkok Bank products"}</h2>
+      <h2>${TH ? `${esc(c.assistant_name || "เกรส")} ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพค่ะ` : `I'm ${esc(c.assistant_name || "Grace")}, here to help you<br>with Bangkok Bank products`}</h2>
       <div class="chips">${c.starter_prompts.map((p, i) => `<button class="chip" style="animation-delay:${(i + 1) * 0.08}s" data-q="${esc(p)}">${ICON.sparkles}<span>${esc(p)}</span></button>`).join("")}</div></div>`;
     body.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
     renderLog();

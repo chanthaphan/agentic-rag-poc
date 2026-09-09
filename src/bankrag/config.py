@@ -141,7 +141,7 @@ class Settings:
             studio_testers=[e.strip().lower() for e in _env("STUDIO_TESTERS", "").split(",") if e.strip()],
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
-            assistant_name=_env("ASSISTANT_NAME", "Assistant"),
+            assistant_name=_env("ASSISTANT_NAME", "เกรส"),
             root=root,
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),
