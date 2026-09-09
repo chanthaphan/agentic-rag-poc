@@ -116,6 +116,7 @@ class ChatSession:
         future = None
         if with_sources and owner.id == spec.id:  # skills without documents have no knowledge base
             future = _POOL.submit(KB.retrieve, self.settings, owner.kb_name, question, ks_name=owner.ks_name, max_docs=spec.top_k)
+        yield {"type": "status", "phase": "retrieving" if owner.id == spec.id else "drafting", "skill_id": spec.id}
 
         t_agent = time.perf_counter()
         stream = self.openai.responses.create(
@@ -132,10 +133,14 @@ class ChatSession:
             et = getattr(event, "type", "")
             if et == "response.output_text.delta":
                 yield {"type": "delta", "text": event.delta}
+            elif et == "response.output_item.added":
+                if getattr(getattr(event, "item", None), "type", "") == "mcp_call":
+                    yield {"type": "status", "phase": "retrieving", "skill_id": spec.id}
             elif et == "response.output_item.done":
                 item = getattr(event, "item", None)
                 if getattr(item, "type", "") == "mcp_call":
                     yield {"type": "tool", "name": getattr(item, "name", ""), "arguments": (getattr(item, "arguments", "") or "")[:300], "error": str(getattr(item, "error", "") or "")}
+                    yield {"type": "status", "phase": "drafting", "skill_id": spec.id}
             elif et == "response.completed":
                 final = event.response
             elif et in ("response.failed", "response.incomplete", "error"):
@@ -206,6 +211,7 @@ class ChatSession:
             self.conversation_id = self.openai.conversations.create(items=self._recap_items() if rotated else []).id
             self.turns_in_conversation = 0
         yield {"type": "conversation", "conversation_id": self.conversation_id, "rotated": rotated}
+        yield {"type": "status", "phase": "choosing", "skill_id": ""}
         t_agent = time.perf_counter()
         stream = self.openai.responses.create(
             stream=True, conversation=self.conversation_id,
@@ -219,11 +225,19 @@ class ChatSession:
             et = getattr(event, "type", "")
             if et == "response.output_text.delta":
                 yield {"type": "delta", "text": event.delta}
+            elif et == "response.output_item.added":
+                item = getattr(event, "item", None)
+                if str(getattr(item, "type", "")) == "a2a_preview_call":
+                    yield {"type": "status", "phase": "specialist", "skill_id": _a2a_skill_id(item)}
             elif et == "response.output_item.done":
                 item = getattr(event, "item", None)
                 itype = str(getattr(item, "type", ""))
                 if itype.startswith("a2a"):
                     yield {"type": "tool", "name": itype, "arguments": _a2a_summary(item)[:300], "error": str(getattr(item, "error", "") or "")}
+                    if itype == "a2a_preview_call":
+                        yield {"type": "status", "phase": "specialist", "skill_id": _a2a_skill_id(item)}
+                    elif itype == "a2a_preview_call_output":
+                        yield {"type": "status", "phase": "relaying", "skill_id": _a2a_skill_id(item)}
                     if itype == "a2a_preview_call" and future is None and with_sources:
                         f = _a2a_fields(item)
                         sid = str(f.get("name", ""))[4:] if str(f.get("name", "")).startswith("a2a-") else ""
@@ -500,6 +514,12 @@ def _a2a_fields(item: Any) -> dict[str, Any]:
     out["id"] = getattr(item, "id", "")
     out["status"] = getattr(item, "status", "")
     return out
+
+
+def _a2a_skill_id(item: Any) -> str:
+    """Skill id behind an A2A item: the connection is named a2a-<skill id>."""
+    name = str(_a2a_fields(item).get("name") or "")
+    return name[4:] if name.startswith("a2a-") else ""
 
 
 def _a2a_summary(item: Any) -> str:

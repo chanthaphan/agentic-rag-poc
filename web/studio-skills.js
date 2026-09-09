@@ -171,7 +171,8 @@ async function pgSend() {
     if (!res.ok) throw new Error(await res.text());
     await readSSE(res, (ev) => {
       if (ev.type === "session") pgSession = ev.session_id;
-      else if (ev.type === "route") textEl.textContent = "retrieving and answering…";
+      else if (ev.type === "route") textEl.textContent = "routed, the agent is starting…";
+      else if (ev.type === "status" && !text) textEl.textContent = ({ choosing: "the concierge is choosing a specialist…", retrieving: `retrieving ${ev.skill_id || ""} knowledge…`, specialist: `handed over to the ${ev.skill_id || ""} specialist…`, drafting: "knowledge retrieved, writing the answer…", relaying: "specialist replied, the concierge is relaying…" })[ev.phase] || ev.phase;
       else if (ev.type === "delta") { text += ev.text; textEl.classList.remove("muted"); textEl.innerHTML = esc(text).replace(/\n/g, "<br>"); }
       else if (ev.type === "done") { const a = ev.answer; textEl.innerHTML = md(a.text); traceEl.innerHTML = TR.traceCard({ ...a, trace: a.trace }, q); }
       else if (ev.type === "error") throw new Error(ev.message);

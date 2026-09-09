@@ -77,6 +77,9 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
 .badge { font:var(--caption-lg); font-weight:600; color:var(--bbl-70); background:var(--bbl-10); border-radius:var(--radius-full); padding:3px 9px; border:none; cursor:pointer; }
 .cite { font:var(--caption-lg); color:var(--bbl-70); background:#fff; border:1px solid var(--bbl-20); border-radius:var(--radius-full); padding:3px 9px; text-decoration:none; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bubble .wait { display:inline-flex; align-items:center; gap:8px; color:var(--gray-70); font:var(--label-sm); }
+.bubble .wait .spin { width:12px; height:12px; flex:none; border-radius:50%; border:2px solid var(--bbl-20); border-top-color:var(--bbl-60); animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .typing { display:flex; align-items:center; }
 .typing .dotsbox { background:rgba(255,255,255,.95); border-radius:18px 18px 18px 5px; border:1px solid rgba(20,40,70,.06); display:flex; gap:4px; padding:12px 14px; }
 .typing .dotsbox i { width:7px; height:7px; border-radius:50%; background:var(--bbl-50); animation:dotPulse 1.2s infinite ease-in-out; }

@@ -11,6 +11,24 @@ const ICON = {
 };
 const TH = (navigator.language || "").toLowerCase().startsWith("th");
 const state = { config: null, sessionId: null, turns: [], suggestions: [], busy: false };
+// what the assistant is doing while the bubble is still empty (phases come from /chat/stream "status" events)
+const STATUS = {
+  th: { thinking: "กำลังคิดค่ะ…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแลค่ะ…", retrieving: "กำลังค้นหาข้อมูล{skill}ให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญด้าน{skill}ค่ะ…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบค่ะ…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียงให้ค่ะ…" },
+  en: { thinking: "Thinking…", choosing: "Working out who should handle this…", retrieving: "Looking up {skill} information…", specialist: "Handing this to the {skill} specialist…", drafting: "Found it, writing the answer…", relaying: "The specialist replied, putting the answer together…" },
+};
+const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร" };
+function skillLabel(id, lang) {
+  if (!id) return lang === "th" ? "" : "product";
+  if (lang === "th") return SKILL_TH[id] || id.replace(/-/g, " ");
+  const row = ((state.config || {}).skills || []).find((x) => x.id === id);
+  return row ? row.name.replace(/\s+(Advisor|Assistant)$/i, "") : id.replace(/-/g, " ");
+}
+function statusText(t) {
+  const lang = t.language === "en" ? "en" : t.language === "th" ? "th" : TH ? "th" : "en";
+  const tpl = STATUS[lang][t.status || "thinking"] || STATUS[lang].thinking;
+  return tpl.replace("{skill}", skillLabel(t.status_skill, lang));
+}
+function statusHtml(t) { return `<span class="wait"><i class="spin"></i>${esc(statusText(t))}</span>`; }
 
 // ---------- rendering ----------
 function greeting(name) {
@@ -42,6 +60,7 @@ function render() {
   state.turns.forEach((t, i) => {
     if (t.role === "user") { html += `<div class="row me"><div class="bubble">${esc(t.text)}</div></div>`; return; }
     const isLast = i === state.turns.length - 1;
+    if (t.streaming) { html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md">${t.text ? esc(t.text).replace(/\n/g, "<br>") : statusHtml(t)}</div></div>`; return; }
     const badge = t.skill_id && t.skill_id !== "offtopic" ? `<button class="badge" data-turn="${i}">${esc(t.skill_id)} · ${Math.round((t.confidence || 0) * 100)}%</button>` : "";
     const cites = (t.citations || []).slice(0, 3).map((c) => `<a class="cite" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.url)}">${esc(c.title || c.url.replace(/^https?:\/\//, ""))}</a>`).join("");
     const fb = t.streaming || t.error || !state.sessionId ? "" : `<span class="fb" data-idx="${i}"><button class="${t.rating === "up" ? "on" : ""}" data-r="up" title="helpful">👍</button><button class="${t.rating === "down" ? "on" : ""}" data-r="down" title="not helpful">👎</button></span>`;
@@ -72,12 +91,12 @@ function renderLog() {
   $("#dp-session").textContent = state.sessionId ? `session ${state.sessionId}` : "";
   const blocks = []; let totCost = 0, totIn = 0, totOut = 0, n = 0;
   for (let i = 0; i < state.turns.length; i++) {
-    const t = state.turns[i]; if (t.role !== "assistant") continue;
+    const t = state.turns[i]; if (t.role !== "assistant" || t.streaming) continue;
     const q = state.turns[i - 1] && state.turns[i - 1].role === "user" ? state.turns[i - 1].text : "";
     const tr = t.trace || {}; n++; totCost += (tr.cost || {}).total_usd || 0; totIn += ((tr.usage || {}).total || {}).input_tokens || 0; totOut += ((tr.usage || {}).total || {}).output_tokens || 0;
     blocks.push(traceCard(t, q));
   }
-  if (state.busy) blocks.push(`<div class="tc"><div class="tc-q">${esc(state.turns[state.turns.length - 1]?.text || "")}</div><div class="tc-row"><span class="k">status</span><span class="v">routing with bank-router, then the skill agent retrieves and answers…</span></div></div>`);
+  if (state.busy || state.turns.some((t) => t.streaming)) blocks.push(`<div class="tc"><div class="tc-q">${esc(([...state.turns].reverse().find((t) => t.role === "user") || {}).text || "")}</div><div class="tc-row"><span class="k">status</span><span class="v">${esc(statusText({ ...(state.turns.find((t) => t.streaming) || {}), language: "en" }))}</span></div></div>`);
   const totals = n ? `<div class="tc-totals"><span><b>${n}</b> answer${n > 1 ? "s" : ""}</span><span><b>${fmtK(totIn)}</b> in</span><span><b>${fmtK(totOut)}</b> out</span><span class="cost"><b>${fmtUsd(totCost)}</b> session</span></div>` : "";
   el.innerHTML = totals + (blocks.length ? blocks.join("") : '<div class="dp-empty">Send a message to see routing, agent, retrieval, tokens, cost and sources.</div>');
   el.scrollTop = el.scrollHeight;
@@ -114,6 +133,10 @@ async function send(text) {
         Object.assign(draft, { skill_id: ev.skill_id, confidence: ev.confidence, language: ev.language, route_reason: ev.reason, agent_name: ev.agent_name, trace: { timings_ms: { route: ev.route_ms } } });
         if (!state.turns.includes(draft)) { state.turns.push(draft); state.busy = false; render(); }
         bubble = $("#body .row:last-child .bubble");
+        renderLog();
+      } else if (ev.type === "status") {
+        draft.status = ev.phase; draft.status_skill = ev.skill_id || draft.status_skill || "";
+        if (bubble && !draft.text) bubble.innerHTML = statusHtml(draft);
         renderLog();
       } else if (ev.type === "delta") {
         draft.text += ev.text;

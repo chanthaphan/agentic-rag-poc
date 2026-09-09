@@ -20,6 +20,7 @@ class StubSession:
 
     def ask_stream(self, q, force_skill=None, with_sources=True):
         yield {"type": "route", "skill_id": "credit-card", "confidence": 0.9, "language": "th", "reason": "r", "agent_name": "bank-credit-card", "route_ms": 5}
+        yield {"type": "status", "phase": "retrieving", "skill_id": "credit-card"}
         yield {"type": "delta", "text": "สวัส"}
         yield {"type": "delta", "text": "ดี"}
         yield {"type": "tool", "name": "knowledge_base_retrieve", "arguments": "{}", "error": ""}
@@ -40,7 +41,7 @@ def test_chat_stream_events_and_persistence(tmp_path, monkeypatch):
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
         events = [json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ")]
     types = [e["type"] for e in events]
-    assert types == ["session", "route", "delta", "delta", "tool", "done"]
+    assert types == ["session", "route", "status", "delta", "delta", "tool", "done"]
     sid = events[0]["session_id"]
     assert events[-1]["answer"]["text"] == "สวัสดี" and events[-1]["title"] == "สวัสดี"
     rec = c.get(f"/sessions/{sid}").json()
