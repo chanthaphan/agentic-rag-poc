@@ -24,51 +24,71 @@ def test_disabled_without_a_key():
         SV.fx_latest_raw(s)
 
 
-def test_normalize_fx_is_tolerant_of_field_names():
-    # a list straight from the endpoint
-    rows = [{"CurrencyCode": "usd", "CurrencyName": "US Dollar", "Buying": "35.50", "Selling": "36,100.00", "Unit": "1"},
-            {"currency": "EUR", "buyingRate": 38.1, "sellingRate": 39.2}]
+# one row exactly as GetLatestfxrates returns it (trailing spaces and all)
+LIVE_ROW = {"ID": "31155", "Description": "USD: 1-2", "Family": "USD1", "FamilyLong": "US Dollar 1",
+            "BuyingRates": "31.55     ", "SellingRates": "33.09   ", "SightBill": "", "Bill_DD_TT": "",
+            "TT": "", "Ddate": "9/09/2026", "Update": "2", "DTime": "13:10     "}
+
+
+def test_normalize_fx_reads_the_live_shape():
+    """The service has no currency field: the code lives in Description / Family, and rates are *Rates with padding."""
+    got = SV.normalize_fx([LIVE_ROW])
+    assert len(got) == 1
+    r = got[0]
+    assert r.currency == "USD" and r.label == "USD: 1-2" and r.name == "US Dollar 1"
+    assert r.buying == 31.55 and r.selling == 33.09
+    assert r.tt is None and r.sight_bill is None  # blank strings, not zeros
+    assert r.as_of == "9/09/2026 13:10 (round 2)"
+
+
+def test_normalize_fx_is_tolerant_of_other_field_names():
+    rows = [{"Family": "EUR", "FamilyLong": "Euro", "BuyingRates": "38.1", "SellingRates": "39.2", "TT": "38.9"},
+            {"CurrencyCode": "JPY", "Buying": "0.2350", "Selling": "0.2450"}]
     got = SV.normalize_fx(rows)
-    assert [r.currency for r in got] == ["USD", "EUR"]
-    assert got[0].name == "US Dollar" and got[0].buying == 35.5 and got[0].selling == 36100.0
-    assert got[1].buying == 38.1 and got[1].selling == 39.2
-    # a wrapped shape (list nested under some key)
-    assert len(SV.normalize_fx({"result": rows, "asOf": "x"})) == 2
-    # junk degrades to empty, not a crash
+    assert [r.currency for r in got] == ["EUR", "JPY"]
+    assert got[0].tt == 38.9 and got[1].buying == 0.235
+    assert len(SV.normalize_fx({"result": rows})) == 2  # a wrapped list
     assert SV.normalize_fx({"nope": 1}) == [] and SV.normalize_fx("boom") == []
-    # a row with no recognisable currency code is skipped
-    assert SV.normalize_fx([{"foo": "bar"}]) == []
+    assert SV.normalize_fx([{"foo": "bar"}]) == []  # nothing that looks like a currency
 
 
-def test_fx_rate_found(settings, monkeypatch):
-    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [{"Currency": "USD", "Buying": "35.5", "Selling": "36.0"}])
-    monkeypatch.setattr(SV, "fx_last_update", lambda s: "10/09/2026 09:30")
+def test_fx_rate_returns_every_denomination(settings, monkeypatch):
+    """USD comes back as several note families at different rates; the agent needs all of them."""
+    rows = [LIVE_ROW,
+            {**LIVE_ROW, "Description": "USD: 50-100", "FamilyLong": "US Dollar 50", "BuyingRates": "32.05",
+             "SellingRates": "33.09", "TT": "32.20"}]
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: rows)
     out = SV.fx_rate(settings, "usd")
-    assert out["found"] and out["currency"] == "USD" and out["buying"] == 35.5 and out["selling"] == 36.0
-    assert out["as_of"] == "10/09/2026 09:30" and "confirm with Bangkok Bank" in out["disclaimer"]
+    assert out["found"] and out["currency"] == "USD" and out["as_of"] == "9/09/2026 13:10 (round 2)"
+    assert [r["denomination"] for r in out["rates"]] == ["USD: 1-2", "USD: 50-100"]
+    assert out["rates"][0]["buying"] == 31.55 and out["rates"][1]["buying"] == 32.05
+    assert out["rates"][1]["telegraphic_transfer"] == 32.20 and "telegraphic_transfer" not in out["rates"][0]
+    assert "branch rate at the time" in out["disclaimer"] and "buying =" in out["meaning"]
 
 
 def test_fx_rate_missing_currency_lists_what_is_available(settings, monkeypatch):
-    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [{"Currency": "USD"}, {"Currency": "EUR"}])
-    monkeypatch.setattr(SV, "fx_last_update", lambda s: "x")
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_ROW, {"Description": "EUR", "BuyingRates": "38"}])
     out = SV.fx_rate(settings, "ZWL")
-    assert out["found"] is False and out["available"] == ["USD", "EUR"]
+    assert out["found"] is False and out["available"] == ["EUR", "USD"] and "not in today" in out["say"]
 
 
-def test_fx_rate_survives_a_last_update_failure(settings, monkeypatch):
-    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [{"Currency": "USD", "Buying": 35.5}])
+def test_fx_rate_needs_no_second_call_for_the_timestamp(settings, monkeypatch):
+    """as_of comes off the rate row, so a flaky last-update endpoint cannot cost us the rate."""
     def boom(s):
         raise SV.ServiceError("last-update down")
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_ROW])
     monkeypatch.setattr(SV, "fx_last_update", boom)
     out = SV.fx_rate(settings, "USD")
-    assert out["found"] and out["as_of"] == ""  # the rate still comes back
+    assert out["found"] and out["as_of"] == "9/09/2026 13:10 (round 2)"
 
 
-def test_last_update_handles_string_or_wrapped(settings, monkeypatch):
-    monkeypatch.setattr(SV, "_get", lambda s, p: "10/09/2026 09:30")
-    assert SV.fx_last_update(settings) == "10/09/2026 09:30"
-    monkeypatch.setattr(SV, "_get", lambda s, p: {"lastUpdate": "10/09/2026 10:00"})
-    assert SV.fx_last_update(settings) == "10/09/2026 10:00"
+def test_last_update_parses_the_python_repr_the_endpoint_returns(settings, monkeypatch):
+    monkeypatch.setattr(SV, "_get", lambda s, p: "[{'Update': '2', 'Time': '13:10     ', 'Day': '09/09/2026'}]")
+    assert SV.fx_last_update(settings) == "09/09/2026 13:10 (round 2)"
+    monkeypatch.setattr(SV, "_get", lambda s, p: [{"Day": "10/09/2026", "Time": "09:30", "Update": "1"}])
+    assert SV.fx_last_update(settings) == "10/09/2026 09:30 (round 1)"
+    monkeypatch.setattr(SV, "_get", lambda s, p: "not a list at all")
+    assert SV.fx_last_update(settings) == "not a list at all"
 
 
 def test_endpoint_paths(settings, monkeypatch):

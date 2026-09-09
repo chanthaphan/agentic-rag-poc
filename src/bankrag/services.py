@@ -69,18 +69,45 @@ def _get(settings: Settings, path: str) -> Any:
 # ---------------- foreign exchange ----------------
 @dataclass
 class FxRate:
-    currency: str  # ISO code, e.g. USD
-    name: str = ""  # human name if the API gives one
-    buying: Optional[float] = None  # bank buys the foreign currency (sight / TT vary; see `note`)
-    selling: Optional[float] = None  # bank sells the foreign currency
-    unit: str = ""
-    note: str = ""
+    """One row of the bank's rate table.
+
+    The service returns a row per denomination family, not per currency: USD alone comes back as 'USD: 1-2',
+    'USD: 5-20', 'USD: 50-100', which really do carry different bank-note rates, so `label` matters to the answer."""
+
+    currency: str  # ISO code parsed out of Description / Family
+    label: str = ""  # the denomination family as the bank words it, e.g. "USD: 50-100"
+    name: str = ""  # FamilyLong, e.g. "US Dollar 50-100"
+    buying: Optional[float] = None  # bank buys the notes from the customer
+    selling: Optional[float] = None  # bank sells the notes to the customer
+    tt: Optional[float] = None  # telegraphic transfer, used for remittances rather than cash
+    sight_bill: Optional[float] = None
+    as_of: str = ""  # date + time + round, straight off the row
 
 
 _CCY_KEYS = ("CurrencyCode", "currencyCode", "Currency", "currency", "Code", "code", "Abbreviation", "curr")
-_NAME_KEYS = ("CurrencyName", "currencyName", "Name", "name", "Description", "description")
-_BUY_KEYS = ("Buying", "buying", "BuyingRate", "buyingRate", "Buy", "buy", "BuyingSight", "buyingSight", "BuyingTransfer")
-_SELL_KEYS = ("Selling", "selling", "SellingRate", "sellingRate", "Sell", "sell")
+_NAME_KEYS = ("FamilyLong", "CurrencyName", "currencyName", "Name", "name", "Description", "description")
+_BUY_KEYS = ("BuyingRates", "Buying", "buying", "BuyingRate", "buyingRate", "Buy", "buy")
+_SELL_KEYS = ("SellingRates", "Selling", "selling", "SellingRate", "sellingRate", "Sell", "sell")
+_CCY_RE = __import__("re").compile(r"^\s*([A-Za-z]{3})")
+
+
+def _currency_of(row: dict) -> str:
+    """The ISO code: an explicit field if one ever appears, else the leading letters of Description / Family."""
+    explicit = _first(row, _CCY_KEYS)
+    if explicit and _CCY_RE.match(str(explicit)):
+        return str(explicit)[:3].upper()
+    for key in ("Description", "Family", "FamilyLong"):
+        m = _CCY_RE.match(str(row.get(key, "")))
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def _as_of(row: dict) -> str:
+    day, time, rnd = (str(row.get(k, "")).strip() for k in ("Ddate", "DTime", "Update"))
+    if not day and not time:
+        return ""
+    return f"{day} {time}".strip() + (f" (round {rnd})" if rnd else "")
 
 
 def _first(d: dict, keys: tuple) -> Any:
@@ -113,15 +140,18 @@ def _rate_rows(data: Any) -> list[dict]:
 def normalize_fx(data: Any) -> list[FxRate]:
     out: list[FxRate] = []
     for row in _rate_rows(data):
-        code = _first(row, _CCY_KEYS)
+        code = _currency_of(row)
         if not code:
             continue
         out.append(FxRate(
-            currency=str(code).upper().strip(),
+            currency=code,
+            label=str(row.get("Description") or row.get("Family") or "").strip(),
             name=str(_first(row, _NAME_KEYS) or "").strip(),
             buying=_to_float(_first(row, _BUY_KEYS)),
             selling=_to_float(_first(row, _SELL_KEYS)),
-            unit=str(row.get("Unit") or row.get("unit") or "").strip(),
+            tt=_to_float(row.get("TT")),
+            sight_bill=_to_float(row.get("SightBill")),
+            as_of=_as_of(row),
         ))
     return out
 
@@ -131,11 +161,21 @@ def fx_latest_raw(settings: Settings) -> Any:
 
 
 def fx_last_update(settings: Settings) -> str:
+    """When the bank last published rates. The endpoint answers with a Python-repr string rather than JSON
+    ("[{'Update': '2', 'Time': '13:10', 'Day': '09/09/2026'}]"), so parse that shape before falling back to raw."""
     data = _get(settings, f"{FX_SERVICE}/GetDateTimeLastUpdate")
     if isinstance(data, str):
-        return data
-    if isinstance(data, dict):
-        return str(_first(data, ("DateTime", "dateTime", "LastUpdate", "lastUpdate", "value")) or json.dumps(data)[:80])
+        try:
+            import ast
+
+            data = ast.literal_eval(data)
+        except (ValueError, SyntaxError):
+            return data.strip()[:80]
+    rows = data if isinstance(data, list) else [data]
+    row = rows[0] if rows and isinstance(rows[0], dict) else {}
+    day, time, rnd = (str(row.get(k, "")).strip() for k in ("Day", "Time", "Update"))
+    if day or time:
+        return f"{day} {time}".strip() + (f" (round {rnd})" if rnd else "")
     return str(data)[:80]
 
 
@@ -145,20 +185,28 @@ def fx_rates_raw(settings: Settings, on: _date, round_no: int = 2, lang: str = "
 
 
 def fx_rate(settings: Settings, currency: str, *, lang: str = "en") -> dict:
-    """The tool entry point: the latest rate for one currency, plus when it was last updated."""
+    """The tool entry point: today's rate(s) for one currency, with the time the bank published them.
+
+    A currency can have several bank-note denominations at different rates (USD 1-2 vs 50-100), so every matching row
+    comes back and the agent quotes the one the customer means."""
     ccy = currency.upper().strip()
     rates = normalize_fx(fx_latest_raw(settings))
-    hit = next((r for r in rates if r.currency == ccy), None)
-    updated = ""
-    try:
-        updated = fx_last_update(settings)
-    except ServiceError:
-        pass
-    if hit is None:
-        return {"found": False, "currency": ccy, "available": [r.currency for r in rates], "as_of": updated}
-    return {"found": True, "currency": hit.currency, "name": hit.name, "buying": hit.buying,
-            "selling": hit.selling, "unit": hit.unit, "as_of": updated,
-            "disclaimer": "Indicative rate, changes through the day; confirm with Bangkok Bank before transacting."}
+    hits = [r for r in rates if r.currency == ccy]
+    if not hits:
+        return {"found": False, "currency": ccy,
+                "available": sorted({r.currency for r in rates}),
+                "say": f"{ccy} is not in today's rate table; offer one of the currencies listed in `available`."}
+    return {
+        "found": True,
+        "currency": ccy,
+        "as_of": next((r.as_of for r in hits if r.as_of), ""),
+        "rates": [{"denomination": r.label or r.name, "buying": r.buying, "selling": r.selling,
+                   **({"telegraphic_transfer": r.tt} if r.tt is not None else {})} for r in hits],
+        "meaning": "buying = what the bank pays the customer for the foreign notes; selling = what the customer pays "
+                   "to buy them. Quote buying first when the customer is exchanging foreign currency into baht.",
+        "disclaimer": "Indicative rate for the round shown in as_of; it changes during the day and the branch rate at "
+                      "the time applies to an actual transaction.",
+    }
 
 
 # ---------------- branch / ATM locator ----------------
