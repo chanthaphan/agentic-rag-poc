@@ -1,11 +1,7 @@
 ---
-name: Live Bank Services
+name: Branches, ATMs & FX Rates
 id: bank-services
-description: 'อัตราแลกเปลี่ยนเงินตราต่างประเทศของธนาคารกรุงเทพวันนี้ (ซื้อ/ขาย ธนบัตรและโอนเงิน) และข้อมูลที่เปลี่ยนแปลงระหว่างวัน:
-  เรตวันนี้ เรตล่าสุด อัปเดตกี่โมง แลกเงินได้เรตเท่าไหร่. Bangkok Bank live foreign-exchange
-  rates today (buying and selling), what the rate is right now and when it was last
-  updated. Use for anything that changes during the day, not for product terms and
-  conditions.'
+description: ค้นหาสาขาธนาคารกรุงเทพ ตู้ ATM บูธแลกเปลี่ยนเงินตราต่างประเทศ ใกล้ตำแหน่งของลูกค้า (สาขาใกล้ฉัน สาขาแถวนี้ ตู้เอทีเอ็มใกล้ ๆ แลกเงินที่ไหน ที่อยู่สาขา เวลาเปิดปิด) และอัตราแลกเปลี่ยนเงินตราต่างประเทศวันนี้ (เรตวันนี้ ซื้อ/ขาย เรตเยน ดอลลาร์ ยูโร). Find Bangkok Bank branches, ATMs and FX booths near the customer, and today's live foreign-exchange rates. Use this for anything that depends on WHERE the customer is or on TODAY's rate - it is the only skill with live location and rate tools. Not for product terms, fees or eligibility.
 product_category: bank-services
 keywords:
 - อัตราแลกเปลี่ยน

@@ -1,7 +1,7 @@
 ---
 name: About Bangkok Bank
 id: bank-profile
-description: 'ข้อมูลเกี่ยวกับธนาคารกรุงเทพในฐานะองค์กร: ประวัติและความเป็นมา ขนาดและเครือข่ายสาขา บริษัทในเครือ คณะกรรมการธนาคาร โครงสร้างองค์กร การกำกับดูแลกิจการ ความยั่งยืน กิจกรรมเพื่อสังคม วันหยุดธนาคาร ทุนการศึกษาและการรับสมัครงาน. About Bangkok Bank as an institution: history, size and branch network, subsidiaries, board of directors, organisation, corporate governance, sustainability, CSR, bank holidays, scholarships and careers. Use for questions about the bank itself rather than about a product.'
+description: 'ข้อมูลเกี่ยวกับธนาคารกรุงเทพในฐานะองค์กร: ประวัติและความเป็นมา ขนาดของธนาคาร บริษัทในเครือ คณะกรรมการธนาคาร โครงสร้างองค์กร การกำกับดูแลกิจการ ความยั่งยืน กิจกรรมเพื่อสังคม วันหยุดธนาคาร ทุนการศึกษาและการรับสมัครงาน. About Bangkok Bank as an institution: history, how big the bank is, subsidiaries, board of directors, organisation, corporate governance, sustainability, CSR, bank holidays, scholarships and careers. NOT for finding a branch or ATM near the customer and NOT for today''s exchange rate - those need live lookups and belong to the branches and rates skill.'
 product_category: bank-profile
 keywords:
 - ธนาคารกรุงเทพ
