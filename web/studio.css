@@ -4,6 +4,8 @@ body.studio { background:#f4f6fb; color:var(--bbl-ink); font:var(--body-md); }
 .studio nav button { background:none; border:1px solid transparent; padding:6px 12px; border-radius:8px; cursor:pointer; font:var(--label-sm); color:var(--bbl-ink); }
 .studio nav button.on { background:var(--bbl-10); color:var(--bbl-70); border-color:var(--bbl-20); }
 .studio nav a { font:var(--label-sm); color:var(--bbl-link); text-decoration:none; margin-left:8px; }
+.studio .top #who { margin-left:auto; }
+.studio .top .top-logout { margin:0; }
 .muted { color:var(--gray-60); font:var(--caption-lg); }
 main { padding:16px 20px; }
 .view { display:none; } .view.on { display:block; }
@@ -20,6 +22,7 @@ textarea { width:100%; resize:vertical; font-family:ui-monospace, Menlo, monospa
 .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .split { display:grid; grid-template-columns: 420px 1fr; gap:16px; align-items:start; }
 @media (max-width: 1100px) { .split { grid-template-columns:1fr; } }
+.tw { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 table.list { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--gray-20); border-radius:12px; overflow:hidden; }
 table.list th, table.list td { text-align:left; padding:8px 10px; border-bottom:1px solid #eef0f3; font-size:13px; }
 table.list th { background:#f9fafb; font-weight:500; }
@@ -227,3 +230,81 @@ body.role-tester #spane-base textarea, body.role-tester #spane-runtime input, bo
 .rg-list { margin-top:8px; font-size:12px; } .rg-list .rg { display:grid; grid-template-columns: 1fr auto; gap:6px; padding:5px 0; border-top:1px solid #eef0f3; align-items:center; } .rg-list .rg:first-child { border-top:none; }
 .rg-list .rg .n { font-weight:600; } .rg-list .rg .d { color:var(--gray-60); display:block; } .rg-list .rg button { padding:2px 8px; font-size:11px; }
 .sk-card .pill.a2a { background:#efe9fb; color:#622184; } .sk-card .pill.reg { background:#e8f1ff; color:var(--bbl-70); }
+
+/* ================= responsive: tablets and phones ================= */
+/* a sticky side column only makes sense while it sits next to a main column */
+@media (max-width: 1100px) { .sk-side, .kn-side, .ev-side, .cv-side { position:static; } }
+/* grid children default to min-width:auto, which lets wide content push the page sideways */
+.sk-grid > *, .kn-grid > *, .ev-grid > *, .cv-grid > *, .ed-grid > *, .bd-grid > *, .qm-grid > *, .two > *, .split > *, .split-narrow > * { min-width:0; }
+
+@media (max-width: 860px) {
+  /* header: name and account on the first line, the tabs on a scrollable strip under it */
+  .studio .top { position:sticky; top:0; z-index:30; gap:8px 12px; padding:8px 12px; padding-top:max(8px, env(safe-area-inset-top)); }
+  .studio .top .brand { flex:1 1 auto; min-width:0; }
+  .studio .top .top-sub { display:none; }
+  .studio .top #who { margin-left:auto; max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .studio .top #health { order:5; font-size:11.5px; }
+  .studio nav { order:6; flex:1 0 100%; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .studio nav::-webkit-scrollbar { display:none; }
+  .studio nav button, .studio nav a { flex:none; white-space:nowrap; }
+
+  main { padding:12px; padding-bottom:max(24px, env(safe-area-inset-bottom)); }
+  /* the sticky header would otherwise cover whatever the page scrolls to */
+  #sk-editor, #cv-transcript-panel, #kn-chunks, .ev-result-panel { scroll-margin-top:120px; }
+
+  /* stacked, the side panel reads as a footer to the work above it, not a header to it */
+  .kn-grid .kn-side, .ev-grid .ev-side, .cv-grid .cv-side { order:0; }
+
+  /* sub-tab strips scroll instead of wrapping into three rows */
+  .subtabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  .subtabs::-webkit-scrollbar { display:none; }
+  .subtabs button { flex:none; white-space:nowrap; }
+
+  .panel, .editor { padding:12px; }
+  .row:not(tr) { flex-wrap:wrap; }
+  .row:not(tr) > input, .row:not(tr) > select { min-width:0; }
+  .ed-head { align-items:flex-start; }
+  .kn-filter { margin-left:0; width:100%; }
+  .ev-file { margin-left:0; padding-left:0; border-left:none; flex-wrap:wrap; max-width:100%; }
+  select { max-width:100%; }
+  .card { min-width:0; flex:1 1 130px; }
+
+  /* tables keep their columns readable and scroll sideways inside their panel */
+  .tw > table.list { min-width:560px; }
+  /* a long text column next to several fixed ones needs more room than that */
+  .tw > #cv-qtable, .tw > #cv-table, .tw > #rl-table, .tw > #ac-table, .tw > #ev-rag, .tw > #ev-quality { min-width:800px; }
+  .md-preview, .pg-a .pg-text { overflow-x:auto; }
+  .md-preview { padding:12px 14px; }
+
+  /* 16px stops iOS from zooming the page when a field takes focus */
+  input, select, textarea, .kn-filter, #ev-runs-filter, .ev-file select, .cv-filters select,
+  .ev-qs input[type=text], .ev-qs input:not([type]) { font-size:16px; }
+  .bodylab textarea, .ed-main .bodylab textarea, #base-body { min-height:0; height:50vh; }
+  .drawer, .pg-thread, .transcript { max-height:65vh; }
+  .box-list { max-height:240px; }
+  pre.diff { max-height:60vh; }
+  .tr-user { max-width:92%; }
+  .ref, .chunk, .runs .run { overflow-wrap:anywhere; }
+  .runs .run .s { overflow-wrap:normal; }
+
+  /* the rule and product dialogs are tall forms; let them scroll instead of overflowing */
+  dialog { width:auto; max-width:calc(100vw - 20px); max-height:calc(100dvh - 32px); overflow:auto; padding:16px; }
+  #dlg-rule, #dlg-product { width:calc(100vw - 20px); max-width:none; }
+}
+
+@media (max-width: 560px) {
+  .studio .top { padding:6px 10px; gap:6px 8px; }
+  .studio .top #health { display:none; }
+  .studio .top #who { max-width:36vw; font-size:11.5px; }
+  .studio .top .top-logout button, .studio .top #ms-signout { padding:5px 9px; font-size:12px; }
+  main { padding:10px; padding-bottom:max(20px, env(safe-area-inset-bottom)); }
+  .panel, .editor { padding:10px; border-radius:10px; }
+  .studio nav button, .subtabs button { padding:6px 10px; }
+  .two { grid-template-columns:1fr; }
+  table.list th, table.list td { padding:6px 8px; }
+  .tw > table.list { min-width:520px; }
+  .cards { gap:8px; } .card { padding:8px 10px; }
+  .dropzone { padding:16px 10px; }
+  .steps li { font-size:10px; }
+  body.studio .login { max-width:none; margin:6vh 12px; padding:18px; }
+}
