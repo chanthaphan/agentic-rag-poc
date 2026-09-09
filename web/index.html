@@ -43,7 +43,7 @@
       <label class="upload">Upload skill zip <input type="file" id="skill-zip" accept=".zip"></label>
       <span id="skills-status" class="muted"></span>
     </div>
-    <table id="skills-table"><thead><tr><th>id</th><th>name</th><th>category</th><th>model</th><th>agent</th><th>state</th><th>version</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="skills-table"><thead><tr><th>id</th><th>name</th><th>knowledge space</th><th>model</th><th>agent</th><th>state</th><th>version</th><th></th></tr></thead><tbody></tbody></table>
     <pre id="skill-view" class="muted">Select a skill to view its SKILL.md</pre>
     <pre id="skills-log" class="log"></pre>
   </section>
@@ -56,7 +56,7 @@
       <button id="kn-ingest">Run ingest</button>
       <span id="kn-status" class="muted"></span>
     </div>
-    <table id="kn-table"><thead><tr><th>category</th><th>files on disk</th><th>chunks (manifest)</th><th>chunks (index)</th></tr></thead><tbody></tbody></table>
+    <table id="kn-table"><thead><tr><th>knowledge space</th><th>files on disk</th><th>chunks (manifest)</th><th>chunks (index)</th></tr></thead><tbody></tbody></table>
     <div id="kn-index" class="muted"></div>
     <div class="toolbar"><input id="kn-q" placeholder="test retrieval against a knowledge base"><select id="kn-skill"></select><button id="kn-retrieve">Retrieve</button></div>
     <div id="kn-refs"></div>

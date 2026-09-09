@@ -80,7 +80,7 @@ const dz = $("#kn-drop");
 dz.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
 
 async function startJob(fn) {
-  if (!category()) { $("#kn-status").textContent = "pick a category first"; return; }
+  if (!category()) { $("#kn-status").textContent = "pick a knowledge space first"; return; }
   if (IG.job && IG.job.status === "running") { $("#kn-status").textContent = "a job is already running — wait for it to finish"; return; }
   try { const j = await fn(); watchJob(j.job_id); } catch (e) { $("#kn-status").textContent = e.message; }
 }
@@ -162,7 +162,7 @@ $("#kn-retrieve").addEventListener("click", async () => {
     const block = (title, items, mapper) => `<h4>${title}</h4>` + (items.error ? `<span class="err">${esc(items.error)}</span>` : items.length ? items.map(mapper).join("") : "<span class='muted'>no results</span>");
     $("#kn-refs").innerHTML =
       block(`Knowledge base retrieve (skill ${esc($("#kn-skill").value)})`, refs, (r) => `<div class="ref"><div class="t">${esc(r.title)}</div><div class="s">${esc(r.doc_type)} · ${esc(r.product_name)} · score ${r.score ?? "-"}</div><a href="${esc(r.source_url)}" target="_blank">${esc(r.source_url)}</a><div>${esc(r.snippet)}</div></div>`) +
-      block(`Index hybrid search (category ${esc(category())})`, hits, (h) => `<div class="ref"><div class="t">${esc(h.title)} <span class="muted">#${h.chunk_index}</span></div><div class="s">${esc(h.breadcrumb)} · score ${(h.score || 0).toFixed(3)}${h.reranker_score != null ? ` · reranker ${h.reranker_score.toFixed(2)}` : ""}</div><div>${esc(h.snippet)}</div></div>`);
+      block(`Index hybrid search (space ${esc(category())})`, hits, (h) => `<div class="ref"><div class="t">${esc(h.title)} <span class="muted">#${h.chunk_index}</span></div><div class="s">${esc(h.breadcrumb)} · score ${(h.score || 0).toFixed(3)}${h.reranker_score != null ? ` · reranker ${h.reranker_score.toFixed(2)}` : ""}</div><div>${esc(h.snippet)}</div></div>`);
   } catch (err) { $("#kn-refs").innerHTML = `<span class="err">${esc(err.message)}</span>`; }
 });
 $("#kn-q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#kn-retrieve").click(); });

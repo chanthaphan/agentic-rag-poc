@@ -54,3 +54,9 @@
   skill: offtopic
 - q: เล่าเรื่องตลกให้ฟังหน่อย
   skill: offtopic
+- q: เริ่มออมเงินยังไงดีสำหรับมือใหม่
+  skill: financial-knowledge
+- q: What is compound interest and why does it matter?
+  skill: financial-knowledge
+- q: มิจฉาชีพโทรมาบอกว่าบัญชีถูกอายัด ควรทำยังไง
+  skill: financial-knowledge

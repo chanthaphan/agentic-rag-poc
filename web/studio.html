@@ -86,7 +86,7 @@
               <label>Keywords <small>(comma separated, Thai + English)</small><textarea id="f-keywords" rows="3"></textarea></label>
               <div class="try"><label>Try routing <small>(router only, no answer)</small><div class="row"><input id="try-q" placeholder="type a customer question"><button id="try-run" class="btn-secondary">Route</button></div></label><div id="try-out" class="muted"></div></div>
               <h4>Answering</h4>
-              <label>Product category <small>(= knowledge/&lt;category&gt;)</small><input id="f-category"></label>
+              <label>Knowledge space <small>(= knowledge/&lt;space&gt;; the documents this skill retrieves from)</small><input id="f-category"></label>
               <div class="two">
                 <label>Model <select id="f-model"></select></label>
                 <label>Top K <small>(chunks)</small><input id="f-topk" type="number" min="1" max="50"></label>
@@ -127,8 +127,8 @@
 <!-- ================= KNOWLEDGE ================= -->
 <section id="view-knowledge" class="view">
   <div class="toolbar">
-    <label>Category <select id="kn-category"></select></label>
-    <input id="kn-newcat" placeholder="or new category id (e.g. mortgage)">
+    <label>Knowledge space <select id="kn-category"></select></label>
+    <input id="kn-newcat" placeholder="or a new space id (e.g. mortgage)">
     <button id="kn-refresh" class="btn-secondary">Refresh</button>
     <span id="kn-status" class="muted"></span>
   </div>
@@ -147,14 +147,14 @@
             <div class="dz-big">Drop .md / .pdf / .txt files here</div>
             <div class="muted">or</div>
             <label class="btn-secondary">Choose files <input type="file" id="kn-files" multiple accept=".md,.pdf,.txt" hidden></label>
-            <div class="muted dz-note">Files land in the selected category and show as <span class="pill info">not ingested</span> until you run ingest.</div>
+            <div class="muted dz-note">Files land in the selected knowledge space and show as <span class="pill info">not ingested</span> until you run ingest.</div>
           </div>
         </div>
         <div class="pane" id="kpane-crawl">
           <div class="form">
             <label>Start URL(s) <small>(one per line)</small><textarea id="cr-start" rows="2" placeholder="https://www.bangkokbank.com/th-TH/Personal/Cards/Debit-Cards"></textarea></label>
             <label>Stay under prefix(es) <small>(one per line; default = the start URLs)</small><textarea id="cr-prefix" rows="2"></textarea></label>
-            <div class="row wrap"><label>Max pages <input id="cr-max" type="number" value="30" min="1" max="300" style="width:90px"></label><label><input type="checkbox" id="cr-pdf" checked> download linked PDFs</label><label><input type="checkbox" id="cr-ingest" checked> ingest after crawl</label><button id="cr-run">Crawl into category</button></div>
+            <div class="row wrap"><label>Max pages <input id="cr-max" type="number" value="30" min="1" max="300" style="width:90px"></label><label><input type="checkbox" id="cr-pdf" checked> download linked PDFs</label><label><input type="checkbox" id="cr-ingest" checked> ingest after crawl</label><button id="cr-run">Crawl into this space</button></div>
             <div class="muted">Built in, no external service. Re-crawls only rewrite pages whose content changed.</div>
           </div>
         </div>
@@ -169,7 +169,7 @@
         <div class="pager" id="kn-pager" hidden><button class="btn-secondary" id="kn-prev">‹ prev</button><span id="kn-page-info" class="muted"></span><button class="btn-secondary" id="kn-next">next ›</button></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>Search the index</h3><span class="muted">hybrid search filtered by the selected category, plus the knowledge base retrieve a skill would see</span></div>
+        <div class="panel-head"><h3>Search the index</h3><span class="muted">hybrid search filtered by the selected knowledge space, plus the knowledge base retrieve a skill would see</span></div>
         <div class="row"><input id="kn-q" placeholder="question or keywords" style="flex:1"><select id="kn-skill"></select><button id="kn-retrieve">Search</button></div>
         <div id="kn-refs"></div>
       </div>
@@ -378,7 +378,7 @@
         <div class="panel-head"><h3>Export a bundle</h3><span class="muted">move skills, knowledge and evals to another environment (for example local → cloud), or keep a snapshot</span></div>
         <div class="bd-opts">
           <label><input type="checkbox" class="bd-part" value="skills" checked> Skills <span class="muted">(every SKILL.md incl. base rules)</span></label>
-          <label><input type="checkbox" class="bd-part" value="knowledge" checked> Knowledge <span class="muted">(markdown per category)</span></label>
+          <label><input type="checkbox" class="bd-part" value="knowledge" checked> Knowledge <span class="muted">(markdown per knowledge space)</span></label>
           <label class="bd-sub"><input type="checkbox" id="bd-pdfs" checked> include PDFs <span class="muted">(most of the size; the extracted .md next to each PDF is always included)</span></label>
           <label><input type="checkbox" class="bd-part" value="evals" checked> Eval question sets</label>
           <label><input type="checkbox" class="bd-part" value="config" checked> Prices and runtime settings <span class="muted">(pricing.yaml, settings.json; no secrets)</span></label>
@@ -394,7 +394,7 @@
           <div class="bd-opts">
             <label><input type="radio" name="bd-mode" value="merge" checked> Merge <span class="muted">(write the bundle's files over existing ones; keep everything else)</span></label>
             <label><input type="radio" name="bd-mode" value="replace"> Replace <span class="muted">(delete existing skills/ and knowledge/ first, for the parts you import)</span></label>
-            <label><input type="checkbox" id="bd-ingest" checked> Ingest the knowledge categories that changed</label>
+            <label><input type="checkbox" id="bd-ingest" checked> Ingest the knowledge spaces that changed</label>
             <label><input type="checkbox" id="bd-sync" checked> Sync skills to Foundry afterwards</label>
           </div>
           <div class="row wrap"><button id="bd-import">Import</button><span id="bd-status" class="muted"></span></div>
@@ -414,7 +414,7 @@
 <dialog id="dlg-new">
   <form method="dialog" class="form">
     <h2>New skill</h2>
-    <label>Skill id <small>(lowercase, dashes; also the product category)</small><input id="n-id" required pattern="[a-z0-9][a-z0-9-]*"></label>
+    <label>Skill id <small>(lowercase, dashes; also its knowledge space)</small><input id="n-id" required pattern="[a-z0-9][a-z0-9-]*"></label>
     <label>Name<input id="n-name"></label>
     <label>Description<textarea id="n-description" rows="3"></textarea></label>
     <label>Keywords (comma separated)<input id="n-keywords"></label>

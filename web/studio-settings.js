@@ -73,7 +73,7 @@ $("#bd-import").addEventListener("click", async () => {
   const fd = new FormData(); fd.append("file", BD.file); $("#bd-status").textContent = "importing…"; $("#bd-import").disabled = true;
   try {
     const r = await api(`/bundle?mode=${mode}&parts=${encodeURIComponent(parts.join(","))}&ingest=${$("#bd-ingest").checked}&sync=${$("#bd-sync").checked}`, { method: "POST", body: fd });
-    const c = r.counts; $("#bd-status").textContent = `written: ${c.skills} skill files, ${c.knowledge} knowledge files, ${c.evals} eval files, ${c.config} config · changed skills: ${r.changed_skills.join(", ") || "none"} · changed categories: ${r.changed_categories.join(", ") || "none"}`;
+    const c = r.counts; $("#bd-status").textContent = `written: ${c.skills} skill files, ${c.knowledge} knowledge files, ${c.evals} eval files, ${c.config} config · changed skills: ${r.changed_skills.join(", ") || "none"} · changed spaces: ${r.changed_categories.join(", ") || "none"}`;
     $("#bd-job").hidden = false; $("#bd-log").textContent = (r.log || []).join("\n");
     if (r.job_id) {
       $("#bd-job-state").textContent = "running follow-up job"; $("#bd-bar").className = "fill indet";
