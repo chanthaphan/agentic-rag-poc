@@ -26,6 +26,10 @@ from .models import Answer, SessionRecord
 from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills, load_base, load_skills, read_base, skill_to_zip,
                      validate_skill, write_base, write_skill)
 
+import logging as _logging
+
+_logging.getLogger("bankrag.services").setLevel(_logging.INFO)  # live-service calls are auditable
+
 app = FastAPI(title="bankrag POC", version="0.2.0")
 settings = Settings.load()
 _backup_dest = Path(os.environ["SQLITE_DB_BACKUP"]) if os.environ.get("SQLITE_DB_BACKUP") else None

@@ -16,12 +16,15 @@ rather than a crash. `bankrag services probe` prints the live shapes for confirm
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 from datetime import date as _date
 from typing import Any, Optional
 
 from .config import Settings
 
+log = logging.getLogger("bankrag.services")
 FX_SERVICE = "exchangerateservice"
 LOC_SERVICE = "locationsearchservice"
 _TIMEOUT = 40
@@ -46,6 +49,7 @@ def _get(settings: Settings, path: str) -> Any:
         "Accept-Language": "th,en;q=0.8",
         "Referer": "https://www.bangkokbank.com/",
     }
+    t0 = time.perf_counter()
     try:
         from curl_cffi import requests as creq  # type: ignore
 
@@ -56,6 +60,9 @@ def _get(settings: Settings, path: str) -> Any:
 
         r = requests.get(url, timeout=_TIMEOUT, headers=headers)
         status, text = r.status_code, r.text
+    # every live lookup leaves a line: for a bank POC "did it really call the bank, or did the model make it up" has to
+    # be answerable from the logs rather than inferred. No key, no customer data - just what was fetched and what came back.
+    log.info("bank api GET %s -> %s in %d ms, %d bytes", path, status, int((time.perf_counter() - t0) * 1000), len(text or ""))
     if status == 401:
         raise ServiceError("401 from the bank API: the subscription key is missing, wrong or expired")
     if status >= 400:
@@ -104,10 +111,10 @@ def _currency_of(row: dict) -> str:
 
 
 def _as_of(row: dict) -> str:
-    day, time, rnd = (str(row.get(k, "")).strip() for k in ("Ddate", "DTime", "Update"))
-    if not day and not time:
+    day, hhmm, rnd = (str(row.get(k, "")).strip() for k in ("Ddate", "DTime", "Update"))
+    if not day and not hhmm:
         return ""
-    return f"{day} {time}".strip() + (f" (round {rnd})" if rnd else "")
+    return f"{day} {hhmm}".strip() + (f" (round {rnd})" if rnd else "")
 
 
 def _first(d: dict, keys: tuple) -> Any:
@@ -173,9 +180,9 @@ def fx_last_update(settings: Settings) -> str:
             return data.strip()[:80]
     rows = data if isinstance(data, list) else [data]
     row = rows[0] if rows and isinstance(rows[0], dict) else {}
-    day, time, rnd = (str(row.get(k, "")).strip() for k in ("Day", "Time", "Update"))
-    if day or time:
-        return f"{day} {time}".strip() + (f" (round {rnd})" if rnd else "")
+    day, hhmm, rnd = (str(row.get(k, "")).strip() for k in ("Day", "Time", "Update"))
+    if day or hhmm:
+        return f"{day} {hhmm}".strip() + (f" (round {rnd})" if rnd else "")
     return str(data)[:80]
 
 
