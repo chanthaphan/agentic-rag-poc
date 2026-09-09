@@ -107,3 +107,46 @@ def nearest(lat: float, lon: float, n: int = 2) -> list[str]:
     """The n provinces whose centroid is closest, nearest first."""
     ranked = sorted(CENTROIDS, key=lambda name: haversine_km(lat, lon, *CENTROIDS[name]))
     return ranked[:n]
+
+
+# What customers actually type: the short form, the English name, or a place that is not itself a province.
+_ALIASES: dict[str, str] = {
+    "กทม": "กรุงเทพมหานคร", "กรุงเทพ": "กรุงเทพมหานคร", "กรุงเทพฯ": "กรุงเทพมหานคร", "บางกอก": "กรุงเทพมหานคร",
+    "bangkok": "กรุงเทพมหานคร", "bkk": "กรุงเทพมหานคร", "krung thep": "กรุงเทพมหานคร",
+    "nonthaburi": "นนทบุรี", "samut prakan": "สมุทรปราการ", "pathum thani": "ปทุมธานี",
+    "chiang mai": "เชียงใหม่", "chiangmai": "เชียงใหม่", "chiang rai": "เชียงราย",
+    "phuket": "ภูเก็ต", "krabi": "กระบี่", "surat thani": "สุราษฎร์ธานี", "samui": "สุราษฎร์ธานี",
+    "เกาะสมุย": "สุราษฎร์ธานี", "หัวหิน": "ประจวบคีรีขันธ์", "hua hin": "ประจวบคีรีขันธ์",
+    "pattaya": "ชลบุรี", "พัทยา": "ชลบุรี", "chonburi": "ชลบุรี", "chon buri": "ชลบุรี", "rayong": "ระยอง",
+    "khon kaen": "ขอนแก่น", "udon thani": "อุดรธานี", "ubon ratchathani": "อุบลราชธานี",
+    "nakhon ratchasima": "นครราชสีมา", "korat": "นครราชสีมา", "โคราช": "นครราชสีมา",
+    "songkhla": "สงขลา", "hat yai": "สงขลา", "หาดใหญ่": "สงขลา", "phitsanulok": "พิษณุโลก",
+    "ayutthaya": "พระนครศรีอยุธยา", "อยุธยา": "พระนครศรีอยุธยา", "nakhon pathom": "นครปฐม",
+}
+
+
+def resolve_province(name: str) -> str:
+    """What the customer said -> the province name the locator uses, or "" when we cannot tell.
+
+    Matching is deliberately narrow: an exact name, a known alias, or a unique prefix. A guess that lands on the wrong
+    province sends the customer to a branch hundreds of kilometres away, so an ambiguous answer is no answer.
+    """
+    n = " ".join(str(name or "").split())
+    for prefix in ("จังหวัด", "จ.", "province of ", "changwat "):
+        if n.lower().startswith(prefix):
+            n = n[len(prefix):].strip()
+    if not n:
+        return ""
+    if n in CENTROIDS:
+        return n
+    low = n.lower()
+    if low in _ALIASES:
+        return _ALIASES[low]
+    starts = [p for p in CENTROIDS if p.startswith(n)]
+    return starts[0] if len(starts) == 1 else ""
+
+
+def centroid(name: str) -> tuple[float, float] | None:
+    """The centre of the named province, for a customer who told us where they are without sharing a location."""
+    resolved = resolve_province(name)
+    return CENTROIDS[resolved] if resolved else None

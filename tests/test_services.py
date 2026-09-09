@@ -184,7 +184,32 @@ def test_kind_codes_map_and_pass_through():
     assert SV.resolve_kind("exchange") == "FXB" and SV.resolve_kind("แลกเงิน") == "FXB"
     assert SV.resolve_kind("fcd") == "FCD" and SV.resolve_kind("foreign currency deposit") == "FCD"
     assert SV.resolve_kind("wealth lounge") == "BEV" and SV.resolve_kind("สำนักธุรกิจ") == "BUC"
+    # the locator says Wealth Lounge; customers and our own About-Us pages say Wealth Center / เวลท์
+    for said in ("Wealth Center", "wealth centre", "wealth management", "เวลท์เซ็นเตอร์", "เวลท์"):
+        assert SV.resolve_kind(said) == "BEV", said
     assert SV.resolve_kind("CDM") == "CDM"  # a code we have not seen yet still reaches the service
+
+
+def test_an_unknown_service_phrase_falls_back_to_branches(settings, monkeypatch):
+    """A phrase the locator has no type for would 404; searching branches at least answers the customer."""
+    assert SV.resolve_kind("safe deposit box") == "BRC"
+    seen = []
+    monkeypatch.setattr(SV, "search_places_raw",
+                        lambda s, province, lat, lon, **kw: seen.append(kw.get("kind")) or [])
+    SV.find_branch(settings, 13.7, 100.6, kind="safe deposit box")
+    assert set(seen) == {"BRC"}
+
+
+def test_find_branch_reports_the_type_it_searched(settings, monkeypatch):
+    """The answer must be able to say 'no Wealth Lounge nearby' rather than sounding like a branch failure."""
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [])
+    out = SV.find_branch(settings, 13.7, 100.6, kind="Wealth Center")
+    assert out["found"] is False and out["kind"] == "BEV" and "BEV" in out["say"]
+
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [
+        {"BranchName": "สินธร", "BranchNo": "9001", "Latitude": "13.74", "Longitude": "100.54"}])
+    out2 = SV.find_branch(settings, 13.7, 100.6, kind="เวลท์")
+    assert out2["found"] and out2["kind"] == "BEV"
 
 
 def test_currency_names_resolve_to_iso_codes():
@@ -247,3 +272,26 @@ def test_an_explicit_province_is_not_second_guessed(settings, monkeypatch):
     monkeypatch.setattr(SV, "search_places_raw", lambda s, province, *a, **k: calls.append(province) or [])
     SV.find_branch(settings, 13.7, 100.6, province="เชียงใหม่")
     assert calls == ["เชียงใหม่"]
+
+
+def test_a_province_alone_is_enough_to_search(settings, monkeypatch):
+    """The customer says where they are instead of sharing a location: search from that province's centre."""
+    seen = {}
+
+    def fake(s, province, lat, lon, **kw):
+        seen.update(province=province, lat=lat, lon=lon)
+        return [{"BranchName": "สีลม", "BranchNo": "1", "Latitude": "13.72", "Longitude": "100.53"}]
+
+    monkeypatch.setattr(SV, "search_places_raw", fake)
+    out = SV.find_branch(settings, province="กรุงเทพ", kind="wealth center")
+    assert out["found"] and out["kind"] == "BEV"
+    assert seen["province"] == "กรุงเทพมหานคร"  # the short form the customer used is not what the locator wants
+    assert (round(seen["lat"], 4), round(seen["lon"], 4)) == (13.7563, 100.5018)
+
+
+def test_no_location_and_no_province_asks_instead_of_guessing(settings, monkeypatch):
+    monkeypatch.setattr(SV, "search_places_raw",
+                        lambda *a, **k: pytest.fail("must not call the locator without somewhere to search"))
+    out = SV.find_branch(settings, province="ที่ไหนสักแห่ง")
+    assert out["found"] is False and "province" in out["say"] and "invent" in out["say"]
+    assert SV.find_branch(settings)["found"] is False

@@ -380,16 +380,18 @@ def services_probe(lang: str = typer.Option("en", help="th | en")):
 
 
 @services_app.command("branches")
-def services_branches(lat: float = typer.Argument(..., help="latitude, e.g. 13.6970"),
-                      lon: float = typer.Argument(..., help="longitude, e.g. 100.6455"),
-                      province: str = typer.Option("", help="Thai province name, e.g. กรุงเทพมหานคร"),
+def services_branches(lat: float = typer.Argument(None, help="latitude, e.g. 13.6970"),
+                      lon: float = typer.Argument(None, help="longitude, e.g. 100.6455"),
+                      province: str = typer.Option("", help="province name, enough on its own: กรุงเทพ, Chiang Mai"),
+                      kind: str = typer.Option("branch", help="branch | atm | atm plus | exchange | fcd | wealth center | business center"),
                       limit: int = typer.Option(5)):
-    """Branches nearest a pair of coordinates, exactly as the find_branch tool would return them."""
+    """What the find_branch tool returns, for a pair of coordinates or just a province."""
     import json as _json
 
     from . import services as SV
 
-    rprint(_json.dumps(SV.find_branch(_settings(), lat, lon, province=province, limit=limit), ensure_ascii=False, indent=1))
+    out = SV.find_branch(_settings(), lat, lon, province=province, kind=kind, limit=limit)
+    rprint(_json.dumps(out, ensure_ascii=False, indent=1))
 
 
 @services_app.command("fx")

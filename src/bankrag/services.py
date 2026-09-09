@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import date as _date
@@ -279,26 +280,40 @@ KIND_BUSINESS_CENTER = "BUC"  # สำนักธุรกิจ / Business Cen
 _KINDS = {"branch": KIND_BRANCH, "brc": KIND_BRANCH, "สาขา": KIND_BRANCH,
           # the Locate Us "Select Service" labels, verbatim in both languages
           "bangkok bank branches": KIND_BRANCH, "สาขาธนาคารกรุงเทพ": KIND_BRANCH,
-          "atm+": KIND_ATM_PLUS,
-          "fx booth": KIND_FX_BOOTH, "บูธแลกเปลี่ยนเงินตราต่างประเทศ": KIND_FX_BOOTH,
           "บริการเงินฝากเงินตราต่างประเทศ": KIND_FCD,
           "atm": KIND_ATM, "ตู้เอทีเอ็ม": KIND_ATM, "เอทีเอ็ม": KIND_ATM,
           "atmplus": KIND_ATM_PLUS, "atm plus": KIND_ATM_PLUS, "atm+": KIND_ATM_PLUS,
           "fxb": KIND_FX_BOOTH, "fx": KIND_FX_BOOTH, "exchange": KIND_FX_BOOTH, "fx booth": KIND_FX_BOOTH,
+          "บูธแลกเปลี่ยนเงินตราต่างประเทศ": KIND_FX_BOOTH,
           "currency exchange": KIND_FX_BOOTH, "money exchange": KIND_FX_BOOTH,
           "แลกเงิน": KIND_FX_BOOTH, "บูธแลกเงิน": KIND_FX_BOOTH, "ที่แลกเงิน": KIND_FX_BOOTH,
           "fcd": KIND_FCD, "foreign currency deposit": KIND_FCD, "fcd account": KIND_FCD,
           "บัญชีเงินตราต่างประเทศ": KIND_FCD, "เงินฝากสกุลต่างประเทศ": KIND_FCD,
+          # the lounge is what the locator calls it; customers and our own knowledge say Wealth Center / เวลท์ / สินธร
           "bev": KIND_WEALTH_LOUNGE, "wealth lounge": KIND_WEALTH_LOUNGE, "wealth": KIND_WEALTH_LOUNGE,
-          "เวลท์เลานจ์": KIND_WEALTH_LOUNGE, "เลานจ์": KIND_WEALTH_LOUNGE,
+          "wealth center": KIND_WEALTH_LOUNGE, "wealth centre": KIND_WEALTH_LOUNGE,
+          "wealth management": KIND_WEALTH_LOUNGE, "bualuang exclusive": KIND_WEALTH_LOUNGE,
+          "เวลท์เลานจ์": KIND_WEALTH_LOUNGE, "เลานจ์": KIND_WEALTH_LOUNGE, "เวลท์": KIND_WEALTH_LOUNGE,
+          "เวลท์เซ็นเตอร์": KIND_WEALTH_LOUNGE, "ศูนย์เวลท์": KIND_WEALTH_LOUNGE,
           "buc": KIND_BUSINESS_CENTER, "business center": KIND_BUSINESS_CENTER,
           "business centre": KIND_BUSINESS_CENTER, "สำนักธุรกิจ": KIND_BUSINESS_CENTER}
+_CODE = re.compile(r"^[A-Za-z0-9+]{2,10}$")  # what a locator type code looks like, so a new one works without a change
 
 
 def resolve_kind(kind: str) -> str:
-    """'branch' / 'atm' / 'atm plus' (or a raw code) -> the code the locator expects."""
+    """'branch' / 'atm' / 'atm plus' (or a raw code) -> the code the locator expects.
+
+    A phrase we do not know is searched as a branch rather than sent on: the locator has no such type, so passing it
+    through would only produce an error, while the nearest branches are at least an answer the customer can use."""
     k = str(kind or "").strip().lower()
-    return _KINDS.get(k, k.upper() or KIND_BRANCH)
+    if k in _KINDS:
+        return _KINDS[k]
+    if not k:
+        return KIND_BRANCH
+    if _CODE.match(k):
+        return k.upper()
+    log.info("resolve_kind(%r): not a known service, searching branches instead", kind)
+    return KIND_BRANCH
 
 
 @dataclass
@@ -372,12 +387,25 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
     return _get(settings, path)
 
 
-def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "", district: str = "0",
-                kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
-    """The tool entry point: the branches nearest a pair of coordinates."""
+def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[float] = None, *, province: str = "",
+                district: str = "0", kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
+    """The tool entry point: the places nearest a pair of coordinates, or nearest the middle of a named province.
+
+    A customer who has not shared their location can still be helped if they say where they are, so a province on its
+    own is enough: we search from its centre and the distances are measured from there.
+    """
+    kind = resolve_kind(kind)  # accept a label as well as a code, and never build a URL from a phrase
+    named = PROV.resolve_province(province) if province else ""
+    if lat is None or lon is None:
+        here = PROV.CENTROIDS.get(named) if named else None
+        if here is None:
+            return {"found": False, "kind": kind,
+                    "say": "No location and no province I recognise. Ask the customer which province or district "
+                           "they are in, or to share their location, then look again. Do not invent a branch."}
+        lat, lon = here
     # The locator needs a province in the path (an empty one 404s), but a phone only gives coordinates - so derive it.
     # Two provinces, because a customer near a boundary should still be offered the branch across the line.
-    searched = [province] if province else PROV.nearest(lat, lon, 2)
+    searched = [named or province] if province else PROV.nearest(lat, lon, 2)
     rows: list[dict] = []
     errors: list[str] = []
     for prov in searched:
@@ -409,13 +437,15 @@ def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "
     log.info("find_branch(lat=%.4f, lon=%.4f, provinces=%s, kind=%s) -> %d place(s), nearest %s km",
              lat, lon, searched, kind, len(places), places[0].distance_km if places else "-")
     if not places:
-        return {"found": False, "province": ", ".join(searched),
-                "say": "No branch came back for that spot. Ask the customer which province or district they mean, "
-                       "or suggest the bank's Locate Us page."}
+        what = "branch" if kind == KIND_BRANCH else f"place of type {kind}"
+        return {"found": False, "province": ", ".join(searched), "kind": kind,
+                "say": f"No {what} came back for that spot. Say plainly that none was found nearby, then ask the "
+                       "customer which province or district they mean, or suggest the bank's Locate Us page."}
     return {
         "found": True,
         "near": {"lat": lat, "lon": lon},
         "province": ", ".join(searched),
+        "kind": kind,
         "branches": [{k: v for k, v in vars(p).items() if v not in (None, "")} for p in places],
         "disclaimer": "Opening hours and services can change; suggest calling the branch before travelling.",
     }

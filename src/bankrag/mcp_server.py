@@ -15,7 +15,7 @@ import base64
 import json
 import logging
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -58,19 +58,22 @@ def build_server(settings: Settings) -> MCPServer:
 
     @server.tool(
         name=TOOL_BRANCH,
-        description="Bangkok Bank branches nearest to a pair of coordinates, closest first. Use when the customer asks "
-                    "where a branch, an ATM or a currency-exchange booth is, or which is nearest. For 'where can I "
-                    "exchange money' use kind='exchange' first, which finds real FX booths. The customer's "
-                    "coordinates are given to you in the conversation when they have shared their location; if they "
-                    "are not there, ask which province or district instead of guessing.",
+        description="Bangkok Bank branches, ATMs, exchange booths, Wealth Lounges and business centres near a place, "
+                    "closest first. Use it for any 'where is / which is nearest / does that branch open on Saturday' "
+                    "question. For 'where can I exchange money' use kind='exchange' first, which finds real FX "
+                    "booths. Pass the customer's coordinates when they have shared their location; otherwise pass "
+                    "the province they named and the search runs from there. Never answer a branch's address, phone "
+                    "or hours without calling this.",
     )
-    def find_branch(lat: float, lon: float, province: str = "", kind: str = "branch", limit: int = 5) -> dict[str, Any]:
-        """lat/lon: the customer's position. province: optional Thai province name. kind: branch | atm | atm plus | exchange (FX booth) | fcd | wealth lounge | business center."""
+    def find_branch(lat: Optional[float] = None, lon: Optional[float] = None, province: str = "",
+                    kind: str = "branch", limit: int = 5) -> dict[str, Any]:
+        """lat/lon: the customer's position, when they shared it. province: the Thai or English province name they said ('กรุงเทพ', 'Chiang Mai') - enough on its own, no coordinates needed. kind: branch | atm | atm plus | exchange (FX booth) | fcd | wealth lounge (Wealth Center) | business center; anything else is searched as a branch."""
         t0 = time.perf_counter()
         try:
-            out = SV.find_branch(settings, lat, lon, province=province, kind=SV.resolve_kind(kind), limit=limit)
-            log.info("tool find_branch(kind=%s, province=%r) -> found=%s in %d ms", SV.resolve_kind(kind), province,
-                     out.get("found"), int((time.perf_counter() - t0) * 1000))
+            out = SV.find_branch(settings, lat, lon, province=province, kind=kind, limit=limit)
+            log.info("tool find_branch(kind=%r -> %s, province=%r, coords=%s) -> found=%s, %d place(s) in %d ms",
+                     kind, out.get("kind", ""), province, "yes" if lat is not None and lon is not None else "no",
+                     out.get("found"), len(out.get("branches") or []), int((time.perf_counter() - t0) * 1000))
             return out
         except SV.ServiceError as e:
             log.warning("tool find_branch(kind=%r) FAILED: %s", kind, e)
