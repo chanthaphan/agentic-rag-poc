@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date as _date
 from typing import Any, Optional
 
+from . import provinces as PROV
 from .config import Settings
 
 log = logging.getLogger("bankrag.services")
@@ -374,23 +375,47 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
 def find_branch(settings: Settings, lat: float, lon: float, *, province: str = "", district: str = "0",
                 kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
     """The tool entry point: the branches nearest a pair of coordinates."""
-    if not province:
-        log.warning("find_branch called with no province: the locator path needs one, results are likely empty")
-    try:
-        raw = search_places_raw(settings, province, lat, lon, district=district, kind=kind, lang=lang)
-    except ServiceError as e:
-        return {"found": False, "error": str(e),
+    # The locator needs a province in the path (an empty one 404s), but a phone only gives coordinates - so derive it.
+    # Two provinces, because a customer near a boundary should still be offered the branch across the line.
+    searched = [province] if province else PROV.nearest(lat, lon, 2)
+    rows: list[dict] = []
+    errors: list[str] = []
+    for prov in searched:
+        try:
+            got = search_places_raw(settings, prov, lat, lon, district=district, kind=kind, lang=lang)
+        except ServiceError as e:
+            errors.append(str(e))
+            continue
+        rows += [r for r in _rate_rows(got)]
+    if not rows and errors:
+        return {"found": False, "error": errors[0],
                 "say": "The branch lookup is not available right now; point the customer at the bank's Locate Us page."}
-    places = normalize_places(raw)[:limit]
-    log.info("find_branch(lat=%.4f, lon=%.4f, province=%r, kind=%s) -> %d place(s)", lat, lon, province, kind, len(places))
+    places = normalize_places(rows)
+    seen_ids: set[str] = set()  # two neighbouring provinces can return the same branch
+    unique: list[Place] = []
+    for p in places:
+        key = p.branch_no or f"{p.name}|{p.address}"
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        unique.append(p)
+    places = unique
+    # the rows carry their own coordinates, so order by real distance rather than by the order each province came back
+    for p in places:
+        if p.distance_km is None and p.lat is not None and p.lon is not None:
+            p.distance_km = round(PROV.haversine_km(lat, lon, p.lat, p.lon), 1)
+    places.sort(key=lambda p: p.distance_km if p.distance_km is not None else 1e9)
+    places = places[:limit]
+    log.info("find_branch(lat=%.4f, lon=%.4f, provinces=%s, kind=%s) -> %d place(s), nearest %s km",
+             lat, lon, searched, kind, len(places), places[0].distance_km if places else "-")
     if not places:
-        return {"found": False, "province": province,
+        return {"found": False, "province": ", ".join(searched),
                 "say": "No branch came back for that spot. Ask the customer which province or district they mean, "
                        "or suggest the bank's Locate Us page."}
     return {
         "found": True,
         "near": {"lat": lat, "lon": lon},
-        "province": province,
+        "province": ", ".join(searched),
         "branches": [{k: v for k, v in vars(p).items() if v not in (None, "")} for p in places],
         "disclaimer": "Opening hours and services can change; suggest calling the branch before travelling.",
     }

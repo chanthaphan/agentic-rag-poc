@@ -152,15 +152,17 @@ def test_normalize_places_is_tolerant(settings):
 
 
 def test_find_branch_returns_the_nearest(settings, monkeypatch):
-    monkeypatch.setattr(SV, "search_places_raw", lambda *a, **k: [
-        {**LIVE_BRANCH, "BranchName": "A"}, {**LIVE_BRANCH, "BranchName": "B"}, {**LIVE_BRANCH, "BranchName": "C"}])
+    rows = [{**LIVE_BRANCH, "BranchName": n, "BranchNo": no, "Latitude": la, "Longitude": "100.6"}
+            for n, no, la in (("A", "1", "13.70"), ("B", "2", "13.75"), ("C", "3", "13.90"))]
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, *a, **k: rows if province == "กรุงเทพมหานคร" else [])
     out = SV.find_branch(settings, 13.7, 100.6, limit=2)
-    # the service orders by the coordinates we send, so "nearest" is simply the order it gave us
+    # ranked by distance from the caller's point, computed from each row's own coordinates
     assert out["found"] and [b["name"] for b in out["branches"]] == ["A", "B"]
     assert out["near"] == {"lat": 13.7, "lon": 100.6}
     assert "can change" in out["disclaimer"]
     assert out["branches"][0]["services"] == ["ATM", "Branch"]
-    assert all("lat" not in b for b in out["branches"])  # blank fields are dropped, not sent as nulls
+    assert out["branches"][0]["lat"] and out["branches"][0]["distance_km"] is not None  # usable for a map pin
+    assert all("phone" not in b for b in out["branches"])  # genuinely blank fields are dropped, not sent as nulls
 
 
 def test_find_branch_when_nothing_comes_back_or_it_fails(settings, monkeypatch):
@@ -206,3 +208,42 @@ def test_unknown_currency_says_what_was_asked_for(settings, monkeypatch):
     monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_ROW])
     out = SV.fx_rate(settings, "เงินดาวอังคาร")
     assert out["found"] is False and out["asked_for"] == "เงินดาวอังคาร" and out["available"] == ["USD"]
+
+
+# ---- deriving the province the locator requires ----
+def test_province_is_derived_from_coordinates():
+    from bankrag import provinces as PROV
+
+    assert PROV.nearest(13.7563, 100.5018, 1) == ["กรุงเทพมหานคร"]
+    assert PROV.nearest(18.7883, 98.9853, 1) == ["เชียงใหม่"]
+    assert PROV.nearest(7.8804, 98.3923, 1) == ["ภูเก็ต"]
+    # a point on the Bangkok/Samut Prakan border returns both, which is why two are searched
+    assert set(PROV.nearest(13.697057, 100.645585, 2)) == {"สมุทรปราการ", "กรุงเทพมหานคร"}
+    assert round(PROV.haversine_km(13.7563, 100.5018, 18.7883, 98.9853)) == 582
+
+
+def test_find_branch_merges_two_provinces_and_sorts_by_real_distance(settings, monkeypatch):
+    """The locator 404s without a province, so we derive two and rank the merged rows ourselves."""
+    calls = []
+
+    def fake(s, province, lat, lon, **kw):
+        calls.append(province)
+        if province == "สมุทรปราการ":
+            return [{"BranchName": "far", "BranchNo": "1", "Address1": "a", "Latitude": "13.60", "Longitude": "100.60"}]
+        return [{"BranchName": "near", "BranchNo": "2", "Address1": "b", "Latitude": "13.6975", "Longitude": "100.6455"},
+                {"BranchName": "far", "BranchNo": "1", "Address1": "a", "Latitude": "13.60", "Longitude": "100.60"}]
+
+    monkeypatch.setattr(SV, "search_places_raw", fake)
+    out = SV.find_branch(settings, 13.697057, 100.645585, limit=5)
+    assert len(calls) == 2 and set(calls) == {"สมุทรปราการ", "กรุงเทพมหานคร"}
+    names = [b["name"] for b in out["branches"]]
+    assert names == ["near", "far"]  # ordered by true distance, not by which province answered first
+    assert out["branches"][0]["distance_km"] < 0.2  # metres away, computed from the row's own coordinates
+    assert names.count("far") == 1  # the same branch from both provinces is returned once
+
+
+def test_an_explicit_province_is_not_second_guessed(settings, monkeypatch):
+    calls = []
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, *a, **k: calls.append(province) or [])
+    SV.find_branch(settings, 13.7, 100.6, province="เชียงใหม่")
+    assert calls == ["เชียงใหม่"]
