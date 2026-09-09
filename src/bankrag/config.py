@@ -84,6 +84,8 @@ class Settings:
     orchestration_mode: str  # router | a2a
     concierge_model: str
     appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
+    bbl_api_subscription: str  # subscription value the bangkokbank.com site sends with its own public API calls (FX, branches)
+    bbl_api_base: str
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -134,6 +136,8 @@ class Settings:
             orchestration_mode=(_env("ORCHESTRATION_MODE", "router").strip().lower() or "router"),
             concierge_model=_env("CONCIERGE_MODEL", ""),
             appinsights_app_id=_env("APPINSIGHTS_APP_ID", ""),
+            bbl_api_subscription=_env("BBL_API_KEY", ""),
+            bbl_api_base=_env("BBL_API_BASE", "https://www.bangkokbank.com/api").rstrip("/"),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),

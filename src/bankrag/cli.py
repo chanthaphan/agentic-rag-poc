@@ -17,10 +17,12 @@ setup_app = typer.Typer(help="Provision search index, knowledge bases, project c
 skills_app = typer.Typer(help="Validate, list and sync skills to Foundry")
 eval_app = typer.Typer(help="Evaluate routing and answers")
 rules_app = typer.Typer(help="Responsible Lending rules: list, validate, import from / export to xlsx, check an answer")
+services_app = typer.Typer(help="Live Bangkok Bank services (FX rates, branch locator): probe the API and check the key")
 app.add_typer(setup_app, name="setup")
 app.add_typer(skills_app, name="skills")
 app.add_typer(eval_app, name="eval")
 app.add_typer(rules_app, name="rules")
+app.add_typer(services_app, name="services")
 console = Console()
 
 
@@ -305,6 +307,69 @@ def eval_rag(file: Optional[Path] = typer.Option(None, help="defaults to evals/r
     run = run_rag(s, skills, cases, log=lambda m: rprint(("[green]" if m.startswith("ok") else "[red]") + m.replace("[", "\\[") + "[/]"))
     save_eval_run(s, run)
     rprint(f"\npassed: {run['summary']['passed']}/{run['summary']['questions']}  cost ${run['summary']['total_cost_usd']:.4f}  run {run['id']}")
+
+
+# ---------------- live services (FX, branches) ----------------
+@services_app.command("probe")
+def services_probe(lang: str = typer.Option("en", help="th | en")):
+    """Hit each live endpoint with the configured key and print status + response shape.
+
+    Run this once after setting BBL_API_KEY: it confirms the key works and reveals the real JSON shapes (which the
+    normaliser is written defensively against). Paste the output back so the parsing and the branch search can be
+    finalised. Runs on your machine, so it is not affected by the sandbox that blocks the agent from calling out."""
+    import json as _json
+
+    from . import services as SV
+
+    s = _settings()
+    if not SV.configured(s):
+        rprint("[red]BBL_API_KEY is not set in .env[/]")
+        raise typer.Exit(code=1)
+    from datetime import date
+
+    checks = [
+        ("FX latest", lambda: SV.fx_latest_raw(s)),
+        ("FX last update", lambda: SV.fx_last_update(s)),
+        (f"FX today round 2 ({lang})", lambda: SV.fx_rates_raw(s, date.today(), 2, lang)),
+        (f"Provinces ({lang})", lambda: SV.provinces(s, lang)),
+        (f"Countries ({lang})", lambda: SV.countries(s, lang)),
+    ]
+    for name, fn in checks:
+        try:
+            data = fn()
+        except SV.ServiceError as e:
+            rprint(f"[red]{name}: {e}[/]")
+            continue
+        preview = _json.dumps(data, ensure_ascii=False)
+        if isinstance(data, list):
+            shape = f"list[{len(data)}]; first item: {_json.dumps(data[0], ensure_ascii=False)[:300] if data else '-'}"
+        elif isinstance(data, dict):
+            shape = f"dict keys: {', '.join(list(data)[:10])}"
+        else:
+            shape = f"{type(data).__name__}: {preview[:120]}"
+        rprint(f"[green]{name}: ok[/] {shape}")
+    rates = []
+    try:
+        rates = SV.normalize_fx(SV.fx_latest_raw(s))
+    except SV.ServiceError:
+        pass
+    if rates:
+        rprint(f"\n[bold]normalised {len(rates)} currencies[/]; sample:")
+        for r in rates[:3]:
+            rprint(f"  {r.currency} {r.name or ''} buying={r.buying} selling={r.selling} unit={r.unit or '-'}")
+        parsed = sum(1 for r in rates if r.buying is not None or r.selling is not None)
+        rprint(f"[{'green' if parsed else 'yellow'}]{parsed}/{len(rates)} have a buying/selling number "
+               f"({'parsing looks right' if parsed else 'field names differ - send the shape above so I can fix normalize_fx'})[/]")
+
+
+@services_app.command("fx")
+def services_fx(currency: str = typer.Argument(..., help="ISO code, e.g. USD"), lang: str = typer.Option("en")):
+    """The latest rate for one currency, exactly as the fx_rate tool would return it."""
+    import json as _json
+
+    from . import services as SV
+
+    rprint(_json.dumps(SV.fx_rate(_settings(), currency, lang=lang), ensure_ascii=False, indent=1))
 
 
 # ---------------- responsible lending rules ----------------
