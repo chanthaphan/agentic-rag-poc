@@ -16,7 +16,7 @@ const STATUS = {
   th: { thinking: "กำลังคิดค่ะ…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแลค่ะ…", retrieving: "กำลังค้นหาข้อมูล{skill}ให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญด้าน{skill}ค่ะ…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบค่ะ…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียงให้ค่ะ…" },
   en: { thinking: "Thinking…", choosing: "Working out who should handle this…", retrieving: "Looking up {skill} information…", specialist: "Handing this to the {skill} specialist…", drafting: "Found it, writing the answer…", relaying: "The specialist replied, putting the answer together…" },
 };
-const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร" };
+const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร", "financial-knowledge": "การเงิน" };
 function skillLabel(id, lang) {
   if (!id) return lang === "th" ? "" : "product";
   if (lang === "th") return SKILL_TH[id] || id.replace(/-/g, " ");
