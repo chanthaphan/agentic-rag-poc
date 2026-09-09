@@ -28,6 +28,7 @@ from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills,
 
 import logging as _logging
 
+_audit = _logging.getLogger("bankrag.audit")
 for _n in ("bankrag.services", "bankrag.audit"):  # live calls, tool calls and compliance actions are auditable
     _logging.getLogger(_n).setLevel(_logging.INFO)
 
@@ -345,8 +346,11 @@ def chat_stream(req: ChatRequest, request: Request):
     def gen():
         yield f"data: {json.dumps({'type': 'session', 'session_id': sid}, ensure_ascii=False)}\n\n"
         try:
+            loc = (req.lat, req.lon) if req.lat is not None and req.lon is not None else None
+            _audit.info("chat session=%s source=%s location=%s q=%r", (sid or "")[:8], req.source,
+                        "yes" if loc else "no", req.message[:80])
             for ev in session.ask_stream(req.message, force_skill=req.force_skill, with_sources=req.with_sources,
-                                              location=(req.lat, req.lon) if req.lat is not None and req.lon is not None else None):
+                                              location=loc):
                 if ev["type"] == "done":
                     ans: Answer = ev["answer"]
                     with _lock:
