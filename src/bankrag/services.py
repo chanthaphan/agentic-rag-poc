@@ -409,11 +409,16 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
                       district: str = "0", kind: str = KIND_BRANCH, lang: str = "th") -> Any:
     """The Locate Us search: /Search{Thailand}{Lang}WithLocation/{province}/{district}/{lat}/{lon}/{kind}.
 
-    The coordinates are what make it a 'near me' search; the service orders the results by distance from them."""
+    The coordinates are what make it a 'near me' search; the service orders the results by distance from them.
+
+    Every segment is escaped with safe="": these values are chosen by a model from what a customer typed, and quote()
+    leaves "/" alone by default, so a slash in one of them would silently become a different endpoint."""
     from urllib.parse import quote
 
+    seg = {"province": quote(province, safe=""), "district": quote(str(district), safe=""),
+           "kind": quote(kind, safe="")}
     where = "SearchThaiLandTh" if lang == "th" else "SearchThaiLandEn"
-    path = f"{LOC_SERVICE}/{where}WithLocation/{quote(province)}/{quote(str(district))}/{lat}/{lon}/{quote(kind)}"
+    path = f"{LOC_SERVICE}/{where}WithLocation/{seg['province']}/{seg['district']}/{lat}/{lon}/{seg['kind']}"
     return _get(settings, path)
 
 
@@ -439,16 +444,22 @@ def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[f
     """
     kind = resolve_kind(kind)  # accept a label as well as a code, and never build a URL from a phrase
     named = PROV.resolve_province(province) if province else ""
+    if province and not named:
+        # "แถวสีลม" is a district, a landmark or a typo, not a province. The locator only understands the 77 names, so
+        # sending it on would 404; the coordinates, if we have them, are the better answer than a question.
+        log.info("find_branch: %r is not a province I know; %s", province,
+                 "searching from the coordinates instead" if lat is not None and lon is not None else "asking")
     if lat is None or lon is None:
         here = PROV.CENTROIDS.get(named) if named else None
         if here is None:
-            return {"found": False, "kind": kind,
-                    "say": "No location and no province I recognise. Ask the customer which province or district "
-                           "they are in, or to share their location, then look again. Do not invent a branch."}
+            return {"found": False, "kind": kind, "looked_for": province,
+                    "say": "No location, and no province I recognise. Ask the customer which province they are in "
+                           "(the 77 Thai provinces - a district or a landmark is not enough), or to share their "
+                           "location, then look again. Do not invent a branch."}
         lat, lon = here
     # The locator needs a province in the path (an empty one 404s), but a phone only gives coordinates - so derive it.
     # Two provinces, because a customer near a boundary should still be offered the branch across the line.
-    searched = [named or province] if province else PROV.nearest(lat, lon, 2)
+    searched = [named] if named else PROV.nearest(lat, lon, 2)
     rows: list[dict] = []
     errors: list[str] = []
     for prov in searched:

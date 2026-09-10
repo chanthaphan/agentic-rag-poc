@@ -371,3 +371,30 @@ def test_a_rate_quoted_per_100_converts_an_amount_correctly(settings, monkeypatc
     assert vnd["units"] == 1000 and vnd["baht_per_1"]["buying"] == 0.00106
     usd = SV.fx_rate(settings, "USD")
     assert usd["found"] is False  # not in this stub, and the tool says so rather than inventing one
+
+
+def test_only_the_77_province_names_reach_the_locator(settings, monkeypatch):
+    """A district, a landmark or a crafted string is not a province: the locator never sees it."""
+    seen = []
+    monkeypatch.setattr(SV, "search_places_raw",
+                        lambda s, province, lat, lon, **kw: seen.append(province) or [])
+
+    SV.find_branch(settings, 13.7563, 100.5018, province="แถวสีลม")  # falls back to the coordinates
+    assert seen == ["กรุงเทพมหานคร", "นนทบุรี"]
+
+    seen.clear()
+    SV.find_branch(settings, 13.7563, 100.5018, province="กรุงเทพมหานคร/0/1/2/BRC/../other")
+    assert seen == ["กรุงเทพมหานคร", "นนทบุรี"]  # the crafted string is dropped, not forwarded
+
+    seen.clear()
+    out = SV.find_branch(settings, province="../../somewhere")  # no coordinates to fall back to
+    assert seen == [] and out["found"] is False and out["looked_for"] == "../../somewhere"
+
+
+def test_every_path_segment_is_escaped(settings, monkeypatch):
+    """quote() leaves "/" alone by default, so each segment is escaped with safe="" instead."""
+    seen = {}
+    monkeypatch.setattr(SV, "_get", lambda s, path: seen.update(path=path) or [])
+    SV.search_places_raw(settings, "a/b", 13.7, 100.6, district="c/d", kind="e/f")
+    assert "a%2Fb" in seen["path"] and "c%2Fd" in seen["path"] and "e%2Ff" in seen["path"]
+    assert seen["path"].count("/") == 6  # the endpoint's own separators, and no more
