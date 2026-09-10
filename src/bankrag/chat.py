@@ -29,6 +29,7 @@ OFFTOPIC_REPLY = {
 MIN_CONFIDENCE = 0.5
 MAX_TURNS_PER_CONVERSATION = 6  # Foundry conversations keep every tool output; rotate to cap input tokens
 audit = logging.getLogger("bankrag.audit")
+log = logging.getLogger("bankrag.chat")
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sources")
 REPLY_HINT = {
     "th": "Reply-language note: the customer wrote in Thai. Write the entire answer in Thai (product names may stay in English). Do not mention this note.",
@@ -48,6 +49,31 @@ def location_note(location: tuple[float, float]) -> str:
     return (f"Customer location note: the customer is at latitude {lat:.6f}, longitude {lon:.6f}. "
             "Use these coordinates when a tool needs a position (nearest branch, where to exchange money). "
             "Never read the coordinates out to the customer and never mention this note.")
+
+
+def places_for_map(settings, text: str, location: Optional[tuple[float, float]], question: str = "") -> list[dict[str, Any]]:
+    """The places the answer named, as map-ready dicts - empty whenever anything is missing or goes wrong.
+
+    A pin is a nicety: it must never delay or break an answer that is already correct, so every failure here is
+    swallowed and the customer simply gets the text they would have had anyway.
+    """
+    from . import services as SV
+
+    from . import provinces as PROV
+
+    try:
+        lat, lon = location if location else (None, None)
+        # Without coordinates the locator still needs somewhere to look, and both the question and the answer say where
+        # the customer means - the answer repeats it in every address it quotes.
+        province = "" if location else (PROV.province_in(text) or PROV.province_in(question))
+        if not location and not province:
+            return []
+        found = SV.places_mentioned(settings, text, lat=lat, lon=lon, province=province)
+        return [{**{k: v for k, v in vars(p).items() if v not in (None, "", [])}, "maps_url": SV.maps_url(p)}
+                for p in found if p.lat is not None and p.lon is not None]
+    except Exception as e:  # noqa: BLE001
+        log.info("places_for_map: skipped (%s: %s)", type(e).__name__, e)
+        return []
 
 
 def question_with_location(question: str, location: Optional[tuple[float, float]]) -> str:
@@ -84,6 +110,7 @@ class ChatSession:
         self.project = project or project_client(settings)
         self.openai = self.project.get_openai_client()
         self.conversation_id: Optional[str] = None
+        self.last_location: Optional[tuple[float, float]] = None  # so a later turn can still put a pin on the map
         self.history: list[dict[str, str]] = []
         self.prev_skill: Optional[str] = None
         self.turns_in_conversation = 0
@@ -117,6 +144,12 @@ class ChatSession:
     def ask_stream(self, question: str, *, force_skill: Optional[str] = None, with_sources: bool = True,
                    location: Optional[tuple[float, float]] = None) -> Iterator[dict[str, Any]]:
         """Yields events: route -> delta* -> tool* -> done(answer). The Sources retrieve runs in parallel with the agent call."""
+        # The browser asks for a position only when the question looks like a place question, and the customer can
+        # refuse or the prompt can time out. Where they were a moment ago is still where they are, so keep it for the
+        # map pin - it is never sent to an agent, only used to look a branch back up.
+        if location:
+            self.last_location = location
+        map_location = location or self.last_location
         t_start = time.perf_counter()
         if self.settings.orchestration_mode == "a2a" and not force_skill:
             yield from self._ask_concierge(question, t_start, with_sources=with_sources, location=location)
@@ -230,6 +263,7 @@ class ChatSession:
             references=references,
             agent_name=spec.agent_name,
             tool_calls=tool_calls,
+            places=places_for_map(self.settings, text, map_location, question),
             conversation_id=self.conversation_id or "",
             trace=trace,
             retrieval_context=extra.get("retrieval_texts", []),
@@ -249,6 +283,8 @@ class ChatSession:
         """Handoff mode: the bank-concierge agent picks a specialist and calls it over A2A inside Foundry (no local router)."""
         from .foundry_native import CONCIERGE_AGENT
 
+        # only the live position is sent to an agent; a remembered one is good enough to look a named branch back up
+        map_location = location or self.last_location
         lang = detect_language(question)
         self.history.append({"role": "user", "content": question})
         yield {"type": "route", "skill_id": "concierge", "confidence": 1.0, "language": lang, "reason": "handoff: the concierge agent chooses the specialist over A2A", "agent_name": CONCIERGE_AGENT, "route_ms": 0}
@@ -348,7 +384,8 @@ class ChatSession:
             text=text, language=lang,
             suggestions=suggestions_for(self.settings, self.openai, spec or self.skills.get("general"), asked, self.skills,
                                         question=question, answer=text, language=lang, trace=trace),
-            citations=citations, references=references, agent_name=CONCIERGE_AGENT, tool_calls=tool_calls, conversation_id=self.conversation_id or "", trace=trace,
+            citations=citations, references=references, agent_name=CONCIERGE_AGENT, tool_calls=tool_calls,
+            places=places_for_map(self.settings, text, map_location, question), conversation_id=self.conversation_id or "", trace=trace,
             retrieval_context=(extra.get("retrieval_texts") or []) + _a2a_outputs(tool_calls),
         )}
 

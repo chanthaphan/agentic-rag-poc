@@ -245,6 +245,7 @@ def app_config(request: Request):
         "user_initials": _initials(who["name"]) or settings.app_user_initials,
         "user_email": who["email"],
         "assistant_name": settings.assistant_name,
+        "maps_key": settings.google_maps_key,  # empty: a place card links out to Maps instead of embedding it
         "starter_prompts": starters[:3],
         "skills": [{"id": s.id, "name": s.name, "product_category": s.product_category} for s in skills.values()],
     }

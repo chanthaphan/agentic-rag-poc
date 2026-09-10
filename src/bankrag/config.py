@@ -93,6 +93,7 @@ class Settings:
     services_mcp_audience: str  # token audience the agent's connection asks for, i.e. the Easy Auth api://<client-id>
     public_base_url: str  # public https base of this app, so a Foundry agent can reach /mcp/services
     public_base_aliases: list[str]  # other names this app answers on, so a domain move does not 421 mid-cutover
+    google_maps_key: str  # optional: with it a place card shows an embedded map, without it a link that opens Maps
     kb_mcp_auth: str
     kb_max_output_tokens: int
     # App
@@ -152,6 +153,7 @@ class Settings:
             services_mcp_audience=_env("MCP_AUDIENCE", ""),
             public_base_url=_env("PUBLIC_BASE_URL", "").rstrip("/"),
             public_base_aliases=[u.strip().rstrip("/") for u in _env("PUBLIC_BASE_ALIASES", "").split(",") if u.strip()],
+            google_maps_key=_env("GOOGLE_MAPS_KEY", ""),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),

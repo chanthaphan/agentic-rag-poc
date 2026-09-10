@@ -441,3 +441,65 @@ def test_the_result_says_what_kind_of_place_it_is_holding(settings, monkeypatch)
     monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [BRANCH_ROW])
     assert "calling the branch" in SV.find_branch(settings, province="เชียงใหม่")["note"]
     assert "Wealth Lounge" in SV.find_branch(settings, province="เชียงใหม่", kind="wealth center")["note"]
+
+
+# ---- pins on the answer ----
+def test_only_the_places_the_answer_named_get_a_pin(settings, monkeypatch):
+    """Thai has no space between a branch name and the next word, so names are generated from the locator and tested
+    against the answer, never parsed out of it."""
+    rows = [{**BRANCH_ROW, "BranchName": n, "BranchNo": no, "Lat": la, "Lng": "100.52"}
+            for n, no, la in (("สาขาสีลม", "1", "13.72"), ("สาขาจิวเวลรี่เทรดเซ็นเตอร์ สีลม", "2", "13.73"),
+                              ("สาขาบางรัก", "3", "13.74"))]
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: rows)
+    said = "สาขาสีลมของธนาคารกรุงเทพเปิดจันทร์-ศุกร์ 08.30 น. และสาขาจิวเวลรี่เทรดเซ็นเตอร์ สีลม ก็เปิดเวลาเดียวกันค่ะ"
+    got = [p.name for p in SV.places_mentioned(settings, said, lat=13.7245, lon=100.534)]
+    assert got == ["สาขาสีลม", "สาขาจิวเวลรี่เทรดเซ็นเตอร์ สีลม"]  # บางรัก was never mentioned
+
+
+def test_an_answer_with_no_place_in_it_costs_nothing(settings, monkeypatch):
+    monkeypatch.setattr(SV, "search_places_raw",
+                        lambda *a, **k: pytest.fail("a product answer must not call the locator"))
+    assert SV.places_mentioned(settings, "บัตรนี้ค่าธรรมเนียมรายปี 3,000 บาทค่ะ", lat=13.7, lon=100.5) == []
+
+
+def test_a_short_name_does_not_pin_itself_onto_an_address(settings, monkeypatch):
+    """A branch called "บางนา" must not match the words "ถนนบางนา" in some other branch's address."""
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [
+        {**BRANCH_ROW, "BranchName": "สาขาบ้าน", "BranchNo": "9", "Lat": "13.7", "Lng": "100.5"}])
+    assert SV.places_mentioned(settings, "สาขาแถวบ้านคุณมีหลายที่ค่ะ", lat=13.7, lon=100.5) == []
+
+
+def test_a_pin_links_out_even_without_a_google_key():
+    p = SV.Place(name="สาขาสีลม", lat=13.72, lon=100.52)
+    assert SV.maps_url(p) == "https://www.google.com/maps/search/?api=1&query=13.72,100.52"
+    assert "%E0%B8%AA" in SV.maps_url(SV.Place(name="สาขาสีลม"))  # no coordinates: search by name instead
+
+
+def test_a_position_from_an_earlier_turn_still_pins_the_map(settings, monkeypatch):
+    """The browser asks for a position only on a place-looking question and the customer can refuse or time out; where
+    they were a moment ago is still where they are, but only the live position may reach an agent."""
+    from bankrag import chat as C
+
+    seen = {}
+    monkeypatch.setattr(SV, "places_mentioned",
+                        lambda s, text, **kw: seen.update(kw) or [])
+    C.places_for_map(settings, "สาขาสีลมเปิด 08.30 น.", (13.72, 100.53), "สาขาสีลมเปิดกี่โมง")
+    assert (seen["lat"], seen["lon"]) == (13.72, 100.53) and seen["province"] == ""
+
+    seen.clear()
+    C.places_for_map(settings, "สาขาประตูเชียงใหม่ อยู่ที่ ศรีภูมิ เมืองเชียงใหม่", None, "สาขาแถวนี้")
+    assert seen["lat"] is None and seen["province"] == "เชียงใหม่"  # no position: the province is read out of the text
+
+    seen.clear()
+    assert C.places_for_map(settings, "สาขาซีคอนสแควร์เปิดทุกวันค่ะ", None, "เปิดกี่โมง") == []
+    assert seen == {}  # nowhere to look: no call, no pin, and the answer is untouched
+
+
+def test_a_pin_failure_never_breaks_the_answer(settings, monkeypatch):
+    from bankrag import chat as C
+
+    def boom(*a, **k):
+        raise SV.ServiceError("the locator is down")
+
+    monkeypatch.setattr(SV, "places_mentioned", boom)
+    assert C.places_for_map(settings, "สาขาสีลมเปิด 08.30 น.", (13.72, 100.53)) == []

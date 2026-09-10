@@ -150,3 +150,18 @@ def centroid(name: str) -> tuple[float, float] | None:
     """The centre of the named province, for a customer who told us where they are without sharing a location."""
     resolved = resolve_province(name)
     return CENTROIDS[resolved] if resolved else None
+
+
+def province_in(text: str) -> str:
+    """The province a sentence mentions, or "".
+
+    A customer who has not shared their location still says where they mean, and the answer repeats it in the address
+    ("... หายยา เมืองเชียงใหม่"). The longest matching name wins, so นครราชสีมา is not read as นคร- something else.
+    """
+    blob = "".join(str(text or "").split())
+    hits = [name for name in CENTROIDS if name in blob]
+    hits += [alias for alias in _ALIASES if len(alias) > 3 and alias in blob.lower()]
+    if not hits:
+        return ""
+    best = max(hits, key=len)
+    return resolve_province(best)

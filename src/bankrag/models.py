@@ -174,6 +174,7 @@ class Answer(BaseModel):
     agent_name: str = ""
     agent_version: str = ""
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    places: list[dict[str, Any]] = Field(default_factory=list)  # branches/ATMs the answer named, with coordinates for a map
     conversation_id: str = ""
     trace: dict[str, Any] = Field(default_factory=dict)  # timings, token usage, retrieval stats, reasoning
     retrieval_context: list[str] = Field(default_factory=list, exclude=True)  # full knowledge-base tool outputs; evals only, never stored

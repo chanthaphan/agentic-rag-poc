@@ -7,6 +7,7 @@ const api = async (path, opts = {}) => {
 };
 const ICON = {
   sparkles: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>',
+  pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>',
   corner: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>',
 };
 const TH = (navigator.language || "").toLowerCase().startsWith("th");
@@ -47,6 +48,25 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "rel"] }).replace(/<a /g, '<a target="_blank" rel="noopener" ');
 }
 const linkify = renderMarkdown;
+function placesHtml(places) {
+  // A map is worth more than an address for a place the customer has to walk to - and for an ATM, which has no hours
+  // and no phone, it is nearly the whole answer. With a Google key the map is embedded; without one the card still
+  // works and simply opens the customer's own map app, which is what they were going to do anyway.
+  if (!(places || []).length) return "";
+  const key = (state.config || {}).maps_key || "";
+  return `<div class="places">` + places.map((p) => {
+    const dist = p.distance_km != null ? `<span class="km">${p.distance_km} กม.</span>` : "";
+    const map = key
+      ? `<iframe class="map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="${esc(p.name)}"
+           src="https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(key)}&q=${p.lat},${p.lon}&zoom=16"></iframe>`
+      : "";
+    return `<a class="place" href="${esc(p.maps_url)}" target="_blank" rel="noopener">
+      ${map}<span class="pin">${ICON.pin}</span>
+      <span class="where"><b>${esc(p.name)}</b>${dist}<i>${esc(p.address || "")}</i></span>
+    </a>`;
+  }).join("") + `</div>`;
+}
+
 function render() {
   const body = $("#body");
   if (!state.turns.length && !state.busy) {
@@ -68,7 +88,7 @@ function render() {
     const badge = t.skill_id && t.skill_id !== "offtopic" ? `<button class="badge" data-turn="${i}">${esc(t.skill_id)} · ${Math.round((t.confidence || 0) * 100)}%</button>` : "";
     const cites = (t.citations || []).slice(0, 3).map((c) => `<a class="cite" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.url)}">${esc(c.title || c.url.replace(/^https?:\/\//, ""))}</a>`).join("");
     const fb = t.streaming || t.error || !state.sessionId ? "" : `<span class="fb" data-idx="${i}"><button class="${t.rating === "up" ? "on" : ""}" data-r="up" title="helpful">👍</button><button class="${t.rating === "down" ? "on" : ""}" data-r="down" title="not helpful">👎</button></span>`;
-    html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md ${t.error ? "err" : ""}">${linkify(t.text)}${badge || cites || fb ? `<div class="meta">${badge}${cites}${fb}</div>` : ""}</div></div>`;
+    html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md ${t.error ? "err" : ""}">${linkify(t.text)}${placesHtml(t.places)}${badge || cites || fb ? `<div class="meta">${badge}${cites}${fb}</div>` : ""}</div></div>`;
     if (isLast && !state.busy && (t.suggestions || []).length) {
       const lth = (t.language || (TH ? "th" : "en")) === "th";
       html += `<div class="suggest"><div class="lbl">${lth ? "คำถามที่เกี่ยวข้อง" : "Suggested"}</div>${t.suggestions.map((s) => `<button data-q="${esc(s)}">${ICON.corner}${esc(s)}</button>`).join("")}</div>`;
@@ -167,7 +187,7 @@ async function send(text) {
       } else if (ev.type === "tool") { draft.tool_calls = [...(draft.tool_calls || []), { type: "mcp_call", name: ev.name, arguments: ev.arguments, error: ev.error }]; renderLog(); }
       else if (ev.type === "done") {
         const a = ev.answer; const idx = state.turns.indexOf(draft);
-        const turn = { role: "assistant", text: a.text, language: a.language, trace: a.trace, skill_id: a.skill_id, confidence: a.confidence, citations: a.citations, references: a.references, suggestions: a.suggestions, route_reason: a.route_reason, agent_name: a.agent_name, tool_calls: a.tool_calls };
+        const turn = { role: "assistant", text: a.text, language: a.language, trace: a.trace, skill_id: a.skill_id, confidence: a.confidence, citations: a.citations, references: a.references, suggestions: a.suggestions, route_reason: a.route_reason, agent_name: a.agent_name, tool_calls: a.tool_calls, places: a.places };
         if (idx >= 0) state.turns[idx] = turn; else state.turns.push(turn);
       } else if (ev.type === "error") { throw new Error(ev.message); }
     });

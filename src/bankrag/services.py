@@ -552,6 +552,67 @@ def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[f
     }
 
 
+# A place is worth a pin only if the answer really named it, and "named" means the locator's own name, whole: matching
+# the bare name matches far too much, because Thai runs words together - a branch called "สาขาบ้าน" would pin itself
+# onto the phrase "สาขาแถวบ้านคุณ". _MIN_NAME then rules out a name so short it is only the word "สาขา".
+_MIN_NAME = 4
+_PLACE_WORDS = ("สาขา", "ตู้", "atm", "branch", "เอทีเอ็ม", "บูธ", "เลานจ์", "สำนักธุรกิจ")
+
+
+def places_mentioned(settings: Settings, text: str, *, lat: Optional[float] = None, lon: Optional[float] = None,
+                     province: str = "", kinds: tuple = (KIND_BRANCH, KIND_ATM), limit: int = 3) -> list[Place]:
+    """The places an answer actually named, with their coordinates.
+
+    The assistant's answer is prose, and the branch it mentions was found by a tool we cannot see: in handoff mode the
+    specialist owns the lookup and the app receives only text. Parsing a name back out of Thai prose is not reliable -
+    "สาขาสีลมของธนาคาร" has no space between the name and the next word - so this goes the other way round: ask the
+    locator for the places near the customer, then keep the ones whose name appears in the answer. A name we generate
+    is exact; a name we parse is a guess.
+    """
+    blob = "".join(str(text or "").split()).lower()
+    if not blob or not any(w in blob for w in _PLACE_WORDS):
+        return []
+    found: list[Place] = []
+    seen: set[str] = set()
+    for kind in kinds:
+        try:
+            got = find_branch(settings, lat, lon, province=province, kind=kind, limit=400)
+        except ServiceError as e:
+            log.info("places_mentioned: %s lookup failed: %s", kind, e)
+            continue
+        if not got.get("found"):
+            continue
+        for row in got["branches"]:
+            name = row.get("name", "")
+            whole = "".join(str(name).split()).lower()  # the name as the locator writes it, spacing ignored
+            if len(_name_key(name)) < _MIN_NAME or whole not in blob or whole in seen:
+                continue
+            seen.add(whole)
+            found.append(Place(**{k: v for k, v in row.items() if k in Place.__annotations__}))
+    # An ATM inside a branch shares the branch's coordinates and its name is the branch's plus " #1", so both match and
+    # both pin the same doorway. One pin per spot, and it is the more specific name the answer actually used.
+    at: dict[tuple, Place] = {}
+    for place in sorted(found, key=lambda p: -len(p.name)):
+        spot = (round(place.lat or 0, 4), round(place.lon or 0, 4))
+        at.setdefault(spot, place)
+    found = [p for p in found if at.get((round(p.lat or 0, 4), round(p.lon or 0, 4))) is p]
+    # nearest first, as the answer itself listed them. The sort is stable and distance is rounded to 100 m, so two
+    # places at the same rounded distance keep the order the locator returned rather than being shuffled by name.
+    found.sort(key=lambda p: p.distance_km if p.distance_km is not None else 1e9)
+    log.info("places_mentioned -> %d of the answer's places located (kinds=%s)", len(found), list(kinds))
+    return found[:limit]
+
+
+def maps_url(place: Place) -> str:
+    """A link that opens the pin in whatever map app the customer has, with no API key and no bill."""
+    from urllib.parse import quote_plus
+
+    if place.lat is not None and place.lon is not None:
+        return f"https://www.google.com/maps/search/?api=1&query={place.lat},{place.lon}"
+    where = ", ".join(x for x in (place.name, place.address, place.province) if x)
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(where)}" if where else ""
+
+
 def locator_endpoint(settings: Settings, path: str) -> Any:
     """Escape hatch for a locator path whose exact shape we confirm from the live Locate-Us page (branch search by
     province / district / geo). `path` is appended to the location service, e.g. 'GetBranchByProvince/10'."""
