@@ -441,6 +441,24 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
     return _get(settings, path)
 
 
+# The locator names an ATM after the branch it stands at - "สาขาประตูเชียงใหม่ #1" is a machine, not a counter - and a
+# model reading that name will reach for branch opening hours and quote them. Saying so in the result works where a
+# rule in the prompt does not: it is in front of the model at the moment it writes the sentence.
+_KIND_NOTES = {
+    KIND_BRANCH: "Opening hours and services can change; suggest calling the branch before travelling.",
+    KIND_ATM: "These are cash machines, not branch counters. The name is the branch each one stands at, not a place "
+              "open at branch hours. An ATM has no opening hours and no phone number: give the location only, never "
+              "state hours, never say 24 hours, and never tell the customer to call it.",
+    KIND_FX_BOOTH: "These are currency-exchange booths. Hours and the currencies stocked can change; suggest calling "
+                   "ahead for a large amount.",
+    KIND_FCD: "These branches open and service foreign-currency deposit accounts; that is not the same as exchanging "
+              "cash over the counter.",
+    KIND_WEALTH_LOUNGE: "These are Wealth Lounges (Bualuang Exclusive), for customers who qualify for that service.",
+    KIND_BUSINESS_CENTER: "These are business centres (สำนักธุรกิจ), for business banking rather than a retail counter.",
+}
+_KIND_NOTES[KIND_ATM_PLUS] = _KIND_NOTES[KIND_ATM]
+
+
 def _name_key(text: str) -> str:
     """A branch name reduced to what a customer would actually type: no "สาขา", no spaces, no case."""
     t = str(text or "").lower()
@@ -530,7 +548,7 @@ def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[f
         "province": ", ".join(searched),
         "kind": kind,
         "branches": [{k: v for k, v in vars(p).items() if v not in (None, "")} for p in places],
-        "disclaimer": "Opening hours and services can change; suggest calling the branch before travelling.",
+        "note": _KIND_NOTES.get(kind, _KIND_NOTES[KIND_BRANCH]),
     }
 
 

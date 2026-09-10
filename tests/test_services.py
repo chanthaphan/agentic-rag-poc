@@ -159,7 +159,7 @@ def test_find_branch_returns_the_nearest(settings, monkeypatch):
     # ranked by distance from the caller's point, computed from each row's own coordinates
     assert out["found"] and [b["name"] for b in out["branches"]] == ["A", "B"]
     assert out["near"] == {"lat": 13.7, "lon": 100.6}
-    assert "can change" in out["disclaimer"]
+    assert "can change" in out["note"]
     assert out["branches"][0]["services"] == ["ATM", "Branch"]
     assert out["branches"][0]["lat"] and out["branches"][0]["distance_km"] is not None  # usable for a map pin
     assert all("phone" not in b for b in out["branches"])  # genuinely blank fields are dropped, not sent as nulls
@@ -429,3 +429,15 @@ def test_a_placeholder_is_never_mistaken_for_a_value():
     assert SV._clean("จันทร์-ศุกร์ 08.30 น.") == "จันทร์-ศุกร์ 08.30 น."  # a hyphen inside a real value stays
     assert SV._clean_phone("BeID") == "" and SV._clean_phone("-") == ""
     assert SV._clean_phone("02-721-8646-50") == "02-721-8646-50"
+
+
+def test_the_result_says_what_kind_of_place_it_is_holding(settings, monkeypatch):
+    """The rule belongs in the result, not only in the prompt: it is what the model is reading as it writes."""
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [ATM_ROW])
+    for said in ("atm", "atm plus"):
+        note = SV.find_branch(settings, province="เชียงใหม่", kind=said)["note"]
+        assert "no opening hours and no phone number" in note and "never say 24 hours" in note
+
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [BRANCH_ROW])
+    assert "calling the branch" in SV.find_branch(settings, province="เชียงใหม่")["note"]
+    assert "Wealth Lounge" in SV.find_branch(settings, province="เชียงใหม่", kind="wealth center")["note"]
