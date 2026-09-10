@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
-OLD="${CA_APP:-bankrag}"
+OLD="${CA_APP:-talkwithgrace}"
 ENVNAME="${CA_ENV:-bankrag-env}"
 NEW="${1:?usage: infra/15-rename-app.sh <new-app-name>, e.g. talkwithgrace}"
 [[ "$NEW" =~ ^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$ ]] || { echo "'$NEW' is not a valid Container App name (lower-case letters, digits and hyphens, 2-32 chars)"; exit 1; }

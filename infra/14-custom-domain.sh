@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
-APP="${CA_APP:-bankrag}"
+APP="${CA_APP:-talkwithgrace}"
 ENVNAME="${CA_ENV:-bankrag-env}"
 HOST="${1:?usage: infra/14-custom-domain.sh <hostname>, e.g. chat.example.com}"
 

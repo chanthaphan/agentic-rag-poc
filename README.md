@@ -87,4 +87,4 @@ IMAGE=<printed image> ./infra/11-containerapp.sh   # storage share, environment,
 ./infra/13-services-tool.sh         # live FX/branch tools: lets the Foundry project's identity call /mcp/services
 ```
 
-Re-deploy after a code change: run `10-acr-build.sh`, then `az containerapp update -g my-aiverse -n bankrag --image <IMAGE>`. The app identity uses managed identity for Foundry (`DefaultAzureCredential`), so no `az login` is needed inside the container. Environment: `DATA_DIR=/data` (mounted share), `SQLITE_DB_PATH` / `SQLITE_DB_BACKUP` set by `docker/entrypoint.sh`.
+Re-deploy after a code change: run `10-acr-build.sh`, then `az containerapp update -g my-aiverse -n talkwithgrace --image <IMAGE>`. The app identity uses managed identity for Foundry (`DefaultAzureCredential`), so no `az login` is needed inside the container. Environment: `DATA_DIR=/data` (mounted share), `SQLITE_DB_PATH` / `SQLITE_DB_BACKUP` set by `docker/entrypoint.sh`.

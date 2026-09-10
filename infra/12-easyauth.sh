@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
-APP="${CA_APP:-bankrag}"
+APP="${CA_APP:-talkwithgrace}"
 FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
 # Every name the app answers on needs its own callback: a custom domain added later would otherwise sign in against the
 # *.azurecontainerapps.io callback and be rejected. --web-redirect-uris REPLACES the list, so read what is there first
