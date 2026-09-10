@@ -398,3 +398,34 @@ def test_every_path_segment_is_escaped(settings, monkeypatch):
     SV.search_places_raw(settings, "a/b", 13.7, 100.6, district="c/d", kind="e/f")
     assert "a%2Fb" in seen["path"] and "c%2Fd" in seen["path"] and "e%2Ff" in seen["path"]
     assert seen["path"].count("/") == 6  # the endpoint's own separators, and no more
+
+
+# ---- what the locator writes when it has nothing ----
+ATM_ROW = {"BranchName": "สาขาประตูเชียงใหม่ #1", "BranchNo": "T005B424", "Address1": "11/1 ถ.ช่างหล่อ",
+           "Address2": "หายยา", "MicroBranchHours": "-", "Province": "เชียงใหม่", "Postcode": "50100",
+           "ATM": "x", "Branch": "", "Lat": "18.7809", "Lng": "98.9870", "Tel": "BeID", "Fax": "-"}
+BRANCH_ROW = {"BranchName": "สาขาประตูเชียงใหม่", "BranchNo": "0424", "Address1": "11/1 ถนนช่างหล่อ",
+              "MicroBranchHours": "จันทร์-ศุกร์ 08.30 น. - 16.00 น.", "Province": "เชียงใหม่",
+              "ATM": "x", "Branch": "x", "FXBooth": " ", "Lat": "18.7809", "Lng": "98.9870",
+              "Tel": "053-272-462, 053-270-124-6"}
+
+
+def test_an_atm_has_no_phone_and_no_opening_hours(settings, monkeypatch):
+    """An ATM row says Tel "BeID" and hours "-". Passed on, the assistant tells a customer to call "BeID"."""
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [ATM_ROW])
+    atm = SV.find_branch(settings, province="เชียงใหม่", kind="atm")["branches"][0]
+    assert "phone" not in atm and "hours" not in atm
+    assert atm["name"] == "สาขาประตูเชียงใหม่ #1" and atm["services"] == ["ATM"]
+
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: [BRANCH_ROW])
+    branch = SV.find_branch(settings, province="เชียงใหม่")["branches"][0]
+    assert branch["phone"] == "053-272-462, 053-270-124-6"
+    assert branch["hours"] == "จันทร์-ศุกร์ 08.30 น. - 16.00 น."
+    assert "FXBooth" not in branch["services"]  # a space is not an "x"
+
+
+def test_a_placeholder_is_never_mistaken_for_a_value():
+    assert SV._clean("-") == "" and SV._clean("  N/A ") == "" and SV._clean("ไม่มีข้อมูล") == ""
+    assert SV._clean("จันทร์-ศุกร์ 08.30 น.") == "จันทร์-ศุกร์ 08.30 น."  # a hyphen inside a real value stays
+    assert SV._clean_phone("BeID") == "" and SV._clean_phone("-") == ""
+    assert SV._clean_phone("02-721-8646-50") == "02-721-8646-50"

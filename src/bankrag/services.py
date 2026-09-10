@@ -384,6 +384,23 @@ def _services_of(row: dict) -> list[str]:
             if str(v).strip().lower() == "x" and k.lower() not in _NOT_A_SERVICE and not k.lower().startswith("address")]
 
 
+# What the locator writes in a field it has nothing for. An ATM row carries Tel "BeID" (an internal device marker) or
+# "-", and MicroBranchHours "-", because an ATM has no counter and no phone. Passed on, they become an assistant
+# telling a customer to call "BeID", or filling the gap where the hours should be with a plausible invention.
+_PLACEHOLDERS = {"-", "--", "---", "n/a", "na", "none", "null", "beid", "no data", "ไม่มี", "ไม่มีข้อมูล"}
+
+
+def _clean(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() in _PLACEHOLDERS else text
+
+
+def _clean_phone(value: Any) -> str:
+    """A phone number the customer can dial, or nothing. "BeID" is not a number, and neither is any other word."""
+    text = _clean(value)
+    return text if any(ch.isdigit() for ch in text) else ""
+
+
 def normalize_places(data: Any) -> list[Place]:
     """Branch rows, normalised the same defensive way as the rates: unknown spellings degrade to blank, not a crash."""
     out: list[Place] = []
@@ -395,8 +412,10 @@ def normalize_places(data: Any) -> list[Place]:
                 continue
             if field in ("lat", "lon", "distance_km"):
                 setattr(p, field, _to_float(raw))
+            elif field == "phone":
+                setattr(p, field, _clean_phone(raw))
             else:
-                setattr(p, field, str(raw).strip())
+                setattr(p, field, _clean(raw))
         parts = [str(row[k]).strip() for k in _ADDRESS_KEYS if str(row.get(k, "")).strip()]
         p.address = " ".join(dict.fromkeys(parts))
         p.services = _services_of(row)
