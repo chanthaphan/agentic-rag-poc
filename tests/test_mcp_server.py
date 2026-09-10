@@ -124,3 +124,29 @@ def test_branch_tool_is_registered_and_passes_coordinates(settings, monkeypatch)
     assert MS.TOOL_BRANCH in names
     anyio.run(lambda: server.call_tool(MS.TOOL_BRANCH, {"lat": 13.7, "lon": 100.6, "province": "กรุงเทพมหานคร"}))
     assert seen["lat"] == 13.7 and seen["lon"] == 100.6 and seen["province"] == "กรุงเทพมหานคร"
+
+
+def test_the_app_answers_on_the_old_name_while_a_domain_move_is_in_flight(settings, monkeypatch):
+    """A Host the transport does not know is a 421 with nothing in the answer to explain it, so both names are allowed
+    until the Foundry connection has been repointed."""
+    from urllib.parse import urlparse
+
+    monkeypatch.setattr(settings, "public_base_url", "https://chat.example.com", raising=False)
+    monkeypatch.setattr(settings, "public_base_aliases",
+                        ["https://bankrag.kindbay.eastus2.azurecontainerapps.io", "old.example.com"], raising=False)
+    seen = {}
+    import mcp.server.transport_security as TS
+
+    real = TS.TransportSecuritySettings
+
+    def capture(**kw):
+        seen.update(kw)
+        return real(**kw)
+
+    monkeypatch.setattr(MS, "TransportSecuritySettings", capture)
+    MS.build_asgi(settings)
+    assert "chat.example.com" in seen["allowed_hosts"]
+    assert "bankrag.kindbay.eastus2.azurecontainerapps.io" in seen["allowed_hosts"]
+    assert "old.example.com" in seen["allowed_hosts"]  # a bare host is accepted, not only a full https base
+    assert "https://old.example.com" in seen["allowed_origins"]
+    assert all(urlparse(o).scheme == "https" for o in seen["allowed_origins"])

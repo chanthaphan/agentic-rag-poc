@@ -6,13 +6,22 @@ set -a; source .env; set +a
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
 APP="${CA_APP:-bankrag}"
 FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
+# Every name the app answers on needs its own callback: a custom domain added later would otherwise sign in against the
+# *.azurecontainerapps.io callback and be rejected. --web-redirect-uris REPLACES the list, so read what is there first
+# and merge - re-running this script must never drop a name someone else added.
+CUSTOM=$(az containerapp show -g "$RG" -n "$APP" --query "properties.configuration.ingress.customDomains[].name" -o tsv)
+HOSTS=$(printf '%s\n%s\n' "$FQDN" "$CUSTOM" | sed '/^$/d' | sort -u)
 APPREG="${APPREG_NAME:-bankrag-easyauth}"
 CLIENT_ID=$(az ad app list --display-name "$APPREG" --query "[0].appId" -o tsv)
 if [ -z "$CLIENT_ID" ]; then
-  CLIENT_ID=$(az ad app create --display-name "$APPREG" --sign-in-audience AzureADMyOrg --web-redirect-uris "https://$FQDN/.auth/login/aad/callback" --enable-id-token-issuance true --query appId -o tsv)
+  CLIENT_ID=$(az ad app create --display-name "$APPREG" --sign-in-audience AzureADMyOrg --enable-id-token-issuance true --query appId -o tsv)
+  EXISTING=""
 else
-  az ad app update --id "$CLIENT_ID" --web-redirect-uris "https://$FQDN/.auth/login/aad/callback" --enable-id-token-issuance true -o none
+  EXISTING=$(az ad app show --id "$CLIENT_ID" --query "web.redirectUris[]" -o tsv)
 fi
+REDIRECTS=$(printf '%s\n' $EXISTING $(for h in $HOSTS; do echo "https://$h/.auth/login/aad/callback"; done) | sed '/^$/d' | sort -u)
+echo "callbacks      : $(echo $REDIRECTS | tr '\n' ' ')"
+az ad app update --id "$CLIENT_ID" --web-redirect-uris $REDIRECTS --enable-id-token-issuance true -o none
 SECRET=$(az ad app credential reset --id "$CLIENT_ID" --display-name easyauth --years 1 --query password -o tsv)
 az containerapp secret set -g "$RG" -n "$APP" --secrets easyauth-secret="$SECRET" -o none
 # Easy Auth is told to accept api://<client-id>, so that URI has to actually exist on the app registration: without it
@@ -35,4 +44,5 @@ p.setdefault("platform", {})["enabled"] = True
 json.dump({"properties": p}, open("/tmp/auth-put.json", "w"))
 PY
 az rest --method put --url "https://management.azure.com$APPID/authConfigs/current?api-version=2024-03-01" --body @/tmp/auth-put.json -o none
-echo "Entra sign-in enabled for https://$FQDN (app registration $APPREG, client $CLIENT_ID)"
+for h in $HOSTS; do echo "Entra sign-in enabled for https://$h"; done
+echo "app registration $APPREG, client $CLIENT_ID"

@@ -93,16 +93,22 @@ def build_asgi(settings: Settings) -> tuple[Callable, Any]:
     "Task group is not initialized" on the first request.
     """
     # DNS-rebinding protection validates the Host header and defaults to localhost only, which would 421 every call
-    # from Foundry to the container's public name. Allow exactly our own host (plus local dev / tests).
+    # from Foundry to the container's public name. Allow exactly our own names (plus local dev / tests).
+    #
+    # PUBLIC_BASE_ALIASES exists for the day the app moves to a custom domain: both names answer at once, and a 421
+    # here is invisible - the agent simply reports that it cannot look anything up - so the old name stays allowed
+    # until the connection has been repointed and verified.
     from urllib.parse import urlparse
 
     hosts = ["localhost", "127.0.0.1", "testserver", "localhost:8010", "127.0.0.1:8010"]
     origins = []
-    if settings.public_base_url:
-        host = urlparse(settings.public_base_url).netloc
-        if host:
-            hosts.append(host)
-            origins.append(settings.public_base_url)
+    for base in [settings.public_base_url, *settings.public_base_aliases]:
+        if not base:
+            continue
+        parsed = urlparse(base if "//" in base else f"https://{base}")  # an alias may be given as a bare host
+        if parsed.netloc and parsed.netloc not in hosts:
+            hosts.append(parsed.netloc)
+            origins.append(f"{parsed.scheme or 'https'}://{parsed.netloc}")
     inner = build_server(settings).streamable_http_app(
         streamable_http_path="/", stateless_http=True, json_response=True,
         transport_security=TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=origins),
