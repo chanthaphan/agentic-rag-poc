@@ -12,6 +12,7 @@
 # Run infra/12-easyauth.sh first (it creates the app registration this reuses), then `bankrag skills sync`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+set -a; source .env; set +a   # the other infra scripts read .env; this one needs AZURE_SUBSCRIPTION_ID from it too
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
 APP="${CA_APP:-bankrag}"
 APPREG="${APPREG:-bankrag-easyauth}"
