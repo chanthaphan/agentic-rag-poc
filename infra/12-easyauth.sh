@@ -22,7 +22,10 @@ fi
 REDIRECTS=$(printf '%s\n' $EXISTING $(for h in $HOSTS; do echo "https://$h/.auth/login/aad/callback"; done) | sed '/^$/d' | sort -u)
 echo "callbacks      : $(echo $REDIRECTS | tr '\n' ' ')"
 az ad app update --id "$CLIENT_ID" --web-redirect-uris $REDIRECTS --enable-id-token-issuance true -o none
-SECRET=$(az ad app credential reset --id "$CLIENT_ID" --display-name easyauth --years 1 --query password -o tsv)
+# --append, because reset without it DELETES every existing password on the registration. Two apps can share one
+# registration (an old and a new name during a move), and each holds its own copy of a secret; without --append,
+# setting one up silently invalidates the other's sign-in.
+SECRET=$(az ad app credential reset --id "$CLIENT_ID" --display-name "easyauth-$APP" --years 1 --append --query password -o tsv)
 az containerapp secret set -g "$RG" -n "$APP" --secrets easyauth-secret="$SECRET" -o none
 # Easy Auth is told to accept api://<client-id>, so that URI has to actually exist on the app registration: without it
 # Entra cannot issue a token for that resource, and a service calling us with its managed identity (the Foundry agents
