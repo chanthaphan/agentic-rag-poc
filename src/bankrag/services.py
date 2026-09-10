@@ -83,7 +83,8 @@ class FxRate:
     The service returns a row per denomination family, not per currency: USD alone comes back as 'USD: 1-2',
     'USD: 5-20', 'USD: 50-100', which really do carry different bank-note rates, so `label` matters to the answer."""
 
-    currency: str  # ISO code parsed out of Description / Family
+    currency: str  # ISO code, read from Family ("JPY", "USD50")
+    units: int = 1  # the rate is baht per this many units: 100 for JPY, 1000 for VND, 1 for most
     label: str = ""  # the denomination family as the bank words it, e.g. "USD: 50-100"
     name: str = ""  # FamilyLong, e.g. "US Dollar 50-100"
     buying: Optional[float] = None  # bank buys the notes from the customer
@@ -101,15 +102,34 @@ _CCY_RE = __import__("re").compile(r"^\s*([A-Za-z]{3})")
 
 
 def _currency_of(row: dict) -> str:
-    """The ISO code: an explicit field if one ever appears, else the leading letters of Description / Family."""
+    """The ISO code.
+
+    `Family` is the one field that really holds it - "JPY", "MYR", and "USD1"/"USD5"/"USD50" for the dollar's
+    denominations. `Description` is a country ("Japan (:100)", "Malaysia"), so reading the code from there produced
+    JAP and MAL and the yen rate could not be found by asking for JPY. Description is kept only as a last resort, for
+    a round where Family is missing.
+    """
     explicit = _first(row, _CCY_KEYS)
     if explicit and _CCY_RE.match(str(explicit)):
         return str(explicit)[:3].upper()
-    for key in ("Description", "Family", "FamilyLong"):
+    for key in ("Family", "Description", "FamilyLong"):
         m = _CCY_RE.match(str(row.get(key, "")))
         if m:
             return m.group(1).upper()
     return ""
+
+
+_UNITS_RE = re.compile(r"\(\s*:\s*(\d+)\s*\)")
+
+
+def _units_of(row: dict) -> int:
+    """How many units of the currency the rate is quoted for.
+
+    The bank quotes the small-denomination currencies per 100 or per 1000 and says so in the description: "Japan
+    (:100)", "Vietnam (:1000)". Miss it and 30,000 yen costs 662,400 baht instead of 6,624.
+    """
+    m = _UNITS_RE.search(str(row.get("Description", "")))
+    return int(m.group(1)) if m else 1
 
 
 def _as_of(row: dict) -> str:
@@ -154,6 +174,7 @@ def normalize_fx(data: Any) -> list[FxRate]:
             continue
         out.append(FxRate(
             currency=code,
+            units=_units_of(row),
             label=str(row.get("Description") or row.get("Family") or "").strip(),
             name=str(_first(row, _NAME_KEYS) or "").strip(),
             buying=_to_float(_first(row, _BUY_KEYS)),
@@ -231,6 +252,11 @@ def resolve_currency(text: str, rates: Optional[list] = None) -> str:
     return raw.upper()
 
 
+def _per_unit(rate: Optional[float], units: int) -> Optional[float]:
+    """The rate for one unit, so an amount can be converted by a single multiplication."""
+    return None if rate is None else round(rate / max(1, units), 6)
+
+
 def fx_rate(settings: Settings, currency: str, *, lang: str = "en") -> dict:
     """The tool entry point: today's rate(s) for one currency, with the time the bank published them.
 
@@ -249,10 +275,14 @@ def fx_rate(settings: Settings, currency: str, *, lang: str = "en") -> dict:
         "found": True,
         "currency": ccy,
         "as_of": next((r.as_of for r in hits if r.as_of), ""),
-        "rates": [{"denomination": r.label or r.name, "buying": r.buying, "selling": r.selling,
+        "rates": [{"denomination": r.label or r.name, "units": r.units, "buying": r.buying, "selling": r.selling,
+                   "baht_per_1": {"buying": _per_unit(r.buying, r.units), "selling": _per_unit(r.selling, r.units)},
                    **({"telegraphic_transfer": r.tt} if r.tt is not None else {})} for r in hits],
         "meaning": "buying = what the bank pays the customer for the foreign notes; selling = what the customer pays "
                    "to buy them. Quote buying first when the customer is exchanging foreign currency into baht.",
+        "converting": "buying and selling are baht per `units` of the currency - 100 for JPY, 1000 for VND. To convert "
+                      "an amount, multiply it by `baht_per_1`, which is already divided down: 30,000 JPY to buy at "
+                      "baht_per_1.selling 0.2208 = 6,624 baht. Never multiply the amount by `selling` directly.",
         "disclaimer": "Indicative rate for the round shown in as_of; it changes during the day and the branch rate at "
                       "the time applies to an actual transaction.",
     }
@@ -387,12 +417,25 @@ def search_places_raw(settings: Settings, province: str, lat: float, lon: float,
     return _get(settings, path)
 
 
+def _name_key(text: str) -> str:
+    """A branch name reduced to what a customer would actually type: no "สาขา", no spaces, no case."""
+    t = str(text or "").lower()
+    for word in ("สาขา", "branch", "ธนาคารกรุงเทพ", "bangkok bank"):
+        t = t.replace(word, " ")
+    return "".join(t.split())
+
+
 def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[float] = None, *, province: str = "",
-                district: str = "0", kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5) -> dict:
+                district: str = "0", kind: str = KIND_BRANCH, lang: str = "th", limit: int = 5,
+                name: str = "") -> dict:
     """The tool entry point: the places nearest a pair of coordinates, or nearest the middle of a named province.
 
     A customer who has not shared their location can still be helped if they say where they are, so a province on its
     own is enough: we search from its centre and the distances are measured from there.
+
+    `name` answers the other half of the question - "does สาขาซีคอนสแควร์ open on Saturday". The locator returns every
+    place in the province (196 of them in Bangkok), so a named branch is found by filtering that list, not by hoping it
+    lands in the nearest few: ranking by distance and cutting to `limit` is exactly what used to lose it.
     """
     kind = resolve_kind(kind)  # accept a label as well as a code, and never build a URL from a phrase
     named = PROV.resolve_province(province) if province else ""
@@ -428,6 +471,16 @@ def find_branch(settings: Settings, lat: Optional[float] = None, lon: Optional[f
         seen_ids.add(key)
         unique.append(p)
     places = unique
+    if name:
+        wanted = _name_key(name)
+        matched = [p for p in places if wanted and wanted in _name_key(p.name)]
+        log.info("find_branch(name=%r) -> %d of %d place(s) in %s match", name, len(matched), len(places), searched)
+        if not matched:
+            return {"found": False, "province": ", ".join(searched), "kind": kind, "looked_for": name,
+                    "say": f"No place called {name!r} in {', '.join(searched)}. This search covers those provinces "
+                           "only, so say you could not find that one there and ask which province or area it is in. "
+                           "Do NOT tell the customer the bank has no such branch - you cannot know that."}
+        places = matched
     # the rows carry their own coordinates, so order by real distance rather than by the order each province came back
     for p in places:
         if p.distance_km is None and p.lat is not None and p.lon is not None:

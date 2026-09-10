@@ -384,13 +384,14 @@ def services_branches(lat: float = typer.Argument(None, help="latitude, e.g. 13.
                       lon: float = typer.Argument(None, help="longitude, e.g. 100.6455"),
                       province: str = typer.Option("", help="province name, enough on its own: กรุงเทพ, Chiang Mai"),
                       kind: str = typer.Option("branch", help="branch | atm | atm plus | exchange | fcd | wealth center | business center"),
+                      name: str = typer.Option("", help="only places whose name contains this, e.g. ซีคอนสแควร์"),
                       limit: int = typer.Option(5)):
-    """What the find_branch tool returns, for a pair of coordinates or just a province."""
+    """What the find_branch tool returns, for a pair of coordinates, a province, or a branch name."""
     import json as _json
 
     from . import services as SV
 
-    out = SV.find_branch(_settings(), lat, lon, province=province, kind=kind, limit=limit)
+    out = SV.find_branch(_settings(), lat, lon, province=province, kind=kind, limit=limit, name=name)
     rprint(_json.dumps(out, ensure_ascii=False, indent=1))
 
 

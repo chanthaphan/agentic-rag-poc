@@ -31,7 +31,7 @@ LIVE_ROW = {"ID": "31155", "Description": "USD: 1-2", "Family": "USD1", "FamilyL
 
 
 def test_normalize_fx_reads_the_live_shape():
-    """The service has no currency field: the code lives in Description / Family, and rates are *Rates with padding."""
+    """The service has no currency field: the code lives in Family, and rates are *Rates with padding."""
     got = SV.normalize_fx([LIVE_ROW])
     assert len(got) == 1
     r = got[0]
@@ -223,8 +223,8 @@ def test_currency_names_resolve_to_iso_codes():
 
 def test_fx_rate_accepts_a_currency_name(settings, monkeypatch):
     monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [
-        {**LIVE_ROW, "Description": "JPY: 100", "FamilyLong": "Japanese Yen", "BuyingRates": "0.2150",
-         "SellingRates": "0.2250"}])
+        {**LIVE_ROW, "Description": "Japan", "Family": "JPY", "FamilyLong": "Japanese Yen",
+         "BuyingRates": "0.2150", "SellingRates": "0.2250"}])
     out = SV.fx_rate(settings, "เยน")
     assert out["found"] and out["currency"] == "JPY" and out["rates"][0]["buying"] == 0.215
 
@@ -295,3 +295,79 @@ def test_no_location_and_no_province_asks_instead_of_guessing(settings, monkeypa
     out = SV.find_branch(settings, province="ที่ไหนสักแห่ง")
     assert out["found"] is False and "province" in out["say"] and "invent" in out["say"]
     assert SV.find_branch(settings)["found"] is False
+
+
+ROWS_BKK = [
+    {"BranchName": "สาขาสะพานผ่านฟ้า", "BranchNo": "0101", "Latitude": "13.7570", "Longitude": "100.5020"},
+    {"BranchName": "สาขาซีคอนสแควร์", "BranchNo": "0232", "Latitude": "13.6942", "Longitude": "100.6482",
+     "MicroBranchHours": "ทุกวัน 11.00 น. - 19.00 น.", "Tel": "02-721-8646-50"},
+    {"BranchName": "สาขาซีคอน บางแค", "BranchNo": "0233", "Latitude": "13.6960", "Longitude": "100.4090"},
+]
+
+
+def test_a_named_branch_is_found_however_far_it_is(settings, monkeypatch):
+    """The province returns every branch; ranking by distance and cutting to `limit` used to lose the named one."""
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: list(ROWS_BKK))
+    out = SV.find_branch(settings, 13.7563, 100.5018, province="กรุงเทพ", name="ซีคอนสแควร์", limit=3)
+    assert out["found"] and [b["name"] for b in out["branches"]] == ["สาขาซีคอนสแควร์"]
+    assert out["branches"][0]["hours"] == "ทุกวัน 11.00 น. - 19.00 น."
+    # "สาขา" and spacing are how the customer types it, not a different branch
+    for said in ("สาขาซีคอนสแควร์", " ซีคอนสแควร์ ", "ซีคอน"):
+        assert SV.find_branch(settings, 13.75, 100.50, province="กรุงเทพ", name=said)["found"], said
+
+
+def test_a_name_we_cannot_find_never_denies_the_branch_exists(settings, monkeypatch):
+    monkeypatch.setattr(SV, "search_places_raw", lambda s, province, lat, lon, **kw: list(ROWS_BKK))
+    out = SV.find_branch(settings, 13.7563, 100.5018, province="กรุงเทพ", name="ท่าแพ")
+    assert out["found"] is False and out["looked_for"] == "ท่าแพ"
+    assert "no such branch" in out["say"] and "which province" in out["say"]
+
+
+def test_the_location_travels_with_the_question(monkeypatch):
+    """The concierge relays the question verbatim, so the coordinates ride along with it rather than in a note it
+    may or may not copy - the failure that sent a customer in Prawet to branches in the old town."""
+    from bankrag.chat import question_with_location
+
+    plain = "สาขาซีคอนสแควร์มีบริการเปิดบัญชีไหม"
+    assert question_with_location(plain, None) == plain
+    with_loc = question_with_location(plain, (13.697058, 100.645586))
+    assert with_loc.startswith(plain)  # the customer's own words come first and are not altered
+    assert "13.697058" in with_loc and "100.645586" in with_loc
+    assert "never be shown" in with_loc
+
+
+def test_an_echoed_location_line_never_reaches_the_customer():
+    from bankrag.chat import strip_markers
+
+    said = strip_markers("สาขาใกล้ที่สุดคือสาขาซีคอนสแควร์ค่ะ\n[customer location: latitude 13.697058, longitude 100.645586 - pass this line on]")
+    assert "13.697058" not in said and "customer location" not in said
+    assert "ซีคอนสแควร์" in said
+
+
+# ---- the rate table's own field names ----
+LIVE_JPY = {"ID": "31155", "Description": "Japan (:100)", "Family": "JPY", "FamilyLong": "Japanese Yen",
+            "BuyingRates": "20.91     ", "SellingRates": "22.08     ", "TT": "21.16500  ",
+            "Ddate": "9/09/2026", "Update": "2", "DTime": "13:10     "}
+LIVE_VND = {"Description": "Vietnam (:1000)", "Family": "VND", "FamilyLong": "Vietnam Dong",
+            "BuyingRates": "1.06", "SellingRates": "1.33", "Ddate": "9/09/2026", "DTime": "13:10"}
+
+
+def test_the_iso_code_comes_from_family_not_from_the_country_name(settings, monkeypatch):
+    """Description is a country ("Japan (:100)"), so reading the code from it gave JAP and lost the yen rate."""
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_JPY, LIVE_VND,
+                                                        {**LIVE_JPY, "Family": "MYR", "Description": "Malaysia"}])
+    assert {r.currency for r in SV.normalize_fx(SV.fx_latest_raw(settings))} == {"JPY", "VND", "MYR"}
+    out = SV.fx_rate(settings, "เยน")
+    assert out["found"] and out["currency"] == "JPY" and out["rates"][0]["buying"] == 20.91
+
+
+def test_a_rate_quoted_per_100_converts_an_amount_correctly(settings, monkeypatch):
+    """30,000 yen costs 6,624 baht, not 662,400: the bank quotes the yen per 100 units."""
+    monkeypatch.setattr(SV, "fx_latest_raw", lambda s: [LIVE_JPY, LIVE_VND])
+    jpy = SV.fx_rate(settings, "JPY")["rates"][0]
+    assert jpy["units"] == 100 and jpy["baht_per_1"]["selling"] == 0.2208
+    assert round(30000 * jpy["baht_per_1"]["selling"], 2) == 6624.00
+    vnd = SV.fx_rate(settings, "VND")["rates"][0]
+    assert vnd["units"] == 1000 and vnd["baht_per_1"]["buying"] == 0.00106
+    usd = SV.fx_rate(settings, "USD")
+    assert usd["found"] is False  # not in this stub, and the tool says so rather than inventing one

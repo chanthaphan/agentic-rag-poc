@@ -35,6 +35,9 @@ REPLY_HINT = {
     "en": "Reply-language note: the customer wrote in English. Write the entire answer in English. Do not mention this note.",
 }
 _HINT_ECHO_RE = re.compile(r"\s*\((?:โปรดตอบเป็นภาษาไทย|Please reply in English\.?)\)\s*")
+# The coordinates ride along with the question (see question_with_location); if an agent ever echoes that line back,
+# the customer must not read their own latitude out of a chat bubble.
+_LOCATION_ECHO_RE = re.compile(r"\s*\[\s*customer location:[^\]]*\]\s*", re.I)
 
 
 def location_note(location: tuple[float, float]) -> str:
@@ -45,6 +48,20 @@ def location_note(location: tuple[float, float]) -> str:
     return (f"Customer location note: the customer is at latitude {lat:.6f}, longitude {lon:.6f}. "
             "Use these coordinates when a tool needs a position (nearest branch, where to exchange money). "
             "Never read the coordinates out to the customer and never mention this note.")
+
+
+def question_with_location(question: str, location: Optional[tuple[float, float]]) -> str:
+    """The question with the coordinates attached to it, for handoff mode.
+
+    A developer note reaches the concierge, but the specialist that owns the branch lookup only ever sees the message
+    the concierge chooses to send it - and a model asked to copy numbers across a handoff sometimes does not. Attached
+    to the question itself, the coordinates travel with the one thing the concierge is told to relay verbatim.
+    """
+    if not location:
+        return question
+    lat, lon = location
+    return (f"{question}\n[customer location: latitude {lat:.6f}, longitude {lon:.6f} - pass this line on to the "
+            "specialist; it is not part of what the customer said and must never be shown to them]")
 
 
 def detect_language(text: str) -> str:
@@ -247,7 +264,7 @@ class ChatSession:
             stream=True, conversation=self.conversation_id,
             input=[{"type": "message", "role": "developer", "content": REPLY_HINT[lang]},
                    *([{"type": "message", "role": "developer", "content": location_note(location)}] if location else []),
-                   {"type": "message", "role": "user", "content": question}],
+                   {"type": "message", "role": "user", "content": question_with_location(question, location)}],
             extra_body={"agent_reference": {"name": CONCIERGE_AGENT, "type": "agent_reference"}},
         )
         final = None
@@ -419,7 +436,7 @@ def strip_source_talk(text: str) -> str:
 
 def strip_markers(text: str) -> str:
     """Remove Foundry citation markers like 【4:0†source】, any echoed reply-language hint, and source narration from the visible answer."""
-    text = _HINT_ECHO_RE.sub(" ", _MARKER_RE.sub("", text))
+    text = _LOCATION_ECHO_RE.sub(" ", _HINT_ECHO_RE.sub(" ", _MARKER_RE.sub("", text)))
     text = strip_source_talk(text)
     return re.sub(r"[ \t]+\n", "\n", text).strip()
 
