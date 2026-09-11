@@ -454,8 +454,30 @@ _SOURCE_SENTENCE_RES = [
 ]
 
 
+# Narration that is a CLAUSE, not a sentence: "สำหรับ SCB อ่านจากเอกสารที่เกรสได้ดู ยังไม่มีข้อมูลเปรียบเทียบ…". Dropping the
+# whole sentence would take the answer with it, so only the clause goes. Thai puts spaces between phrases even though
+# it has none between words, so such a clause is one whitespace-delimited token - which is what makes this safe.
+# "เอกสารแนบ" / "เอกสารสัญญา" are the customer's own paperwork and the regulator's annexes - real things, not our
+# retrieval. The mandated warnings are appended after this runs, but the model can quote a clause in its own words too.
+_REAL_PAPERWORK = r"(?!แนบ|สัญญา|ประกอบ|สมัคร|ยืนยัน|สิทธิ)"
+_SOURCE_CLAUSE_RES = [
+    re.compile(r"(?:(?<=\s)|^)(?:อ่าน|ดู|ค้น|เช็ค|ตรวจ|หา)?(?:จาก|ตาม|ใน|เท่าที่)"
+               r"\S*?(?:เอกสาร" + _REAL_PAPERWORK + r"|ฐานข้อมูล|แหล่งข้อมูล|ฐานความรู้|ข้อมูลที่มี|ข้อมูลที่ได้|ที่ค้น|ที่เห็น|ที่ได้ดู)\S*"
+               r"(?=[\s,.;:ๆ]|$)"),
+    re.compile(r"(?:(?<=\s)|^)(?:เท่าที่|ตามที่)\S*(?:ค้น|หา|ดู|มีอยู่)\S*(?=[\s,.;:]|$)"),
+    re.compile(r",?\s*(?:based on|from|in|according to) (?:the |my |our )?"
+               r"(?:documents?|materials?|sources?|records?|knowledge base|information)(?: (?:I|we) (?:have|can see|found|looked at|retrieved))?"
+               r"(?=[\s,.;:]|$)", re.I),
+]
+# The same narration as the opening clause of an English sentence, which leaves the rest starting with ", the …".
+_LEAD_SOURCE_EN_RE = re.compile(
+    r"(^|\n)(?:based on|according to|from) (?:the |my |our )?"
+    r"(?:documents?|materials?|sources?|records?|knowledge base|information)(?: (?:I|we) (?:have|can see|found|looked at|retrieved))?"
+    r"[ \t]*,[ \t]*([a-z])", re.I)
+
+
 def strip_source_talk(text: str) -> str:
-    """Drop a trailing 'Sources:' / 'แหล่งข้อมูล' list and sentences that narrate where the facts came from.
+    """Drop a trailing 'Sources:' / 'แหล่งข้อมูล' list and the places an answer narrates where its facts came from.
     The app shows sources in its own card, and customer-facing answers must not talk about documents."""
     m = None
     for m in _SOURCES_HEADER_RE.finditer(text):
@@ -467,7 +489,14 @@ def strip_source_talk(text: str) -> str:
             text = text[: m.start()]
     for rx in _SOURCE_SENTENCE_RES:
         text = rx.sub("", text)
+    text = _LEAD_SOURCE_EN_RE.sub(lambda m: m.group(1) + m.group(2).upper(), text)
+    for rx in _SOURCE_CLAUSE_RES:
+        text = rx.sub("", text)
+    # tidy what the removal left: a doubled space, a space before punctuation, a line now opening with its old comma
     text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([,.;:])", r"\1", text)
+    text = re.sub(r"(^|\n)[ \t]*[,;:][ \t]*", r"\1", text)
+    text = re.sub(r"(^|\n)[ \t]+", r"\1", text)
     return re.sub(r"\n{3,}", "\n\n", text)
 
 

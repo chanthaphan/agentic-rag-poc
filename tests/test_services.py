@@ -503,3 +503,29 @@ def test_a_pin_failure_never_breaks_the_answer(settings, monkeypatch):
 
     monkeypatch.setattr(SV, "places_mentioned", boom)
     assert C.places_for_map(settings, "สาขาสีลมเปิด 08.30 น.", (13.72, 100.53)) == []
+
+
+# ---- the assistant must not narrate where its facts came from ----
+def test_source_narration_is_removed_as_a_clause_not_a_sentence():
+    """Dropping the whole sentence would drop the answer with it: only the narration goes."""
+    from bankrag.chat import strip_source_talk as strip
+
+    said = "สำหรับ SCB อ่านจากเอกสารที่เกรสได้ดู ยังไม่มีข้อมูลเปรียบเทียบรายละเอียดผลิตภัณฑ์"
+    assert strip(said) == "สำหรับ SCB ยังไม่มีข้อมูลเปรียบเทียบรายละเอียดผลิตภัณฑ์"
+    assert strip("จากเอกสารที่มี บัตรนี้ค่าธรรมเนียมรายปี 3,000 บาทค่ะ") == "บัตรนี้ค่าธรรมเนียมรายปี 3,000 บาทค่ะ"
+    assert strip("ตามฐานข้อมูลที่เกรสมี ยังไม่มีรายละเอียดค่ะ") == "ยังไม่มีรายละเอียดค่ะ"
+    # English keeps its capital where the clause used to be
+    assert strip("Based on the documents I have, the annual fee is 3,000 baht.") == "The annual fee is 3,000 baht."
+
+
+def test_the_customer_s_own_paperwork_is_not_source_talk():
+    """เอกสารแนบ is the regulator's annex and เอกสารสัญญา is the customer's contract - both are real things the answer
+    is allowed to point at, and one of them appears verbatim in the mandated MCCS warnings."""
+    from bankrag.chat import strip_source_talk as strip
+
+    for kept in ("กรุณาศึกษารายละเอียดตามเอกสารแนบ 2 ข้อ 2.3.3 ค่ะ",
+                 "เงื่อนไขเป็นไปตามเอกสารสัญญาที่ลูกค้าได้รับค่ะ",
+                 "ดอกเบี้ยคำนวณจากยอดคงเหลือรายวันค่ะ",
+                 "บัตรนี้ให้เงินคืนจากการใช้จ่ายในหมวดอาหาร 3% ค่ะ",
+                 "สาขาสีลมเปิดจันทร์-ศุกร์ 08.30 น. - 16.00 น. ค่ะ"):
+        assert strip(kept) == kept, kept
