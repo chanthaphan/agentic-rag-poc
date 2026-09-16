@@ -329,6 +329,8 @@ async function loadSession(id) {
     box.hidden = false; $("#acc-name").textContent = "…"; $("#acc-email").textContent = "";
     try { const w = await api("/whoami"); $("#acc-name").textContent = w.name || w.email || (TH ? "ยังไม่ได้ลงชื่อเข้าใช้" : "Not signed in"); $("#acc-email").textContent = w.email || (w.sso ? "" : TH ? "โหมดทดสอบในเครื่อง ไม่มี Microsoft sign-in" : "local mode, no Microsoft sign-in"); $("#acc-signout").hidden = !w.sso; $("#acc-signout").textContent = TH ? "ออกจากระบบ Microsoft" : "Sign out of Microsoft"; }
     catch (err) { $("#acc-name").textContent = err.message; }
+    // the Studio link: for staff (admin or tester), or for everyone when there is no access list (local dev, shared password)
+    try { const m = await api("/studio/me"); $("#acc-studio").hidden = m.access_managed && !["admin", "tester"].includes(m.role); $("#acc-studio").textContent = TH ? "เปิด Studio" : "Open Studio"; } catch { $("#acc-studio").hidden = true; }
   });
   document.addEventListener("click", (e) => { if (!$("#account").contains(e.target)) $("#account").hidden = true; });
   try { state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant"; } catch {}
