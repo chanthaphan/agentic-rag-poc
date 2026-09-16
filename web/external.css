@@ -47,6 +47,10 @@ a { color:var(--accent); }
 .bar-title { flex:1; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .menu-btn { display:none; width:36px; height:36px; border:1px solid var(--line); border-radius:8px; background:var(--white); cursor:pointer; flex-direction:column; justify-content:center; align-items:center; gap:4px; }
 .menu-btn span { width:16px; height:2px; background:var(--ink-2); border-radius:2px; display:block; }
+.lang { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.lang button { background:var(--white); border:none; padding:4px 10px; font-size:12px; font-weight:600; color:var(--ink-3); cursor:pointer; }
+.lang button + button { border-left:1px solid var(--line); }
+.lang button.on { background:var(--accent); color:#fff; }
 .switch { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2); cursor:pointer; user-select:none; }
 .switch input { accent-color:var(--accent); width:16px; height:16px; margin:0; }
 
