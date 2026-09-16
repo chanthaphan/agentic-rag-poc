@@ -192,3 +192,58 @@ def questions_workbook(rows: list[dict]) -> bytes:
     wb.save(buf)
     return buf.getvalue()
 
+
+DISLIKE_LABELS = ["Wrong information", "Did not answer the question", "Not enough detail", "Hard to understand", "Wrong language or tone", "Too slow"]
+
+
+def split_comment(comment: str) -> tuple[str, str]:
+    """The chat UIs store a dislike as "Label; Label — note": returns (reasons joined by ", ", note)."""
+    head, _, rest = (comment or "").partition(" — ")
+    labels = [x for x in head.split("; ") if x in DISLIKE_LABELS]
+    if not labels:
+        return "", comment or ""
+    return ", ".join(labels), rest
+
+
+def chatlog_workbook(rows: list[dict], who: str = "") -> bytes:
+    """A person's own chat log: every question with its answer and feedback ("Chat log"), and the rated ones again
+    on a "Feedback" sheet with the dislike reasons and the note in their own columns."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chat log"
+    cols = ["#", "Date", "Conversation", "Question", "Answer", "Topic", "Language", "Rating", "Reasons", "Comment"]
+    ws.append(cols)
+    _header(ws, cols)
+    fb = wb.create_sheet("Feedback")
+    fcols = ["#", "Date", "Conversation", "Question", "Answer", "Topic", "Rating", "Reasons", "Comment"]
+    fb.append(fcols)
+    _header(fb, fcols)
+    n_fb = 0
+    for i, r in enumerate(sorted(rows, key=lambda x: x.get("at") or ""), 1):
+        reasons, note = split_comment(r.get("comment") or "")
+        rating = {"up": "👍 helpful", "down": "👎 not helpful"}.get(r.get("rating") or "", "")
+        ws.append([i, r.get("at"), r.get("session_title"), r.get("question"), r.get("answer"), r.get("skill_id"), r.get("language"), rating, reasons, note])
+        row = ws.max_row
+        for c in (4, 5, 10):
+            ws.cell(row=row, column=c).alignment = Alignment(wrap_text=True, vertical="top")
+        if r.get("rating") == "up":
+            ws.cell(row=row, column=8).fill = PASS_FILL
+        elif r.get("rating") == "down":
+            ws.cell(row=row, column=8).fill = FAIL_FILL
+        if r.get("rating") or note or reasons:
+            n_fb += 1
+            fb.append([n_fb, r.get("at"), r.get("session_title"), r.get("question"), r.get("answer"), r.get("skill_id"), rating, reasons, note])
+            frow = fb.max_row
+            for c in (4, 5, 9):
+                fb.cell(row=frow, column=c).alignment = Alignment(wrap_text=True, vertical="top")
+            fb.cell(row=frow, column=7).fill = PASS_FILL if r.get("rating") == "up" else FAIL_FILL
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(1, ws.max_row)}"
+    fb.auto_filter.ref = f"A1:{get_column_letter(len(fcols))}{max(1, fb.max_row)}"
+    _widths(ws, {1: 5, 2: 22, 3: 28, 4: 45, 5: 70, 6: 14, 7: 9, 8: 14, 9: 30, 10: 40})
+    _widths(fb, {1: 5, 2: 22, 3: 28, 4: 45, 5: 70, 6: 14, 7: 14, 8: 30, 9: 40})
+    if who:
+        ws.cell(row=1, column=len(cols) + 2, value=f"Exported by {who}").font = Font(italic=True, color="888888")
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+

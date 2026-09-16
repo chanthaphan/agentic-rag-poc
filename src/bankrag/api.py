@@ -400,6 +400,18 @@ def _owns(request: Request, rec) -> bool:
     return _is_staff(request)
 
 
+@app.get("/sessions/export.xlsx")
+def sessions_export_xlsx(request: Request):
+    """The signed-in person's own chat log as a workbook (questions, answers, ratings, dislike reasons and comments);
+    offered on the external page. Without SSO (local dev) it holds everything, like the rest of the app."""
+    from .eval_report import chatlog_workbook
+
+    who = identity(request)
+    rows = SESS.question_rows(settings, owner_email=who["email"], owner_name=who["name"], limit=5000) if who["email"] else SESS.question_rows(settings, limit=5000)
+    return Response(chatlog_workbook(rows, who["name"] or who["email"]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="my-chat-log.xlsx"', "Cache-Control": "no-store"})
+
+
 def _require_owner(request: Request, rec) -> None:
     if not _owns(request, rec):
         raise HTTPException(403, "this conversation belongs to someone else")

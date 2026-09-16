@@ -337,10 +337,12 @@ def review_list(settings: Settings, *, skill: str = "", rating: str = "", user: 
 
 
 def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", comment: str = "",
-                  limit: int = 500, items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
+                  owner_email: str = "", owner_name: str = "", limit: int = 500, items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
     """Flat customer-question / answer pairs across sessions (newest first) with feedback, for review, selection and export.
     `comment`: "any" = has a comment, "none" = rated without one, anything else = the comment contains that text (a dislike
     reason label such as "Wrong information", since the chat UIs store reasons as "Label; Label — note").
+    `owner_email` / `owner_name`: only that person's conversations, by the rule of `list_sessions` (email match, or name
+    match for sessions saved before emails were recorded), for the chat-log export a signed-in person makes of their own.
     `items` = [(session_id, user_turn_idx)] restricts the result to those questions (any order), e.g. an export selection."""
     sql = ("SELECT u.session_id, u.idx, u.at, u.text, a.text, a.skill_id, a.language, a.confidence, a.cost_usd, a.total_ms, a.retrieved_docs, a.agent_name, "
            "f.rating, f.comment, f.tester, s.title, s.source, a.input_tokens, a.output_tokens, COALESCE(NULLIF(u.by,''), s.user_name, '') AS asked_by, s.user_email "
@@ -365,6 +367,8 @@ def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: s
         sql += " AND COALESCE(s.source,'app')=?"; args.append(source)
     if user:
         sql += " AND (u.by=? OR s.user_name=? OR s.user_email=?)"; args += [user, user, user]
+    if owner_email or owner_name:
+        sql += " AND ((s.user_email<>'' AND lower(s.user_email)=lower(?)) OR (s.user_email='' AND s.user_name<>'' AND s.user_name=?))"; args += [owner_email, owner_name]
     if items:
         sql += " AND (" + " OR ".join("(u.session_id=? AND u.idx=?)" for _ in items) + ")"
         for sid, idx in items:

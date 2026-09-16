@@ -21,6 +21,8 @@ const STATIC = [  // static strings in external.html: [selector, attribute or "t
   ["#btn-new", "text", "+ การสนทนาใหม่", "+ New conversation"],
   ["#side-label", "text", "การสนทนาของคุณ", "Your conversations"],
   ["#u-signout", "text", "ออกจากระบบ", "Sign out"],
+  ["#export-lbl", "text", "ส่งออกบันทึกการสนทนาเป็น Excel", "Export chat log to Excel"],
+  ["#btn-export", "title", "ดาวน์โหลดการสนทนา คะแนน และความคิดเห็นของคุณเป็นไฟล์ Excel", "Download your conversations, ratings and comments as an Excel file"],
   ["#details-switch", "title", "แสดงว่าแต่ละคำตอบมาจากไหน", "Show how each answer was produced"],
   ["#details-lbl", "text", "แสดงรายละเอียด", "Show details"],
   ["#q", "placeholder", "ถามเรื่องผลิตภัณฑ์ธนาคารกรุงเทพ", "Ask about a Bangkok Bank product"],

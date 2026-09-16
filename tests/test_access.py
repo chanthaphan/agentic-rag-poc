@@ -151,3 +151,36 @@ def test_external_can_start_a_conversation(tmp_path, monkeypatch):
     assert c.post("/chat", json={"session_id": sid, "message": "more"}, headers=ext).status_code == 200
     assert c.post("/chat", json={"session_id": sid, "message": "mine?"}, headers=other).status_code == 403
 
+
+def test_external_exports_only_their_own_chat_log(tmp_path, monkeypatch):
+    import io
+    from openpyxl import load_workbook
+    from bankrag.sessions import Turn
+
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_testers", [])
+    monkeypatch.setattr(api.settings, "studio_externals", ["partner@example.com"])
+    SESS._schema_done.clear()
+
+    def conv(sid, email, name, q, a):
+        rec = SESS.new_record(sid); rec.user_email, rec.user_name, rec.title = email, name, q
+        rec.turns = [Turn(role="user", text=q, at="2026-09-16T10:00:00+00:00"), Turn(role="assistant", text=a, at="2026-09-16T10:00:03+00:00", skill_id="credit-card", language="en")]
+        SESS.save_session(api.settings, rec)
+
+    conv("aaaaaaaaaaaa", "partner@example.com", "Partner One", "Lounge visits?", "Two a year")
+    conv("bbbbbbbbbbbb", "boss@bangkokbank.com", "Boss", "Private question", "Private answer")
+    SESS.save_feedback(api.settings, "aaaaaaaaaaaa", 1, "down", "Wrong information; Too slow — it is four", "Partner One")
+    c = TestClient(api.app)
+    r = c.get("/sessions/export.xlsx", headers=_hdr("partner@example.com", "Partner One"))
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxmlformats") and "my-chat-log.xlsx" in r.headers["content-disposition"]
+    wb = load_workbook(io.BytesIO(r.content))
+    log = [[c.value for c in row] for row in wb["Chat log"].iter_rows(min_row=2, max_col=10)]
+    assert [row[3] for row in log] == ["Lounge visits?"]  # the admin's conversation is not in a partner's export
+    assert log[0][7:10] == ["👎 not helpful", "Wrong information, Too slow", "it is four"]
+    fb = [[c.value for c in row] for row in wb["Feedback"].iter_rows(min_row=2, max_col=9)]
+    assert len(fb) == 1 and fb[0][7] == "Wrong information, Too slow"
+    # the admin's own export holds only theirs too (the route is by identity, not by role)
+    r = c.get("/sessions/export.xlsx", headers=_hdr("boss@bangkokbank.com", "Boss"))
+    assert [row[3].value for row in load_workbook(io.BytesIO(r.content))["Chat log"].iter_rows(min_row=2, max_col=4)] == ["Private question"]
+
