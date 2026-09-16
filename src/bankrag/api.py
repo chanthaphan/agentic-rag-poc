@@ -391,6 +391,8 @@ def _owns(request: Request, rec) -> bool:
     who = identity(request)
     if not who["email"]:
         return True
+    if not rec.user_email and not rec.user_name:
+        return True  # a conversation nobody has claimed yet (its first message): whoever is sending it becomes the owner
     if rec.user_email and rec.user_email.lower() == who["email"].lower():
         return True
     if not rec.user_email and rec.user_name and rec.user_name == who["name"]:

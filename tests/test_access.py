@@ -107,3 +107,47 @@ def test_external_role_gets_the_chat_page_only(tmp_path, monkeypatch):
     assert r.status_code == 400 and "STUDIO_EXTERNALS" in r.json()["detail"]
     assert c.get("/access", headers=admin).json()["seeded"] == {"seeded.partner@example.com": "STUDIO_EXTERNALS", "boss@bangkokbank.com": "STUDIO_ADMINS"}
     assert c.delete("/access/partner@example.com", headers=admin).json() == {"ok": True}
+
+
+def test_external_can_start_a_conversation(tmp_path, monkeypatch):
+    """The first message of a new conversation arrives before anyone owns the record; it must not be refused as
+    someone else's (it was, for every non-staff account, because the fallback was 'is this person staff')."""
+    import shutil
+    from pathlib import Path
+    import bankrag.chat as chat_mod
+    from bankrag.models import Answer
+
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "skills_dir", tmp_path / "skills", raising=False)
+    shutil.copytree(Path(__file__).resolve().parents[1] / "skills", tmp_path / "skills", dirs_exist_ok=True)
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_testers", [])
+    monkeypatch.setattr(api.settings, "studio_externals", ["partner@example.com"])
+    SESS._schema_done.clear(); api._sessions.clear()
+
+    class StubSession:
+        def __init__(self, settings, skills, project=None):
+            self.conversation_id, self.history, self.prev_skill, self.skills = None, [], None, skills
+
+        @classmethod
+        def from_record(cls, settings, skills, rec, project=None):
+            return cls(settings, skills)
+
+        def to_record(self, rec):
+            return rec
+
+        def ask(self, q, force_skill=None, with_sources=True):
+            return Answer(skill_id="credit-card", confidence=0.9, text="ok", suggestions=[])
+
+    monkeypatch.setattr(chat_mod, "ChatSession", StubSession)
+    c = TestClient(api.app)
+    ext, other = _hdr("partner@example.com", "Partner One"), _hdr("someone@example.com", "Some One")
+    r = c.post("/chat", json={"message": "hello", "source": "external"}, headers=ext)
+    assert r.status_code == 200, r.text
+    sid = r.json()["session_id"]
+    rec = SESS.load_session(api.settings, sid)
+    assert (rec.user_email, rec.user_name) == ("partner@example.com", "Partner One")
+    # the follow-up in the same conversation works for its owner and is refused for anyone else who is not staff
+    assert c.post("/chat", json={"session_id": sid, "message": "more"}, headers=ext).status_code == 200
+    assert c.post("/chat", json={"session_id": sid, "message": "mine?"}, headers=other).status_code == 403
+
