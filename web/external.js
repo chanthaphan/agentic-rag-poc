@@ -32,6 +32,46 @@ function starters() {
   const list = (TH ? by.th : by.en) || []; if (list.length) return list; if ((c.starter_prompts || []).length) return c.starter_prompts;
   return TH ? ["บัตรอินฟินิทเข้าเลานจ์ได้กี่ครั้ง", "เปิดบัญชีเงินฝากประจำต้องใช้อะไรบ้าง", "สาขาที่ใกล้ที่สุดอยู่ที่ไหน"] : ["How many lounge visits does the Infinite card include?", "What do I need to open a fixed deposit account?", "Where is the nearest branch?"];
 }
+// Dislike reasons: multi-select chips shown with the comment box. Saved into the feedback comment as
+// "Label; Label — free text" (English labels whatever the UI language, so Studio can group them).
+const DISLIKE_REASONS = [
+  ["wrong", "Wrong information", "ข้อมูลไม่ถูกต้อง"],
+  ["off", "Did not answer the question", "ไม่ตรงคำถาม"],
+  ["incomplete", "Not enough detail", "ข้อมูลไม่ครบ"],
+  ["unclear", "Hard to understand", "เข้าใจยาก"],
+  ["tone", "Wrong language or tone", "ภาษาหรือน้ำเสียงไม่เหมาะ"],
+  ["slow", "Too slow", "ตอบช้า"],
+];
+function composeComment(keys, text) {
+  const labels = DISLIKE_REASONS.filter(([k]) => keys.includes(k)).map(([, en]) => en);
+  return [labels.join("; "), (text || "").trim()].filter(Boolean).join(" — ");
+}
+function parseComment(comment) {
+  const [head, ...rest] = (comment || "").split(" — ");
+  const labels = head.split("; ");
+  const keys = DISLIKE_REASONS.filter(([, en]) => labels.includes(en)).map(([k]) => k);
+  const text = keys.length ? rest.join(" — ") : comment || "";
+  return { keys, text };
+}
+function noteHtml(turn, i) {
+  const lth = TH;
+  if (turn.askComment) {
+    if (!turn.draft) turn.draft = parseComment(turn.comment);
+    const chips = DISLIKE_REASONS.map(([k, en, th]) => `<button class="chip-r ${turn.draft.keys.includes(k) ? "on" : ""}" data-k="${k}">${lth ? th : en}</button>`).join("");
+    const ready = turn.draft.keys.length || turn.draft.text.trim();
+    return `<div class="note" data-idx="${i}"><div class="lbl">${lth ? "คำตอบนี้มีปัญหาอะไร เลือกได้มากกว่าหนึ่งข้อ" : "What was wrong with this answer? Pick any that apply."}</div><div class="reasons">${chips}</div><textarea rows="2" maxlength="900" placeholder="${lth ? "รายละเอียดเพิ่มเติม (ถ้ามี)…" : "Anything else? (optional)…"}">${esc(turn.draft.text)}</textarea><div class="acts"><button class="note-send" ${ready ? "" : "disabled"}>${lth ? "ส่ง" : "Send"}</button><button class="note-skip">${lth ? "ข้าม" : "Skip"}</button></div></div>`;
+  }
+  if (turn.rating === "down" && turn.comment) {
+    const p = parseComment(turn.comment);
+    const shown = [...DISLIKE_REASONS.filter(([k]) => p.keys.includes(k)).map(([, en, th]) => lth ? th : en), p.text].filter(Boolean).join(" · ");
+    return `<div class="note saved" data-idx="${i}"><span>💬 ${esc(shown)}</span><button class="note-edit">${lth ? "แก้ไข" : "edit"}</button></div>`;
+  }
+  return "";
+}
+async function saveFeedback(idx, rating, comment) {
+  try { await api("/feedback", json({ session_id: state.sessionId, idx, rating, comment: comment || "" })); } catch {}
+}
+
 function render() {
   const col = $("#col");
   $("#bar-title").textContent = state.title || (state.turns.length ? t("การสนทนา", "Conversation") : t("การสนทนาใหม่", "New conversation"));
@@ -58,7 +98,7 @@ function render() {
       const details = !turn.error && (turn.trace || turn.skill_id) ? `<details class="details" ${showDetails ? "open" : ""}><summary>${t("คำตอบนี้มาจากไหน", "How this answer was produced")}</summary>${TR.traceCard({ ...turn, session_id: state.sessionId }, q)}</details>` : "";
       const isLast = i === state.turns.length - 1;
       const follow = isLast && !state.busy && (turn.suggestions || []).length ? `<div class="followups">${turn.suggestions.map((s) => `<button data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : "";
-      body = `<div class="text ${turn.error ? "err" : ""}">${md(turn.text)}</div>${places}${tag || srcs || rate ? `<div class="after">${tag}${srcs}${rate}</div>` : ""}${details}${follow}`;
+      body = `<div class="text ${turn.error ? "err" : ""}">${md(turn.text)}</div>${places}${tag || srcs || rate ? `<div class="after">${tag}${srcs}${rate}</div>` : ""}${rate ? noteHtml(turn, i) : ""}${details}${follow}`;
     }
     html += `<div class="turn assistant"><span class="who">${esc(initials(assistant))}</span><div><div class="name">${esc(assistant)}</div>${body}</div></div>`;
   });
@@ -66,9 +106,29 @@ function render() {
   col.querySelectorAll(".followups button").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
   col.querySelectorAll(".rate button").forEach((b) => b.addEventListener("click", async () => {
     const idx = +b.parentElement.dataset.idx; const turn = state.turns[idx]; const rating = turn.rating === b.dataset.r ? null : b.dataset.r; turn.rating = rating;
-    try { await api("/feedback", json({ session_id: state.sessionId, idx, rating, comment: "" })); } catch {}
+    // a dislike opens the comment box (the rating is saved at once, the comment follows); anything else clears the comment
+    turn.askComment = rating === "down"; turn.draft = null; if (rating !== "down") turn.comment = "";
+    await saveFeedback(idx, rating, rating === "down" ? turn.comment || "" : "");
     render();
   }));
+  col.querySelectorAll(".note .chip-r").forEach((b) => b.addEventListener("click", () => {
+    const turn = state.turns[+b.closest(".note").dataset.idx]; const k = b.dataset.k;
+    turn.draft.keys = turn.draft.keys.includes(k) ? turn.draft.keys.filter((x) => x !== k) : [...turn.draft.keys, k];
+    render();
+  }));
+  col.querySelectorAll(".note textarea").forEach((ta) => {
+    const turn = state.turns[+ta.closest(".note").dataset.idx];
+    ta.addEventListener("input", () => { turn.draft.text = ta.value; ta.closest(".note").querySelector(".note-send").disabled = !(turn.draft.keys.length || ta.value.trim()); });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); const s = ta.closest(".note").querySelector(".note-send"); if (!s.disabled) s.click(); } });
+  });
+  col.querySelectorAll(".note-send").forEach((b) => b.addEventListener("click", async () => {
+    const idx = +b.closest(".note").dataset.idx; const turn = state.turns[idx]; const comment = composeComment(turn.draft.keys, turn.draft.text); if (!comment) return;
+    turn.comment = comment; turn.draft = null; turn.askComment = false;
+    await saveFeedback(idx, turn.rating, comment); render();
+  }));
+  col.querySelectorAll(".note-skip").forEach((b) => b.addEventListener("click", () => { const turn = state.turns[+b.closest(".note").dataset.idx]; turn.askComment = false; turn.draft = null; render(); }));
+  col.querySelectorAll(".note-edit").forEach((b) => b.addEventListener("click", () => { const turn = state.turns[+b.closest(".note").dataset.idx]; turn.askComment = true; turn.draft = null; render(); }));
+  const openNote = col.querySelector(".note textarea"); if (openNote && !col.querySelector(".note .chip-r:focus")) { openNote.focus(); openNote.selectionStart = openNote.value.length; }
   $("#scroll").scrollTop = $("#scroll").scrollHeight;
 }
 $("#show-details").addEventListener("change", () => { try { localStorage.setItem("pa_details", $("#show-details").checked ? "1" : ""); } catch {} render(); });
@@ -87,7 +147,7 @@ async function loadSession(id) {
     const rec = await api(`/sessions/${id}`);
     let fb = []; try { fb = await api(`/feedback?session_id=${id}`); } catch {}
     state.sessionId = rec.id; state.title = rec.title || ""; state.turns = rec.turns;
-    for (const f of fb) if (state.turns[f.idx]) state.turns[f.idx].rating = f.rating;
+    for (const f of fb) if (state.turns[f.idx]) { state.turns[f.idx].rating = f.rating; state.turns[f.idx].comment = f.comment || ""; }
     try { localStorage.setItem("pa_session", rec.id); } catch {}
   } catch { newConversation(); return; }
   render(); loadList();

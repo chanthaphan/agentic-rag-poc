@@ -196,3 +196,17 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .place .where b { font:var(--label-sm); }
 .place .where i { font:var(--caption-md); font-style:normal; color:var(--gray-70); }
 .place .km { font:var(--caption-md); color:var(--gray-70); }
+/* dislike comment box under an answer */
+.fb-note { margin-top:8px; padding:8px 10px; border:1px solid var(--bbl-20); border-radius:12px; background:var(--bbl-10); font-size:13px; }
+.fb-note .lbl { color:var(--gray-70); margin-bottom:6px; }
+.fb-note textarea { width:100%; box-sizing:border-box; border:1px solid var(--gray-20); border-radius:8px; padding:6px 8px; font:inherit; font-size:13px; resize:vertical; background:#fff; }
+.fb-note .acts { display:flex; gap:6px; margin-top:6px; }
+.fb-note .acts button { border-radius:var(--radius-full); padding:4px 12px; font:inherit; font-size:12px; cursor:pointer; border:1px solid var(--bbl-20); background:#fff; }
+.fb-note .acts .fb-note-send { background:var(--bbl-70); color:#fff; border-color:transparent; }
+.fb-note .acts .fb-note-send:disabled { opacity:.45; cursor:default; }
+.fb-note.saved { display:flex; align-items:center; gap:8px; color:var(--gray-70); }
+.fb-note.saved span { flex:1; white-space:pre-wrap; }
+.fb-note.saved .fb-note-edit { background:none; border:none; color:var(--gray-60); cursor:pointer; font:inherit; font-size:12px; text-decoration:underline; padding:0; }
+.fb-note .reasons { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.fb-note .chip-r { border:1px solid var(--bbl-20); background:#fff; border-radius:999px; padding:4px 11px; font:inherit; font-size:12px; cursor:pointer; color:inherit; }
+.fb-note .chip-r.on { background:var(--bbl-70); color:#fff; border-color:var(--bbl-70); }
