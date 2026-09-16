@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bankrag Studio · chat</title>
+<link rel="stylesheet" href="/static/mobile.css">
+<link rel="stylesheet" href="/static/studio.css">
+</head>
+<body class="studio external">
+<header class="top">
+  <div class="brand"><b>bankrag Studio</b> <span class="muted top-sub">chat with the product assistant · the trace of each answer appears on the right</span></div>
+  <nav><a href="/" target="_blank">Open app ↗</a></nav>
+  <span id="health" class="muted"></span>
+  <span id="who" class="muted"></span><span id="role-pill" class="pill warn" hidden></span>
+  <a id="ms-signout" class="btn-danger" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out (Microsoft)</a>
+</header>
+
+<main>
+<section class="view on">
+  <div class="ext-layout">
+    <div class="ext-chat">
+      <div class="toolbar"><span id="ext-banner" class="muted">Ask a customer question in Thai or English. Pick a skill to skip the router, or leave auto-route.</span><button id="ext-new" class="btn-secondary">New conversation</button></div>
+      <div class="row"><select id="force-skill"><option value="">auto-route</option></select><input id="ext-q" placeholder="ask a customer question (Thai or English)" style="flex:1" autocomplete="off"><button id="ext-send">Ask</button></div>
+      <div id="ext-thread" class="pg-thread ext-thread"></div>
+    </div>
+    <aside class="ext-side">
+      <div class="panel">
+        <div class="panel-head"><h3>Last turn</h3><span class="muted">routing, timeline, tokens, sources</span></div>
+        <div id="turn-info" class="pg-trace"><span class="muted">Routing, tool calls and sources appear here after the first answer.</span></div>
+        <details id="ext-tools" class="ext-tools" hidden><summary class="muted">tool calls (raw)</summary><pre id="ext-tools-json"></pre></details>
+      </div>
+    </aside>
+  </div>
+</section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
+<script src="/static/trace.js"></script>
+<script src="/static/external.js"></script>
+</body>
+</html>

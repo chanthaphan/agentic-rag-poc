@@ -94,7 +94,7 @@ async function loadAccess() {
     for (const u of d.users) {
       const me = u.email === (d.me.email || "").toLowerCase(); const seeded = d.seeded_admins.includes(u.email);
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${esc(u.email)}${me ? ' <span class="pill info">you</span>' : ""}</td><td><span class="pill ${u.role === "admin" ? "ok" : ""}">${esc(u.role)}</span></td><td>${esc(u.name)}</td><td class="muted">${esc(u.added_by)}</td><td class="muted">${u.at ? new Date(u.at).toLocaleDateString() : ""}</td><td>${me || seeded ? "" : `<button class="btn-danger rm" data-email="${esc(u.email)}">remove</button>`}</td>`;
+      tr.innerHTML = `<td>${esc(u.email)}${me ? ' <span class="pill info">you</span>' : ""}</td><td><span class="pill ${u.role === "admin" ? "ok" : u.role === "external" ? "warn" : ""}">${esc(u.role)}</span></td><td>${esc(u.name)}</td><td class="muted">${esc(u.added_by)}</td><td class="muted">${u.at ? new Date(u.at).toLocaleDateString() : ""}</td><td>${me || seeded ? "" : `<button class="btn-danger rm" data-email="${esc(u.email)}">remove</button>`}</td>`;
       tb.appendChild(tr);
     }
     if (!d.users.length) tb.innerHTML = `<tr><td colspan="6" class="muted">nobody yet: until someone is added, the shared password is the only gate</td></tr>`;
