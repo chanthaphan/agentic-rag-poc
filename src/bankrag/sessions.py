@@ -182,9 +182,11 @@ def _init_schema(settings: Settings, con: sqlite3.Connection) -> None:
     for email in settings.studio_admins:  # STUDIO_ADMINS env seeds (never demotes) admins so nobody is locked out
         con.execute("INSERT OR IGNORE INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?)", (email, "admin", "", "STUDIO_ADMINS", _now()))
         con.execute("UPDATE studio_access SET role='admin' WHERE email=? AND role<>'admin'", (email,))
-    for email in getattr(settings, "studio_testers", []):  # STUDIO_TESTERS seeds testers once; admins may change or remove them later
+    # STUDIO_TESTERS / STUDIO_EXTERNALS seed a row when it is absent (never change an existing role, so an admin may
+    # promote or demote them); since a removed row would come back here, the API refuses to delete seeded accounts.
+    for email in getattr(settings, "studio_testers", []):
         con.execute("INSERT OR IGNORE INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?)", (email, "tester", "", "STUDIO_TESTERS", _now()))
-    for email in getattr(settings, "studio_externals", []):  # STUDIO_EXTERNALS seeds external people once (chat page only)
+    for email in getattr(settings, "studio_externals", []):  # external: the chat page only
         con.execute("INSERT OR IGNORE INTO studio_access(email,role,name,added_by,at) VALUES(?,?,?,?,?)", (email, "external", "", "STUDIO_EXTERNALS", _now()))
     _import_legacy_json(settings, con)
     con.commit()

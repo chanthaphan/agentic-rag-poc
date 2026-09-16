@@ -1563,7 +1563,17 @@ class AccessEntry(BaseModel):
 @app.get("/access", dependencies=[Depends(require_studio)])
 def access_list(request: Request):
     who = identity(request)
-    return {"users": SESS.list_access(settings), "me": who, "seeded_admins": settings.studio_admins}
+    return {"users": SESS.list_access(settings), "me": who, "seeded_admins": settings.studio_admins, "seeded": _seeded()}
+
+
+def _seeded() -> dict[str, str]:
+    """email -> the environment variable that seeds it. A seeded row is re-created on every start, so removing it
+    here would only last until the next deploy; the variable has to change instead."""
+    out: dict[str, str] = {}
+    for var, emails in (("STUDIO_EXTERNALS", settings.studio_externals), ("STUDIO_TESTERS", settings.studio_testers), ("STUDIO_ADMINS", settings.studio_admins)):
+        for e in emails:
+            out[e] = var
+    return out
 
 
 @app.post("/access", dependencies=[Depends(require_admin)])
@@ -1584,8 +1594,8 @@ def access_delete(email: str, request: Request):
     email = email.strip().lower()
     if email == who["email"].lower():
         raise HTTPException(400, "you cannot remove yourself")
-    if email in settings.studio_admins:
-        raise HTTPException(400, "this admin is seeded by STUDIO_ADMINS; change the environment variable to remove it")
+    if email in _seeded():
+        raise HTTPException(400, f"this account is seeded by {_seeded()[email]}; change the environment variable to remove it")
     admins = [u for u in SESS.list_access(settings) if u["role"] == "admin"]
     if len(admins) == 1 and admins[0]["email"] == email:
         raise HTTPException(400, "cannot remove the last admin")

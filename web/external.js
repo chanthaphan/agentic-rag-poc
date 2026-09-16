@@ -1,29 +1,6 @@
 // External chat page (/studio for the "external" role): the debug chat only. One conversation at a time, streamed
 // from /chat/stream, with the trace card of the last answer on the side. No Studio tabs, no other people's sessions.
-const $ = (s) => document.querySelector(s);
-const esc = TR.esc;
-const md = (text) => (window.marked && window.DOMPurify) ? DOMPurify.sanitize(marked.parse(text || "", { gfm: true, breaks: true })) : esc(text);
-const api = async (path, opts = {}) => {
-  const r = await fetch(new URL(path, location.origin), { credentials: "same-origin", ...opts });
-  if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t; } catch {} throw new Error(`${r.status} ${t}`); }
-  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
-};
-const json = (body, method = "POST") => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-
-async function readSSE(response, onEvent) {
-  const reader = response.body.getReader(); const dec = new TextDecoder(); let buf = "";
-  while (true) {
-    const { value, done } = await reader.read(); if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n\n")) >= 0) {
-      const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
-      for (const line of chunk.split("\n")) if (line.startsWith("data: ")) { let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; } onEvent(ev); }
-    }
-  }
-}
-
-const PHASES = { choosing: "the concierge is choosing a specialist…", retrieving: "retrieving knowledge…", specialist: "handed over to the specialist…", drafting: "knowledge retrieved, writing the answer…", relaying: "specialist replied, the concierge is relaying…" };
+// Helpers ($, esc, api, json, md, readSSE, phaseText) come from studio-common.js.
 let session = null; let busy = false;
 
 async function send() {
@@ -33,11 +10,11 @@ async function send() {
   const textEl = th.lastElementChild.querySelector(".pg-text"); let text = "";
   try {
     const res = await fetch(new URL("/chat/stream", location.origin), { credentials: "same-origin", ...json({ session_id: session, message: q, force_skill: $("#force-skill").value || null, source: "external" }) });
-    if (!res.ok) { let t = await res.text(); try { t = JSON.parse(t).detail || t; } catch {} throw new Error(`${res.status} ${t}`); }
+    if (!res.ok) throw new Error(`${res.status} ${await errorDetail(res)}`);
     await readSSE(res, (ev) => {
       if (ev.type === "session") session = ev.session_id;
       else if (ev.type === "route") textEl.textContent = `routed to ${ev.skill_id || "?"}, the agent is starting…`;
-      else if (ev.type === "status" && !text) textEl.textContent = (ev.phase === "retrieving" && ev.skill_id) ? `retrieving ${ev.skill_id} knowledge…` : (PHASES[ev.phase] || ev.phase);
+      else if (ev.type === "status" && !text) textEl.textContent = phaseText(ev);
       else if (ev.type === "delta") { text += ev.text; textEl.classList.remove("muted"); textEl.innerHTML = esc(text).replace(/\n/g, "<br>"); }
       else if (ev.type === "done") {
         const a = ev.answer; textEl.classList.remove("muted"); textEl.innerHTML = md(a.text);
@@ -49,14 +26,21 @@ async function send() {
   busy = false; th.scrollTop = th.scrollHeight;
 }
 
-async function reset() {
-  if (session) { try { await api(`/chat/${session}/reset`, { method: "POST" }); } catch {} }
-  session = null; $("#ext-thread").innerHTML = ""; $("#turn-info").innerHTML = '<span class="muted">new conversation</span>'; $("#ext-tools").hidden = true;
-}
+// A new conversation only drops the session id (like the Studio playground): the previous one stays on record so
+// the team can review it under Conversations.
+function reset() { session = null; $("#ext-thread").innerHTML = ""; $("#turn-info").innerHTML = '<span class="muted">new conversation</span>'; $("#ext-tools").hidden = true; }
 
 $("#ext-send").addEventListener("click", send);
 $("#ext-q").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 $("#ext-new").addEventListener("click", reset);
+
+// handoff answers: the trace card's "check now" link pulls the specialist's tokens from the Foundry trace on demand
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest(".tc-reconcile"); if (!a) return; e.preventDefault();
+  const sid = a.dataset.session || session || ""; if (!sid) return; a.textContent = "checking…";
+  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); a.textContent = r.updated ? "updated, ask again to see the new trace" : (r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"); }
+  catch (err) { a.textContent = err.message; }
+});
 
 (async function authNav() { try { const r = await fetch(new URL("/.auth/me", location.origin), { credentials: "same-origin" }); if (r.ok) $("#ms-signout").hidden = false; } catch {} })();
 

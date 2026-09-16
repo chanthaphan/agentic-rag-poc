@@ -100,3 +100,8 @@ def test_external_role_gets_the_chat_page_only(tmp_path, monkeypatch):
     assert c.get("/sessions/" + rec.id, headers=admin).status_code == 200
     assert c.get("/sessions?all=1", headers=ext).json() == []
     assert c.post("/chat/" + rec.id + "/reset", headers=ext).status_code == 403
+    # a seeded external (or tester) cannot be removed from the list: the row would come back on the next start
+    r = c.delete("/access/seeded.partner@example.com", headers=admin)
+    assert r.status_code == 400 and "STUDIO_EXTERNALS" in r.json()["detail"]
+    assert c.get("/access", headers=admin).json()["seeded"] == {"seeded.partner@example.com": "STUDIO_EXTERNALS", "boss@bangkokbank.com": "STUDIO_ADMINS"}
+    assert c.delete("/access/partner@example.com", headers=admin).json() == {"ok": True}

@@ -92,7 +92,7 @@ async function loadAccess() {
   try {
     const d = await api("/access"); const tb = $("#ac-table tbody"); tb.innerHTML = "";
     for (const u of d.users) {
-      const me = u.email === (d.me.email || "").toLowerCase(); const seeded = d.seeded_admins.includes(u.email);
+      const me = u.email === (d.me.email || "").toLowerCase(); const seeded = u.email in (d.seeded || {});
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${esc(u.email)}${me ? ' <span class="pill info">you</span>' : ""}</td><td><span class="pill ${u.role === "admin" ? "ok" : u.role === "external" ? "warn" : ""}">${esc(u.role)}</span></td><td>${esc(u.name)}</td><td class="muted">${esc(u.added_by)}</td><td class="muted">${u.at ? new Date(u.at).toLocaleDateString() : ""}</td><td>${me || seeded ? "" : `<button class="btn-danger rm" data-email="${esc(u.email)}">remove</button>`}</td>`;
       tb.appendChild(tr);
@@ -100,7 +100,8 @@ async function loadAccess() {
     if (!d.users.length) tb.innerHTML = `<tr><td colspan="6" class="muted">nobody yet: until someone is added, the shared password is the only gate</td></tr>`;
     tb.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`Remove ${b.dataset.email} from Studio?`)) return; try { await api(`/access/${encodeURIComponent(b.dataset.email)}`, { method: "DELETE" }); loadAccess(); } catch (e) { $("#ac-status").textContent = e.message; } }));
     $("#ac-status").textContent = `${d.users.length} account(s)`;
-    $("#ac-seed").textContent = d.seeded_admins.length ? `Seeded admins from STUDIO_ADMINS (cannot be removed here): ${d.seeded_admins.join(", ")}` : "";
+    const seededList = Object.entries(d.seeded || {}).map(([e, v]) => `${e} (${v})`);
+    $("#ac-seed").textContent = seededList.length ? `Seeded from the environment (change the variable to remove them): ${seededList.join(", ")}` : "";
   } catch (e) { $("#ac-status").textContent = e.message; }
 }
 S.loaders["spane-access"] = loadAccess;
