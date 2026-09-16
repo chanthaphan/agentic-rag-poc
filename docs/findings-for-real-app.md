@@ -10,7 +10,7 @@ Observed on 2026-09-06 with the personal tenant (Foundry `my-model-hub/firstProj
 - **Incremental ingest**: content-hash manifest; second run uploads 0; removing files deletes their chunks.
 - **Lazy knowledge-base provisioning**: skills without documents get no retrieval tool and say so; adding documents to a category and syncing creates `ks-<id>`/`kb-<id>` plus the agent tool (verified with a temporary `mortgage` skill created in Studio: upload -> ingest -> sync -> retrieval -> delete -> prune), and removing them reverts.
 - **Mobile-app UI + sessions**: the prototype's Conversation screen was reproduced in plain HTML/CSS (BBL Sans, tokens, phone frame); sessions are JSON files and follow-ups survive a server restart because the Foundry conversation id is reused.
-- **Studio**: testers edit `SKILL.md` in the browser (form + markdown), save & sync shows the new agent version, upload documents, run ingest with a live log, and test retrieval. Protected with a shared password.
+- **Studio**: testers edit `SKILL.md` in the browser (form + markdown), save & sync shows the new agent version, upload documents, run ingest with a live log, and test retrieval. Access by Entra identity with three roles: admin, tester, and external (a chat page with the trace, none of the Studio tools); a shared password only for local dev.
 - **No web search**: verified that knowledge bases contain only search-index sources and agents only the `knowledge_base_retrieve` MCP tool. Answers that looked "too knowledgeable" came from the model's own memory (e.g. hotline numbers) or, before decision 10, from credit-card documents leaking through the shared base; both are now blocked by the strict grounding rule.
 
 ## 2. Foundry IQ vs classic AI Search tool

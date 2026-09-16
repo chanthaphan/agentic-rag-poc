@@ -69,3 +69,15 @@ agents), and enforced by `rules.guard()` on the drafted answer (missing mandator
 findings reported on the turn's trace). Trade-off: the deterministic guard cannot decide "show the key conditions
 completely and clearly" style rules, so those are prompt-enforced and reported as `undefined` for review instead of
 costing an LLM call per answer. See [responsible-lending.md](responsible-lending.md).
+
+## 27. A third access role, "external", gets a chat page and never the workbench
+People outside the team (a partner, a business reviewer) should be able to try the assistant and see how each answer
+was produced, without seeing skills, knowledge, evals, other people's conversations or settings. Rather than a
+separate deployment or a feature-flagged Studio, the access list gains a role: `external` is refused by
+`require_studio` (403 on every Studio route), `/studio` serves them `web/external.html` instead of the workbench, and
+for session visibility they count as app users (own conversations only, no `?all=1`). The page has its own design and
+script and shares only `trace.js` and the public chat routes with the customer app, so changes to either front end do
+not leak into the other; its conversations are tagged `source=external` so the team can filter them in Studio.
+`STUDIO_EXTERNALS` seeds the role like the other two, and because a seeded row is re-created on every start, the API
+refuses to delete any seeded account (admin, tester or external) and names the variable to change instead.
+Trade-off: a third front end to maintain; the shared helpers moved to `web/studio-common.js` to keep that small.

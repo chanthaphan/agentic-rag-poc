@@ -2,7 +2,7 @@
 
 ## The easy way: Studio (testers)
 
-Open **http://localhost:8010/studio** and sign in with the Studio password (`STUDIO_PASSWORD` in `.env`); enter your name so feedback is attributed. Tabs:
+Open **http://localhost:8010/studio** and sign in with the Studio password (`STUDIO_PASSWORD` in `.env`); enter your name so feedback is attributed. On the deployed app people sign in with their Microsoft account instead and need the `admin` or `tester` role on the access list (Settings > Access); the `external` role opens a chat page only, not these tabs (see [architecture.md](architecture.md#studio-access-by-identity)). Tabs:
 
 - **Skills**: list with Foundry sync state, version and lint badges. The editor has four panes: *Edit* (form + markdown, lint findings, "Try routing", Cmd/Ctrl+S, unsaved guard), *Preview* (rendered markdown), *Versions* (Foundry agent versions, line diff of the deployed instructions vs your local file, "Restore this version's body"), *Playground* (ask the deployed agent a question, streamed, with sources and a trace card).
 - **Knowledge**: per-space files (a knowledge space = one `knowledge/<space>` folder) with PDF text status, drag-and-drop upload, per-file re-ingest, chunk browser (click a file), hybrid index search next to the knowledge-base retrieve, a built-in crawler (start URL + prefix + max pages, follows links and PDFs, no external service) and single-URL import.

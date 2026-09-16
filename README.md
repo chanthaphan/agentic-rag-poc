@@ -22,7 +22,7 @@ skills/            _base (shared rules) + credit-card, debit-card, insurance, we
 rules/mccs/        Responsible Lending rules (PACK.md product taxonomy + one file per rule)
 knowledge/         credit-card/ seeded from the bblwebsite_crawler (19 products, page + PDF texts)
 src/bankrag/       config, skills, search_index, ingest/, knowledge_base, connections, foundry_sync, router, chat, api, cli
-web/               mobile.* (customer app), studio.* (tester page), index.html (legacy debug), fonts/
+web/               mobile.* (customer app), studio.* + studio-common.js (tester workbench), external.* (chat page for the external role), index.html (legacy debug), fonts/
 infra/             az CLI scripts: login, create search service, project identity + roles, write .env
 evals/             routing and answer question sets
 ```
@@ -82,7 +82,7 @@ The app runs as one container on **Azure Container Apps (consumption)** with an 
 ./infra/00-login.sh                 # personal tenant
 export ACR_NAME=bankragacr
 ./infra/10-acr-build.sh             # builds the image in ACR (no local Docker needed); prints IMAGE=...
-IMAGE=<printed image> ./infra/11-containerapp.sh   # storage share, environment, app, secrets from .env, volume, Foundry roles
+IMAGE=<printed image> ./infra/11-containerapp.sh   # storage share, environment, app, secrets + STUDIO_ADMINS/TESTERS/EXTERNALS from .env, volume, Foundry roles
 ./infra/12-easyauth.sh              # Entra ID sign-in in front of the whole app (app registration + built-in auth)
 ./infra/13-services-tool.sh         # live FX/branch tools: lets the Foundry project's identity call /mcp/services
 ```
