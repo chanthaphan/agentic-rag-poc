@@ -74,7 +74,8 @@ costing an LLM call per answer. See [responsible-lending.md](responsible-lending
 People outside the team (a partner, a business reviewer) should be able to try the assistant and see how each answer
 was produced, without seeing skills, knowledge, evals, other people's conversations or settings. Rather than a
 separate deployment or a feature-flagged Studio, the access list gains a role: `external` is refused by
-`require_studio` (403 on every Studio route), `/studio` serves them `web/external.html` instead of the workbench, and
+`require_studio` (403 on every Studio route, and `/studio` itself shows the no-access page), `/` serves them
+`web/external.html` in place of the customer app, and
 for session visibility they count as app users (own conversations only, no `?all=1`). The page has its own design and
 script and shares only `trace.js` and the public chat routes with the customer app, so changes to either front end do
 not leak into the other; its conversations are tagged `source=external` so the team can filter them in Studio.

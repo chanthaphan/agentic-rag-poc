@@ -80,10 +80,12 @@ def test_external_role_gets_the_chat_page_only(tmp_path, monkeypatch):
     assert c.get("/studio/me", headers=_hdr("seeded.partner@example.com")).json()["role"] == "external"
     assert c.post("/access", json={"email": "Partner@example.com", "role": "external", "name": "Partner"}, headers=admin).json() == {"email": "partner@example.com", "role": "external"}
     assert c.post("/access", json={"email": "x@example.com", "role": "guest"}, headers=admin).status_code == 400
-    # /studio serves the chat page, not the workbench; the public chat routes work
-    r = c.get("/studio", headers=ext)
+    # / serves the chat page in place of the customer app; /studio is refused (no-access page); the public chat routes work
+    r = c.get("/", headers=ext)
     assert r.status_code == 200 and "external.js" in r.text and "mobile.js" not in r.text and "studio.js" not in r.text
+    assert c.get("/studio", headers=ext).status_code == 403
     assert "studio.js" in c.get("/studio", headers=admin).text
+    assert "mobile.js" in c.get("/", headers=admin).text and "mobile.js" in c.get("/").text
     me = c.get("/studio/me", headers=ext).json()
     assert me["authed"] is True and me["role"] == "external"
     assert c.get("/health", headers=ext).status_code == 200

@@ -5,9 +5,12 @@
 </head><body class="studio">
 <div class="login">
   <h1>Studio access needed</h1>
-  <p>You are signed in as <b id="who">…</b>, but this account is not on the Studio access list. The customer app still works for you.</p>
-  <p>Ask a Studio admin to add your email under Settings → Access. Once added, reload this page.</p>
+  <p id="why">You are signed in as <b id="who">…</b>, but this account is not on the Studio access list. The customer app still works for you.</p>
+  <p id="how">Ask a Studio admin to add your email under Settings → Access. Once added, reload this page.</p>
   <div class="toolbar"><a class="btn-secondary" href="/">Back to app</a><a class="btn-secondary" href="/studio">Reload</a><a class="btn-danger" href="/.auth/logout?post_logout_redirect_uri=/">Sign out (Microsoft)</a></div>
 </div>
-<script>fetch("/whoami",{credentials:"same-origin"}).then(r=>r.json()).then(w=>{document.getElementById("who").textContent=w.email||w.name||"unknown";}).catch(()=>{});</script>
+<script>
+fetch("/whoami",{credentials:"same-origin"}).then(r=>r.json()).then(w=>{document.getElementById("who").textContent=w.email||w.name||"unknown";}).catch(()=>{});
+fetch("/studio/me",{credentials:"same-origin"}).then(r=>r.json()).then(m=>{ if(m.role==="external"){ document.getElementById("why").innerHTML="You are signed in as <b>"+(m.sso.email||m.sso.name||"unknown")+"</b> with the <b>external</b> role: your chat page is at <a href=\"/\">/</a>; the Studio tools are for the team."; document.getElementById("how").hidden=true; } }).catch(()=>{});
+</script>
 </body></html>

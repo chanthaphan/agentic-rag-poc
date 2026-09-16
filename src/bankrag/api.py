@@ -1484,7 +1484,11 @@ def _page(name: str) -> Response:
 
 
 @app.get("/")
-def mobile_page():
+def mobile_page(request: Request):
+    """The customer app. An account with the external role gets its own chat page here instead (external.html),
+    and nothing else: /studio refuses it."""
+    if studio_role(request, None) == "external":
+        return _page("external.html")
     return _page("mobile.html")
 
 
@@ -1503,14 +1507,14 @@ def _login_ok_response(password: str, tester: str = "", to: str = "/studio") -> 
 
 @app.get("/studio")
 def studio_page(request: Request, key: Optional[str] = None, creds: Optional[HTTPBasicCredentials] = Depends(security)):
-    """Entra users on the access list go straight in (admins and testers get the workbench, external people the chat
-    page); others see the no-access page. Without SSO: login page / ?key=."""
+    """Entra users on the access list as admin or tester go straight in; others, including the external role (whose
+    chat page is at /), see the no-access page. Without SSO: login page / ?key=."""
     who = identity(request)
     if who["email"] and SESS.access_count(settings) > 0:
         role = SESS.get_role(settings, who["email"])
-        if not role:
+        if role not in STAFF_ROLES:
             return Response(_page("noaccess.html").body, status_code=403, media_type="text/html", headers={"Cache-Control": "no-cache"})
-        resp = _page("external.html" if role == "external" else "studio.html")
+        resp = _page("studio.html")
         if not request.cookies.get(TESTER_COOKIE) and who["name"]:
             resp.set_cookie(TESTER_COOKIE, who["name"][:40], samesite="lax", max_age=30 * 24 * 3600)
         return resp
