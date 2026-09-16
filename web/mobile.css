@@ -161,7 +161,6 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .tn-btn { display:inline-block; padding:7px 14px; border-radius:var(--radius-full); background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.22); font:var(--label-sm); text-decoration:none; backdrop-filter:blur(10px); }
 .tn-btn:hover { background:rgba(255,255,255,.2); }
 .tn-user { color:rgba(255,255,255,.6); font:var(--caption-lg); align-self:center; margin-right:4px; }
-.tn-pill { display:inline-block; padding:5px 12px; border-radius:var(--radius-full); background:rgba(250,153,92,.18); color:#ffc59f; border:1px solid rgba(250,153,92,.35); font:var(--label-sm); }
 @media (max-width: 900px) { .stage-note { display:none; } }
 [hidden] { display:none !important; }
 

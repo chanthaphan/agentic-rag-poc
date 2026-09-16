@@ -2,73 +2,52 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<!-- The chat page for the "external" access role: the customer app as is (voice input, history, suggestions) with the
-     behind-the-scenes panel. Served by /studio; the script is the customer app's own, conversations are tagged "external". -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#0c1622">
-<title>Bangkok Bank Assistant · preview</title>
+<!-- The chat page for the "external" access role, served by /studio: a plain web app around the assistant, with a
+     "how this answer was produced" panel. It runs the customer app's script (mobile.js) for the chat, voice input,
+     history, suggestions and feedback, but none of that app's chrome; conversations are tagged "external". -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bangkok Bank Assistant</title>
 <link rel="stylesheet" href="/static/mobile.css">
+<link rel="stylesheet" href="/static/external.css">
 </head>
-<body data-source="external">
-<nav class="topnav" id="topnav"><span class="tn-pill">external preview</span><a href="/.auth/logout?post_logout_redirect_uri=/" class="tn-btn" id="tn-signout" hidden>Sign out</a></nav>
-<div class="stage">
-  <div class="phone-col">
-  <div class="phone">
-    <div class="island"></div>
-    <div class="statusbar">
-      <span class="time">9:41</span>
-      <span class="icons">
-        <svg width="19" height="12" viewBox="0 0 19 12" fill="#0f2236"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
-        <svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="#0f2236" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10.5 10.5 0 0 1 14 0"/><path d="M4.2 7a6.5 6.5 0 0 1 8.6 0"/><path d="M7 9.7a2.6 2.6 0 0 1 3 0"/></svg>
-        <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x="0.5" y="0.5" width="22" height="12" rx="3.5" stroke="#0f2236" stroke-opacity=".35"/><rect x="2" y="2" width="19" height="9" rx="2" fill="#0f2236"/><path d="M24.5 4.5v4a2 2 0 0 0 0-4z" fill="#0f2236" fill-opacity=".4"/></svg>
-      </span>
-    </div>
+<body class="webapp" data-source="external">
+<header class="wa-top">
+  <div class="wa-brand"><span class="ai-av"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg></span><h1 id="title">Assistant</h1><span class="wa-sub">Bangkok Bank product assistant</span></div>
+  <div class="wa-user" id="topnav">
+    <button class="icon-btn" id="btn-history" aria-label="Conversations" title="Conversations"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button>
+    <button class="avatar" id="avatar" aria-label="Account">PW</button>
+    <a href="/.auth/logout?post_logout_redirect_uri=/" class="tn-btn" id="tn-signout" hidden>Sign out</a>
+  </div>
+  <div class="account" id="account" hidden>
+    <div class="acc-name" id="acc-name">…</div>
+    <div class="acc-email" id="acc-email"></div>
+    <a class="acc-signout" id="acc-signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out of Microsoft</a>
+  </div>
+</header>
 
-    <div class="screen">
-      <div class="hdr">
-        <div class="hdr-row">
-          <h1 id="title">Assistant</h1>
-          <div class="hdr-right">
-            <button class="icon-btn" id="btn-history" aria-label="History"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button>
-            <button class="avatar" id="avatar" aria-label="Account">PW</button>
-          </div>
+<div class="wa-layout">
+  <main class="wa-main">
+    <div class="body" id="body"></div>
+    <div class="composer">
+      <div class="card">
+        <input id="input" placeholder="Ask anything" autocomplete="off">
+        <div class="btns">
+          <span class="wa-spacer"></span>
+          <button class="mic" id="btn-mic" aria-label="Voice input" title="Voice input"><span class="ring"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></button>
+          <button class="rbtn send" id="btn-send" aria-label="Send" title="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
         </div>
-        <div class="account" id="account" hidden>
-          <div class="acc-name" id="acc-name">…</div>
-          <div class="acc-email" id="acc-email"></div>
-          <a class="acc-signout" id="acc-signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out of Microsoft</a>
-        </div>
-        <div class="dots"><i></i><i class="on"></i><i></i></div>
       </div>
-
-      <div class="body" id="body"></div>
-
-      <div class="composer">
-        <div class="card">
-          <input id="input" placeholder="Ask anything" autocomplete="off">
-          <div class="btns">
-            <button class="rbtn" id="btn-image" aria-label="Attach image" disabled><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21"/><path d="m14 19.5 3-3 3 3"/><path d="M17 22v-5.5"/><circle cx="9" cy="9" r="2"/></svg></button>
-            <button class="mic" id="btn-mic" aria-label="Voice"><span class="ring"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></button>
-            <button class="rbtn send" id="btn-send" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
-          </div>
-        </div>
-        <div class="foot">Powered by AI, double-check the responses</div>
-      </div>
-
+      <div class="foot">Powered by AI, double-check the responses</div>
     </div>
-
     <div class="sheet-bg" id="sheet-bg"><div class="sheet" id="sheet"></div></div>
-    <div class="home"><span></span></div>
-  </div>
-  </div>
+  </main>
   <aside class="devpanel" id="devpanel">
-    <div class="dp-head"><b>Behind the scenes</b><span class="muted" id="dp-session"></span><button id="dp-toggle" class="dp-btn" title="hide">hide</button></div>
-    <div id="dp-log" class="dp-log"><div class="dp-empty">Send a message to see routing, agent, tool calls and sources.</div></div>
+    <div class="dp-head"><b>How the answer was produced</b><span class="muted" id="dp-session"></span><button id="dp-toggle" class="dp-btn" title="hide this panel">hide</button></div>
+    <div id="dp-log" class="dp-log"><div class="dp-empty">Send a message to see routing, retrieval, tokens, cost and sources.</div></div>
   </aside>
 </div>
-<button id="dp-show" class="dp-show" hidden>show log</button>
-<div class="stage-note">External preview</div>
+<button id="dp-show" class="dp-show" hidden>show details</button>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <script src="/static/trace.js"></script>
