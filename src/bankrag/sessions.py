@@ -336,9 +336,11 @@ def review_list(settings: Settings, *, skill: str = "", rating: str = "", user: 
     return out
 
 
-def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", limit: int = 500,
-                  items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
+def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", comment: str = "",
+                  limit: int = 500, items: Optional[list[tuple[str, int]]] = None) -> list[dict]:
     """Flat customer-question / answer pairs across sessions (newest first) with feedback, for review, selection and export.
+    `comment`: "any" = has a comment, "none" = rated without one, anything else = the comment contains that text (a dislike
+    reason label such as "Wrong information", since the chat UIs store reasons as "Label; Label — note").
     `items` = [(session_id, user_turn_idx)] restricts the result to those questions (any order), e.g. an export selection."""
     sql = ("SELECT u.session_id, u.idx, u.at, u.text, a.text, a.skill_id, a.language, a.confidence, a.cost_usd, a.total_ms, a.retrieved_docs, a.agent_name, "
            "f.rating, f.comment, f.tester, s.title, s.source, a.input_tokens, a.output_tokens, COALESCE(NULLIF(u.by,''), s.user_name, '') AS asked_by, s.user_email "
@@ -352,7 +354,13 @@ def question_rows(settings: Settings, *, skill: str = "", rating: str = "", q: s
     elif rating == "any":
         sql += " AND f.rating IS NOT NULL"
     if q:
-        sql += " AND (u.text LIKE ? OR a.text LIKE ?)"; args += [f"%{q}%", f"%{q}%"]
+        sql += " AND (u.text LIKE ? OR a.text LIKE ? OR f.comment LIKE ?)"; args += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    if comment == "any":
+        sql += " AND COALESCE(f.comment,'')<>''"
+    elif comment == "none":
+        sql += " AND f.rating IS NOT NULL AND COALESCE(f.comment,'')=''"
+    elif comment:
+        sql += " AND f.comment LIKE ?"; args.append(f"%{comment}%")
     if source:
         sql += " AND COALESCE(s.source,'app')=?"; args.append(source)
     if user:

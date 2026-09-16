@@ -7,7 +7,7 @@ try { for (const r of JSON.parse(localStorage.getItem("cv-box") || "[]")) CV.box
 function saveBox() { try { localStorage.setItem("cv-box", JSON.stringify(Array.from(CV.box.values()))); } catch {} renderBox(); }
 
 async function loadConversations() {
-  const params = new URLSearchParams({ skill: $("#cv-skill").value, rating: $("#cv-rating").value, q: $("#cv-q").value.trim(), source: $("#cv-source").value, user: $("#cv-user").value, limit: 500 });
+  const params = new URLSearchParams({ skill: $("#cv-skill").value, rating: $("#cv-rating").value, q: $("#cv-q").value.trim(), source: $("#cv-source").value, user: $("#cv-user").value, comment: $("#cv-comment").value, limit: 500 });
   $("#cv-status").textContent = "loading…";
   const [rows, list, users] = await Promise.all([api(`/conversations/questions?${params}`), api(`/sessions/review?skill=${encodeURIComponent($("#cv-skill").value)}&rating=${encodeURIComponent($("#cv-rating").value === "any" ? "" : $("#cv-rating").value)}&user=${encodeURIComponent($("#cv-user").value)}`), api("/conversations/users").catch(() => [])]);
   const us = $("#cv-user"); if (us.options.length <= 1) for (const u of users) { const o = document.createElement("option"); o.value = u; o.textContent = u; us.appendChild(o); }
@@ -26,8 +26,18 @@ async function loadConversations() {
 }
 S.loaders.conversations = loadConversations;
 ["#cv-refresh"].forEach((s) => $(s).addEventListener("click", loadConversations));
-["#cv-skill", "#cv-rating", "#cv-source", "#cv-user"].forEach((s) => $(s).addEventListener("change", loadConversations));
+["#cv-skill", "#cv-rating", "#cv-source", "#cv-comment", "#cv-user"].forEach((s) => $(s).addEventListener("change", loadConversations));
 let cvTimer; $("#cv-q").addEventListener("input", () => { clearTimeout(cvTimer); cvTimer = setTimeout(loadConversations, 350); });
+
+// The chat UIs store a dislike as "Label; Label — note" (English labels); show the labels as pills and the note as text.
+const DISLIKE_LABELS = ["Wrong information", "Did not answer the question", "Not enough detail", "Hard to understand", "Wrong language or tone", "Too slow"];
+function commentHtml(comment) {
+  if (!comment) return "";
+  const [head, ...rest] = comment.split(" — ");
+  const labels = head.split("; ").filter((l) => DISLIKE_LABELS.includes(l));
+  const note = labels.length ? rest.join(" — ") : comment;
+  return labels.map((l) => `<span class="pill warn">${esc(l)}</span>`).join("") + (note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : "");
+}
 
 function renderCvQuestions() {
   const pages = Math.max(1, Math.ceil(CV.rows.length / CV.size)); CV.page = Math.min(CV.page, pages - 1);
@@ -35,13 +45,13 @@ function renderCvQuestions() {
   const tb = $("#cv-qtable tbody"); tb.innerHTML = "";
   for (const r of slice) {
     const k = boxKey(r); const tr = document.createElement("tr"); tr.className = CV.box.has(k) ? "sel" : ""; tr.dataset.key = k;
-    tr.innerHTML = `<td><input type="checkbox" class="pick" ${CV.box.has(k) ? "checked" : ""}></td><td><span class="qtext" title="open the conversation">${esc(r.question)}</span><span class="ans">${esc((r.answer || "").slice(0, 140))}${(r.answer || "").length > 140 ? "…" : ""}</span></td><td><span class="pill info">${esc(r.skill_id || "?")}</span>${r.language ? ` <span class="pill">${esc(r.language)}</span>` : ""}</td><td>${r.rating === "up" ? "👍" : r.rating === "down" ? "👎" : ""}${r.comment ? ` <span class="muted" title="${esc(r.comment)}">💬</span>` : ""}</td><td>${fmtUsd(r.cost_usd)}</td><td>${r.user ? `<b>${esc(r.user)}</b><br>` : ""}<span class="muted">${r.at ? new Date(r.at).toLocaleString() : ""} · ${esc(r.source)}</span></td><td><button class="btn-secondary open">open</button></td>`;
+    tr.innerHTML = `<td><input type="checkbox" class="pick" ${CV.box.has(k) ? "checked" : ""}></td><td><span class="qtext" title="open the conversation">${esc(r.question)}</span><span class="ans">${esc((r.answer || "").slice(0, 140))}${(r.answer || "").length > 140 ? "…" : ""}</span></td><td><span class="pill info">${esc(r.skill_id || "?")}</span>${r.language ? ` <span class="pill">${esc(r.language)}</span>` : ""}</td><td>${r.rating === "up" ? "👍" : r.rating === "down" ? "👎" : ""}</td><td class="cmt-cell">${commentHtml(r.comment)}</td><td>${fmtUsd(r.cost_usd)}</td><td>${r.user ? `<b>${esc(r.user)}</b><br>` : ""}<span class="muted">${r.at ? new Date(r.at).toLocaleString() : ""} · ${esc(r.source)}</span></td><td><button class="btn-secondary open">open</button></td>`;
     tr.querySelector(".pick").addEventListener("change", (e) => { toggle(r, e.target.checked); tr.classList.toggle("sel", e.target.checked); });
     tr.querySelector(".qtext").addEventListener("click", () => openTranscript(r.session_id, r.idx));
     tr.querySelector(".open").addEventListener("click", () => openTranscript(r.session_id, r.idx));
     tb.appendChild(tr);
   }
-  if (!slice.length) tb.innerHTML = `<tr><td colspan="7" class="muted">no questions match</td></tr>`;
+  if (!slice.length) tb.innerHTML = `<tr><td colspan="8" class="muted">no questions match</td></tr>`;
   $("#cv-shown").textContent = `${CV.rows.length ? start + 1 : 0}–${Math.min(start + CV.size, CV.rows.length)} of ${CV.rows.length}`;
   $("#cv-check-all").checked = slice.length > 0 && slice.every((r) => CV.box.has(boxKey(r)));
   const pager = $("#cv-pager"); pager.hidden = CV.rows.length <= CV.size;

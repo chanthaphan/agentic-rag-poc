@@ -1,10 +1,11 @@
-/* The external page: its own design. Warm neutral workspace with a slate sidebar, a transcript column (no bubbles),
+/* The external page: its own design. Cool neutral workspace in BBL blue with a navy sidebar, a transcript column (no bubbles),
    and light-themed detail blocks for the trace cards that trace.js renders. */
 @font-face { font-family: "BBL Sans"; font-weight: 400; src: url("/static/fonts/bblsans-regular.woff2") format("woff2"); }
 @font-face { font-family: "BBL Sans"; font-weight: 500 800; src: url("/static/fonts/bblsans-medium.woff2") format("woff2"); }
 :root {
-  --ink:#1c2330; --ink-2:#4a5568; --ink-3:#8a94a6; --line:#e6e8ee; --paper:#fbfaf8; --paper-2:#f2f1ee; --white:#fff;
-  --side:#1f2937; --side-2:#2b3646; --side-text:#cfd6e2; --accent:#0f766e; --accent-2:#e6f4f2; --accent-3:#99d5cc; --warn:#b45309; --warn-2:#fff3e3; --bad:#b91c1c;
+  /* BBL blue: the accent and sidebar come from the customer app's palette (bbl-70 / bbl-10 / bbl-30 / bbl-ink) */
+  --ink:#0f2236; --ink-2:#4a5568; --ink-3:#8a94a6; --line:#dfe6f2; --paper:#f6f8fc; --paper-2:#eaf0f9; --white:#fff;
+  --side:#0f2236; --side-2:#1b3452; --side-text:#c9d6ea; --accent:#1f5fd6; --accent-2:#eef4ff; --accent-3:#bcd2ff; --warn:#b45309; --warn-2:#fff3e3; --bad:#b91c1c;
   --font:"BBL Sans", "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing:border-box; }

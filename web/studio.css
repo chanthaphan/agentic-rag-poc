@@ -308,3 +308,7 @@ body.role-tester #spane-base textarea, body.role-tester #spane-runtime input, bo
   .steps li { font-size:10px; }
   body.studio .login { max-width:none; margin:6vh 12px; padding:18px; }
 }
+/* Conversations: the comment column (dislike reasons as pills, the note as text) */
+#cv-qtable .cmt-cell { font-size:12px; line-height:1.5; }
+#cv-qtable .cmt-cell .pill { margin:0 4px 2px 0; }
+#cv-qtable .cmt-cell .note { display:block; color:var(--gray-80); white-space:pre-wrap; word-break:break-word; }

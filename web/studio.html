@@ -288,17 +288,18 @@
       <div class="panel">
         <div class="panel-head"><h3>Customer questions</h3><span id="cv-status" class="muted"></span><span class="spacer"></span><a class="btn-secondary" href="/feedback.csv" title="All ratings and comments as CSV">Feedback CSV</a></div>
         <div class="row wrap cv-filters">
-          <input id="cv-q" placeholder="search question or answer text" style="flex:1;min-width:220px">
+          <input id="cv-q" placeholder="search question, answer or comment text" style="flex:1;min-width:220px">
           <label>Skill <select id="cv-skill"><option value="">all</option></select></label>
           <label>Rating <select id="cv-rating"><option value="">all</option><option value="up">👍 only</option><option value="down">👎 only</option><option value="any">rated</option></select></label>
           <label>Source <select id="cv-source"><option value="">all</option><option value="app">app</option><option value="studio">studio</option><option value="external">external</option></select></label>
+          <label>Comment <select id="cv-comment"><option value="">all</option><option value="any">with a comment</option><option value="none">rated, no comment</option><optgroup label="dislike reason"><option>Wrong information</option><option>Did not answer the question</option><option>Not enough detail</option><option>Hard to understand</option><option>Wrong language or tone</option><option>Too slow</option></optgroup></select></label>
           <label>User <select id="cv-user"><option value="">all</option></select></label>
           <button id="cv-refresh" class="btn-secondary">Refresh</button>
         </div>
         <div class="subtabs"><button data-cpane="questions" class="on">Questions</button><button data-cpane="sessions">Conversations</button></div>
         <div class="pane on" id="cpane-questions">
           <div class="row wrap cv-bulk"><label class="muted"><input type="checkbox" id="cv-check-all"> select all shown</label><span class="muted" id="cv-shown"></span></div>
-          <div class="tw"><table class="list" id="cv-qtable"><thead><tr><th style="width:28px"></th><th>question</th><th style="width:110px">skill</th><th style="width:70px">rating</th><th style="width:70px">cost</th><th style="width:150px">asked by · when</th><th style="width:60px"></th></tr></thead><tbody></tbody></table></div>
+          <div class="tw"><table class="list" id="cv-qtable"><thead><tr><th style="width:28px"></th><th>question</th><th style="width:110px">skill</th><th style="width:50px">rating</th><th style="width:220px">comment</th><th style="width:70px">cost</th><th style="width:150px">asked by · when</th><th style="width:60px"></th></tr></thead><tbody></tbody></table></div>
           <div class="pager" id="cv-pager" hidden><button class="btn-secondary" id="cv-prev">‹ prev</button><span id="cv-page-info" class="muted"></span><button class="btn-secondary" id="cv-next">next ›</button></div>
         </div>
         <div class="pane" id="cpane-sessions">

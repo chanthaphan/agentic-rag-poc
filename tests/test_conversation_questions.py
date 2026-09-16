@@ -30,6 +30,15 @@ def test_question_rows_filters_and_items(tmp_path, monkeypatch):
     assert [r["idx"] for r in SESS.question_rows(s, q="lounge")] == [0]
     assert SESS.question_rows(s, skill="wealth") == []
     assert [r["idx"] for r in SESS.question_rows(s, items=[("abcdef123456", 0)])] == [0]
+    # comment filters: any / none / a dislike reason label; the text search also looks in the comment
+    SESS.save_feedback(s, "abcdef123456", 1, "up", "", "pim")
+    SESS.save_feedback(s, "abcdef123456", 3, "down", "Wrong information; Too slow — fee is 3,500", "pim")
+    assert [r["idx"] for r in SESS.question_rows(s, comment="any")] == [2]
+    assert [r["idx"] for r in SESS.question_rows(s, comment="none")] == [0]
+    assert [r["idx"] for r in SESS.question_rows(s, comment="Too slow")] == [2]
+    assert SESS.question_rows(s, comment="Hard to understand") == []
+    assert [r["idx"] for r in SESS.question_rows(s, q="3,500")] == [2]
+    assert SESS.question_rows(s, comment="any")[0]["comment"] == "Wrong information; Too slow — fee is 3,500"
 
 
 def test_export_and_append_routes(tmp_path, monkeypatch):

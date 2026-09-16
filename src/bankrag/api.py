@@ -442,8 +442,8 @@ def conversation_users():
 
 
 @studio.get("/conversations/questions")
-def conversation_questions(skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", limit: int = 300):
-    return SESS.question_rows(settings, skill=skill, rating=rating, q=q[:200], source=source, user=user, limit=limit)
+def conversation_questions(skill: str = "", rating: str = "", q: str = "", source: str = "", user: str = "", comment: str = "", limit: int = 300):
+    return SESS.question_rows(settings, skill=skill, rating=rating, q=q[:200], source=source, user=user, comment=comment[:100], limit=limit)
 
 
 class QuestionItems(BaseModel):
