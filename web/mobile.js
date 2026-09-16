@@ -168,7 +168,7 @@ async function send(text) {
   try {
     currentPosition.q = q;
     const here = await currentPosition();
-    const res = await fetch(new URL("/chat/stream", location.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: state.sessionId, message: q, ...(here || {}) }) });
+    const res = await fetch(new URL("/chat/stream", location.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: state.sessionId, message: q, source: document.body.dataset.source || "app", ...(here || {}) }) });
     if (!res.ok || !res.body) { let t = await res.text(); try { t = JSON.parse(t).detail || t; } catch {} throw new Error(t || res.statusText); }
     await readSSE(res, (ev) => {
       if (ev.type === "session") { state.sessionId = ev.session_id; try { localStorage.setItem("bankrag_session", state.sessionId); } catch {} }

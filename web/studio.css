@@ -308,13 +308,3 @@ body.role-tester #spane-base textarea, body.role-tester #spane-runtime input, bo
   .steps li { font-size:10px; }
   body.studio .login { max-width:none; margin:6vh 12px; padding:18px; }
 }
-/* ---- external chat page (/studio for the external role): the debug chat and the trace of the last turn ---- */
-.external .ext-layout { display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:16px; align-items:start; }
-.external .ext-thread { max-height:calc(100vh - 220px); }
-.external .ext-side { position:sticky; top:12px; }
-.external .ext-side .panel { padding:12px; }
-.external #turn-info { margin-top:0; min-height:80px; }
-.external .ext-tools { margin-top:8px; } .external .ext-tools pre { font-size:11px; max-height:260px; overflow:auto; white-space:pre-wrap; }
-.external #force-skill { max-width:240px; }
-@media (max-width: 1000px) { .external .ext-layout { grid-template-columns:1fr; } .external .ext-side { position:static; } .external .ext-thread { max-height:60vh; } }
-.external .err { color:var(--red-70); }

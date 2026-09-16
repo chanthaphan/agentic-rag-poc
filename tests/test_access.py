@@ -82,7 +82,7 @@ def test_external_role_gets_the_chat_page_only(tmp_path, monkeypatch):
     assert c.post("/access", json={"email": "x@example.com", "role": "guest"}, headers=admin).status_code == 400
     # /studio serves the chat page, not the workbench; the public chat routes work
     r = c.get("/studio", headers=ext)
-    assert r.status_code == 200 and "external.js" in r.text and "studio.js" not in r.text
+    assert r.status_code == 200 and 'data-source="external"' in r.text and "mobile.js" in r.text and "studio.js" not in r.text
     assert "studio.js" in c.get("/studio", headers=admin).text
     me = c.get("/studio/me", headers=ext).json()
     assert me["authed"] is True and me["role"] == "external"

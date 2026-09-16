@@ -80,13 +80,13 @@ A bundle zip carries skills/, knowledge/ (PDFs optional), evals/ and config (pri
 
 With Easy Auth in front of the app, `api.studio_role` decides Studio access from the Entra identity alone: the `studio_access` table (SQLite, backed up with the sessions DB) maps email to `admin`, `tester` or `external`. Admins manage the list in Settings > Access (`GET/POST /access`, `DELETE /access/{email}`); guards stop removing yourself, the last admin, or any account seeded from the environment (it would be re-created on the next start; change the variable instead). `STUDIO_ADMINS`, `STUDIO_TESTERS` and `STUDIO_EXTERNALS` (comma-separated emails) seed the table at start so nobody is locked out; once the list has at least one entry, the shared password is no longer accepted for SSO users. Without SSO (local dev, curl basic auth) `STUDIO_PASSWORD` grants admin as before. Signed-in people who are not on the list get a no-access page and can still use the customer app.
 
-The `external` role is for people outside the team (a partner, a business reviewer) who should try the assistant with its trace but never see the workbench: `/studio` serves them `external.html`, the debug chat only (one streamed conversation at a time, an optional skill override, and the trace card of the last answer: routing, timeline, tokens, sources, raw tool calls). `require_studio` refuses the role with 403, so every Studio route (skills, knowledge, evals, conversations, settings, access) is closed to them, and for session visibility they count as app users, not staff: their own conversations only, no `?all=1`.
+The `external` role is for people outside the team (a partner, a business reviewer) who should try the assistant with its trace but never see the workbench: `/studio` serves them `external.html`: the customer app's own phone UI and script (`mobile.js`, so voice input, history, suggestions and feedback all work) with the behind-the-scenes panel open, and every conversation tagged `source=external` (the body's `data-source`) so Studio can filter them. `require_studio` refuses the role with 403, so every Studio route (skills, knowledge, evals, conversations, settings, access) is closed to them, and for session visibility they count as app users, not staff: their own conversations only, no `?all=1`.
 
 ### Roles
 
 | Action | external | tester | admin |
 |---|---|---|---|
-| Open the chat page (`/studio`): streamed debug chat with the trace of each answer, own conversations only | yes | yes (playground) | yes (playground) |
+| Open the chat page (`/studio`): the customer app with the behind-the-scenes panel, own conversations only | yes | yes (via the app) | yes (via the app) |
 | Open Studio, view every tab except Access | no | yes | yes |
 | Skills: create, edit, save, sync one or all, upload zip, playground, versions and restore | no | yes | yes |
 | Skills: delete a skill (and its Foundry agent / knowledge base), prune | no | no | yes |
