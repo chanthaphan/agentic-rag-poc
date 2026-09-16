@@ -100,6 +100,7 @@ class Settings:
     studio_password: str
     studio_admins: list[str]
     studio_testers: list[str]
+    studio_externals: list[str]
     app_user_name: str
     app_user_initials: str
     assistant_name: str
@@ -159,6 +160,7 @@ class Settings:
             studio_password=_env("STUDIO_PASSWORD"),
             studio_admins=[e.strip().lower() for e in _env("STUDIO_ADMINS", "").split(",") if e.strip()],
             studio_testers=[e.strip().lower() for e in _env("STUDIO_TESTERS", "").split(",") if e.strip()],
+            studio_externals=[e.strip().lower() for e in _env("STUDIO_EXTERNALS", "").split(",") if e.strip()],
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
             assistant_name=_env("ASSISTANT_NAME", "เกรส"),

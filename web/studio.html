@@ -291,7 +291,7 @@
           <input id="cv-q" placeholder="search question or answer text" style="flex:1;min-width:220px">
           <label>Skill <select id="cv-skill"><option value="">all</option></select></label>
           <label>Rating <select id="cv-rating"><option value="">all</option><option value="up">👍 only</option><option value="down">👎 only</option><option value="any">rated</option></select></label>
-          <label>Source <select id="cv-source"><option value="">all</option><option value="app">app</option><option value="studio">studio</option></select></label>
+          <label>Source <select id="cv-source"><option value="">all</option><option value="app">app</option><option value="studio">studio</option><option value="external">external</option></select></label>
           <label>User <select id="cv-user"><option value="">all</option></select></label>
           <button id="cv-refresh" class="btn-secondary">Refresh</button>
         </div>
@@ -383,14 +383,14 @@
     <div class="bd-grid">
       <div class="panel">
         <div class="panel-head"><h3>Who can open Studio</h3><span id="ac-status" class="muted"></span></div>
-        <p class="muted" id="ac-note">People sign in with their Microsoft (Entra) account. Only accounts on this list can open Studio; everyone else can still use the customer app. <b>Admins</b> manage this list and everything else; <b>testers</b> get every Studio tab except Access.</p>
+        <p class="muted" id="ac-note">People sign in with their Microsoft (Entra) account. Only accounts on this list can open Studio; everyone else can still use the customer app. <b>Admins</b> manage this list and everything else; <b>testers</b> get every Studio tab except Access; <b>external</b> people get a chat web page only (voice input, history, their own conversations, and a panel showing how each answer was produced), no Studio tabs.</p>
         <div class="tw"><table class="list" id="ac-table"><thead><tr><th>email</th><th>role</th><th>name</th><th>added by</th><th>when</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="panel">
         <div class="panel-head"><h3>Add or change a person</h3></div>
         <div class="form">
           <label>Email <small>(the Microsoft account they sign in with, e.g. name@bangkokbank.com)</small><input id="ac-email" type="email" placeholder="someone@bangkokbank.com"></label>
-          <label>Role <select id="ac-role"><option value="tester">tester</option><option value="admin">admin</option></select></label>
+          <label>Role <select id="ac-role"><option value="tester">tester</option><option value="admin">admin</option><option value="external">external</option></select></label>
           <label>Name <small>(optional; shown on feedback)</small><input id="ac-name"></label>
           <div class="row wrap"><button id="ac-add">Add / update</button><span id="ac-add-status" class="muted"></span></div>
         </div>
@@ -502,6 +502,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/7.0.0/diff.min.js"></script>
 <script src="/static/trace.js"></script>
+<script src="/static/studio-common.js"></script>
 <script src="/static/studio.js"></script>
 <script src="/static/studio-skills.js"></script>
 <script src="/static/studio-knowledge.js"></script>

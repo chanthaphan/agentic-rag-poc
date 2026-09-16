@@ -1,0 +1,190 @@
+// The external page: a workspace around the assistant with its own rendering. Talks to the same public routes as the
+// customer app (/app/config, /chat/stream, /sessions, /feedback) but shares no markup or styles with it.
+const $ = (s) => document.querySelector(s);
+const esc = TR.esc;
+const api = async (path, opts = {}) => {
+  const r = await fetch(new URL(path, location.origin), { credentials: "same-origin", ...opts });
+  if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t; } catch {} throw new Error(t || r.statusText); }
+  return r.json();
+};
+const json = (body) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const md = (text) => (window.marked && window.DOMPurify)
+  ? DOMPurify.sanitize(marked.parse(text || "", { gfm: true, breaks: true }), { ADD_ATTR: ["target", "rel"] }).replace(/<a /g, '<a target="_blank" rel="noopener" ')
+  : esc(text).replace(/\n/g, "<br>");
+const TH = (navigator.language || "").toLowerCase().startsWith("th");
+const t = (th, en) => (TH ? th : en);
+
+const state = { config: null, sessionId: null, title: "", turns: [], busy: false, user: {} };
+const PHASES = {
+  th: { thinking: "กำลังคิด…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแล…", retrieving: "กำลังค้นหาข้อมูล…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญ…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบ…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียง…" },
+  en: { thinking: "Thinking…", choosing: "Working out who should handle this…", retrieving: "Looking up {skill} information…", specialist: "Handing this to the {skill} specialist…", drafting: "Found it, writing the answer…", relaying: "The specialist replied, putting the answer together…" },
+};
+function skillName(id) { const row = ((state.config || {}).skills || []).find((x) => x.id === id); return row ? row.name.replace(/\s+(Advisor|Assistant)$/i, "") : (id || "product").replace(/-/g, " "); }
+function phaseText(turn) {
+  const lang = turn.language === "en" ? "en" : turn.language === "th" ? "th" : TH ? "th" : "en";
+  return (PHASES[lang][turn.status || "thinking"] || PHASES[lang].thinking).replace("{skill}", skillName(turn.status_skill));
+}
+
+// ---------- rendering ----------
+function initials(name) { const p = (name || "").replace("@", " ").split(/\s+/).filter(Boolean); return p.length ? p.slice(0, 2).map((x) => x[0]).join("").toUpperCase() : "?"; }
+function starters() {
+  const c = state.config || {}; const by = c.starter_prompts_by_lang || {};
+  const list = (TH ? by.th : by.en) || []; if (list.length) return list; if ((c.starter_prompts || []).length) return c.starter_prompts;
+  return TH ? ["บัตรอินฟินิทเข้าเลานจ์ได้กี่ครั้ง", "เปิดบัญชีเงินฝากประจำต้องใช้อะไรบ้าง", "สาขาที่ใกล้ที่สุดอยู่ที่ไหน"] : ["How many lounge visits does the Infinite card include?", "What do I need to open a fixed deposit account?", "Where is the nearest branch?"];
+}
+function render() {
+  const col = $("#col");
+  $("#bar-title").textContent = state.title || (state.turns.length ? t("การสนทนา", "Conversation") : t("การสนทนาใหม่", "New conversation"));
+  if (!state.turns.length) {
+    col.innerHTML = `<div class="welcome"><h1>${t("ถามเกี่ยวกับผลิตภัณฑ์ธนาคารกรุงเทพได้เลย", "Ask about any Bangkok Bank product")}</h1>
+      <p>${t("ผู้ช่วยตอบจากเอกสารผลิตภัณฑ์อย่างเป็นทางการ พร้อมแหล่งอ้างอิง", "The assistant answers from the official product documents and shows its sources.")}</p>
+      <div class="starters">${starters().map((q) => `<button class="starter" data-q="${esc(q)}"><small>${t("ลองถาม", "Try asking")}</small>${esc(q)}</button>`).join("")}</div></div>`;
+    col.querySelectorAll(".starter").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
+    return;
+  }
+  const showDetails = $("#show-details").checked;
+  let html = "";
+  state.turns.forEach((turn, i) => {
+    if (turn.role === "user") { html += `<div class="turn user"><span class="who">${esc(initials(state.user.name || turn.by || "You"))}</span><div><div class="name">${esc(turn.by || state.user.name || t("คุณ", "You"))}</div><div class="text">${esc(turn.text)}</div></div></div>`; return; }
+    const assistant = (state.config || {}).assistant_name || "Assistant";
+    let body;
+    if (turn.streaming) body = turn.text ? `<div class="text">${esc(turn.text).replace(/\n/g, "<br>")}</div>` : `<div class="text"><span class="status"><i></i>${esc(phaseText(turn))}</span></div>`;
+    else {
+      const tag = turn.skill_id && turn.skill_id !== "offtopic" ? `<span class="tag">${esc(skillName(turn.skill_id))}</span>` : "";
+      const srcs = (turn.citations || []).slice(0, 4).map((c) => `<a class="src" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.url)}">${esc(c.title || c.url.replace(/^https?:\/\//, ""))}</a>`).join("");
+      const rate = turn.error || !state.sessionId ? "" : `<span class="rate" data-idx="${i}"><button data-r="up" class="${turn.rating === "up" ? "on" : ""}" title="${t("มีประโยชน์", "Helpful")}">👍</button><button data-r="down" class="${turn.rating === "down" ? "on" : ""}" title="${t("ไม่มีประโยชน์", "Not helpful")}">👎</button></span>`;
+      const places = (turn.places || []).length ? `<div class="places">${turn.places.map((p) => `<a class="place" href="${esc(p.maps_url)}" target="_blank" rel="noopener"><b>${esc(p.name)}</b><small>${esc(p.address || "")}${p.distance_km != null ? ` · ${p.distance_km} km` : ""}</small></a>`).join("")}</div>` : "";
+      const q = state.turns[i - 1] && state.turns[i - 1].role === "user" ? state.turns[i - 1].text : "";
+      const details = !turn.error && (turn.trace || turn.skill_id) ? `<details class="details" ${showDetails ? "open" : ""}><summary>${t("คำตอบนี้มาจากไหน", "How this answer was produced")}</summary>${TR.traceCard({ ...turn, session_id: state.sessionId }, q)}</details>` : "";
+      const isLast = i === state.turns.length - 1;
+      const follow = isLast && !state.busy && (turn.suggestions || []).length ? `<div class="followups">${turn.suggestions.map((s) => `<button data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : "";
+      body = `<div class="text ${turn.error ? "err" : ""}">${md(turn.text)}</div>${places}${tag || srcs || rate ? `<div class="after">${tag}${srcs}${rate}</div>` : ""}${details}${follow}`;
+    }
+    html += `<div class="turn assistant"><span class="who">${esc(initials(assistant))}</span><div><div class="name">${esc(assistant)}</div>${body}</div></div>`;
+  });
+  col.innerHTML = html;
+  col.querySelectorAll(".followups button").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
+  col.querySelectorAll(".rate button").forEach((b) => b.addEventListener("click", async () => {
+    const idx = +b.parentElement.dataset.idx; const turn = state.turns[idx]; const rating = turn.rating === b.dataset.r ? null : b.dataset.r; turn.rating = rating;
+    try { await api("/feedback", json({ session_id: state.sessionId, idx, rating, comment: "" })); } catch {}
+    render();
+  }));
+  $("#scroll").scrollTop = $("#scroll").scrollHeight;
+}
+$("#show-details").addEventListener("change", () => { try { localStorage.setItem("pa_details", $("#show-details").checked ? "1" : ""); } catch {} render(); });
+
+// ---------- conversations (sidebar) ----------
+async function loadList() {
+  const el = $("#convs");
+  try {
+    const list = await api("/sessions");
+    el.innerHTML = list.length ? list.map((s) => `<button class="conv ${s.id === state.sessionId ? "on" : ""}" data-id="${s.id}"><b>${esc(s.title || t("(ไม่มีชื่อ)", "(untitled)"))}</b><small>${new Date(s.updated_at).toLocaleDateString()} · ${s.turns} ${t("ข้อความ", "messages")}</small></button>`).join("") : `<div class="convs-empty">${t("ยังไม่มีการสนทนา", "No conversations yet")}</div>`;
+    el.querySelectorAll(".conv").forEach((b) => b.addEventListener("click", () => { loadSession(b.dataset.id); closeSide(); }));
+  } catch (e) { el.innerHTML = `<div class="convs-empty">${esc(e.message)}</div>`; }
+}
+async function loadSession(id) {
+  try {
+    const rec = await api(`/sessions/${id}`);
+    let fb = []; try { fb = await api(`/feedback?session_id=${id}`); } catch {}
+    state.sessionId = rec.id; state.title = rec.title || ""; state.turns = rec.turns;
+    for (const f of fb) if (state.turns[f.idx]) state.turns[f.idx].rating = f.rating;
+    try { localStorage.setItem("pa_session", rec.id); } catch {}
+  } catch { newConversation(); return; }
+  render(); loadList();
+}
+function newConversation() { state.sessionId = null; state.title = ""; state.turns = []; try { localStorage.removeItem("pa_session"); } catch {} render(); loadList(); $("#q").focus(); }
+$("#btn-new").addEventListener("click", () => { newConversation(); closeSide(); });
+function openSide() { $("#side").classList.add("open"); $("#side-bg").classList.add("on"); }
+function closeSide() { $("#side").classList.remove("open"); $("#side-bg").classList.remove("on"); }
+$("#menu-btn").addEventListener("click", openSide); $("#side-close").addEventListener("click", closeSide); $("#side-bg").addEventListener("click", closeSide);
+
+// ---------- chat ----------
+async function readSSE(response, onEvent) {
+  const reader = response.body.getReader(); const dec = new TextDecoder(); let buf = "";
+  while (true) {
+    const { value, done } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+      for (const line of chunk.split("\n")) if (line.startsWith("data: ")) { let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; } onEvent(ev); }
+    }
+  }
+}
+// a "near me" question needs the person's position; ask the browser only then, and never hold the answer on it
+const PLACE_RE = /(สาขา|ใกล้ฉัน|ใกล้ ?ๆ|แถวนี้|ที่ไหน|อยู่ไหน|แลกเงิน|ตู้ ?atm|เอทีเอ็ม|branch|near ?me|nearby|where.*(branch|exchange|atm)|atm)/i;
+function currentPosition(q, timeoutMs = 6000) {
+  if (!navigator.geolocation || !PLACE_RE.test(q)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false; const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => finish(null), timeoutMs);
+    navigator.geolocation.getCurrentPosition((p) => finish({ lat: p.coords.latitude, lon: p.coords.longitude }), () => finish(null), { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 300000 });
+  });
+}
+async function send(text) {
+  const q = (text ?? $("#q").value).trim(); if (!q || state.busy) return;
+  $("#q").value = ""; autosize(); updateSend();
+  state.turns.push({ role: "user", text: q, by: state.user.name || "" }); state.busy = true;
+  const draft = { role: "assistant", text: "", streaming: true, suggestions: [] }; state.turns.push(draft); render();
+  const textEl = () => $("#col .turn:last-child .text");
+  try {
+    const here = await currentPosition(q);
+    const res = await fetch(new URL("/chat/stream", location.origin), { credentials: "same-origin", ...json({ session_id: state.sessionId, message: q, source: "external", ...(here || {}) }) });
+    if (!res.ok || !res.body) { let e = await res.text(); try { e = JSON.parse(e).detail || e; } catch {} throw new Error(e || res.statusText); }
+    await readSSE(res, (ev) => {
+      if (ev.type === "session") { state.sessionId = ev.session_id; try { localStorage.setItem("pa_session", state.sessionId); } catch {} }
+      else if (ev.type === "route") { Object.assign(draft, { skill_id: ev.skill_id, confidence: ev.confidence, language: ev.language, route_reason: ev.reason, agent_name: ev.agent_name }); }
+      else if (ev.type === "status") { draft.status = ev.phase; draft.status_skill = ev.skill_id || draft.status_skill || ""; if (!draft.text) textEl().innerHTML = `<span class="status"><i></i>${esc(phaseText(draft))}</span>`; }
+      else if (ev.type === "delta") { draft.text += ev.text; textEl().innerHTML = esc(draft.text).replace(/\n/g, "<br>"); $("#scroll").scrollTop = $("#scroll").scrollHeight; }
+      else if (ev.type === "tool") { draft.tool_calls = [...(draft.tool_calls || []), { type: "mcp_call", name: ev.name, arguments: ev.arguments, error: ev.error }]; }
+      else if (ev.type === "done") {
+        const a = ev.answer; state.title = ev.title || state.title;
+        state.turns[state.turns.indexOf(draft)] = { role: "assistant", text: a.text, language: a.language, trace: a.trace, skill_id: a.skill_id, confidence: a.confidence, citations: a.citations, references: a.references, suggestions: a.suggestions, route_reason: a.route_reason, agent_name: a.agent_name, tool_calls: a.tool_calls, places: a.places };
+      } else if (ev.type === "error") throw new Error(ev.message);
+    });
+  } catch (err) {
+    state.turns[state.turns.indexOf(draft)] = { role: "assistant", text: t("ขออภัย เกิดข้อผิดพลาด: ", "Sorry, something went wrong: ") + err.message, error: true, suggestions: [] };
+  }
+  state.busy = false; render(); loadList();
+}
+function updateSend() { $("#btn-send").disabled = !$("#q").value.trim() || state.busy; }
+function autosize() { const ta = $("#q"); ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; }
+$("#q").addEventListener("input", () => { autosize(); updateSend(); });
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("#btn-send").addEventListener("click", () => send());
+updateSend();
+
+// ---------- voice input (browser speech recognition, Thai or English; needs HTTPS or localhost) ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+function speechLang() { const last = [...state.turns].reverse().find((x) => x.role === "user"); return (last ? /[฀-๿]/.test(last.text) : TH) ? "th-TH" : "en-US"; }
+function startListening() {
+  if (!SR) { $("#mic-hint").textContent = t("เบราว์เซอร์นี้ไม่รองรับการพูด (ใช้ Chrome หรือ Edge)", "Voice input is not supported in this browser (use Chrome or Edge)"); return; }
+  rec = new SR(); rec.lang = speechLang(); rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  let finalText = "";
+  rec.onstart = () => { listening = true; $("#btn-mic").classList.add("on"); $("#mic-hint").textContent = t("กำลังฟัง… พูดได้เลย", "Listening… speak now"); $("#q").value = ""; };
+  rec.onresult = (e) => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const x = e.results[i][0].transcript; if (e.results[i].isFinal) finalText += x; else interim += x; } $("#q").value = (finalText + interim).trim(); autosize(); updateSend(); };
+  rec.onerror = (e) => { $("#mic-hint").textContent = t("ไม่สามารถฟังได้: ", "Could not listen: ") + e.error; };
+  rec.onend = () => { listening = false; $("#btn-mic").classList.remove("on"); $("#mic-hint").textContent = "Enter to send · Shift+Enter for a new line"; const q = $("#q").value.trim(); if (q && finalText) send(q); };
+  try { rec.start(); } catch (e) { $("#mic-hint").textContent = "Could not start the microphone: " + e.message; }
+}
+$("#btn-mic").addEventListener("click", () => (listening ? rec && rec.stop() : startListening()));
+if (!SR) $("#btn-mic").title = "Voice input needs Chrome or Edge";
+
+// handoff answers: the trace card's "check now" link pulls the specialist's tokens from the Foundry trace on demand
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest(".tc-reconcile"); if (!a) return; e.preventDefault();
+  const sid = a.dataset.session || state.sessionId || ""; if (!sid) return; a.textContent = "checking…";
+  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); a.textContent = r.updated ? "updated" : (r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"); if (r.updated) loadSession(sid); }
+  catch (err) { a.textContent = err.message; }
+});
+
+// ---------- init ----------
+(async function init() {
+  try { $("#show-details").checked = !!localStorage.getItem("pa_details"); } catch {}
+  try { const w = await api("/whoami"); state.user = w; $("#u-name").textContent = w.name || w.email || t("ผู้ใช้", "Guest"); $("#u-email").textContent = w.email || ""; $("#u-initials").textContent = initials(w.name || w.email); $("#u-signout").hidden = !w.sso; } catch { $("#u-name").textContent = t("ผู้ใช้", "Guest"); }
+  try { state.config = await api("/app/config"); } catch {}
+  let saved = null; try { saved = localStorage.getItem("pa_session"); } catch {}
+  if (saved) await loadSession(saved); else { render(); loadList(); }
+  $("#q").focus();
+})();

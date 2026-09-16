@@ -66,3 +66,42 @@ def test_tester_permissions(tmp_path, monkeypatch):
     # the same calls are allowed for an admin (they may fail later for other reasons, but not with 403)
     assert c.delete("/knowledge/files?path=nope", headers=admin).status_code != 403
     assert c.delete("/sessions/abcdef123456", headers=admin).status_code == 200
+
+
+def test_external_role_gets_the_chat_page_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_testers", [])
+    monkeypatch.setattr(api.settings, "studio_externals", ["seeded.partner@example.com"])
+    SESS._schema_done.clear()
+    c = TestClient(api.app)
+    admin, ext = _hdr("boss@bangkokbank.com"), _hdr("partner@example.com", "Partner One")
+    # seeded from STUDIO_EXTERNALS, and an admin can add one from the access form
+    assert c.get("/studio/me", headers=_hdr("seeded.partner@example.com")).json()["role"] == "external"
+    assert c.post("/access", json={"email": "Partner@example.com", "role": "external", "name": "Partner"}, headers=admin).json() == {"email": "partner@example.com", "role": "external"}
+    assert c.post("/access", json={"email": "x@example.com", "role": "guest"}, headers=admin).status_code == 400
+    # /studio serves the chat page, not the workbench; the public chat routes work
+    r = c.get("/studio", headers=ext)
+    assert r.status_code == 200 and "external.js" in r.text and "mobile.js" not in r.text and "studio.js" not in r.text
+    assert "studio.js" in c.get("/studio", headers=admin).text
+    me = c.get("/studio/me", headers=ext).json()
+    assert me["authed"] is True and me["role"] == "external"
+    assert c.get("/health", headers=ext).status_code == 200
+    assert c.get("/skills?remote=false", headers=ext).status_code == 200
+    # every Studio tool is closed: read, write, admin, and the access list itself
+    for method, path in [("get", "/evals/runs"), ("get", "/access"), ("get", "/sessions/review"), ("get", "/knowledge/files?category=x"),
+                         ("post", "/skills/sync"), ("put", "/app/settings"), ("delete", "/sessions/abcdef123456"), ("post", "/access")]:
+        r = getattr(c, method)(path, headers=ext, **({"json": {}} if method in ("post", "put") else {}))
+        assert r.status_code == 403, (path, r.status_code)
+    # sessions: an external person sees their own conversations only, never the whole list and never someone else's
+    rec = SESS.new_record(); rec.user_name, rec.user_email = "Boss", "boss@bangkokbank.com"; rec.title = "private"
+    SESS.save_session(api.settings, rec)
+    assert c.get("/sessions/" + rec.id, headers=ext).status_code == 403
+    assert c.get("/sessions/" + rec.id, headers=admin).status_code == 200
+    assert c.get("/sessions?all=1", headers=ext).json() == []
+    assert c.post("/chat/" + rec.id + "/reset", headers=ext).status_code == 403
+    # a seeded external (or tester) cannot be removed from the list: the row would come back on the next start
+    r = c.delete("/access/seeded.partner@example.com", headers=admin)
+    assert r.status_code == 400 and "STUDIO_EXTERNALS" in r.json()["detail"]
+    assert c.get("/access", headers=admin).json()["seeded"] == {"seeded.partner@example.com": "STUDIO_EXTERNALS", "boss@bangkokbank.com": "STUDIO_ADMINS"}
+    assert c.delete("/access/partner@example.com", headers=admin).json() == {"ok": True}
