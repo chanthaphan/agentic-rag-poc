@@ -100,3 +100,16 @@ def test_format_context_falls_back_to_the_snippet_and_caps():
     refs = [Reference(title="T", snippet="only a snippet"), Reference(title="U", source_url="https://x/u", content="x" * 50)]
     out = K.format_context(refs, max_chars=20)
     assert "Retrieved 2 documents" in out and "only a snippet" in out and "x" * 20 + " ..." in out and "x" * 21 not in out and "https://x/u" in out
+
+
+def test_tools_for_derives_the_knowledge_source_for_old_definitions(settings, monkeypatch):
+    from bankrag import tools as T
+    from bankrag.models import AgentDefinition
+
+    seen = []
+    monkeypatch.setattr(T, "kb_tool", lambda s, kb_name, **kw: seen.append((kb_name, kw)) or K.kb_tool(s, kb_name, **kw))
+    old = AgentDefinition(model="m", instructions="i", tools=[{"type": "mcp", "kb_name": "kb-credit-card", "server_url": "https://s/x", "auth": "identity"}])
+    new = AgentDefinition(model="m", instructions="i", tools=[{"type": "mcp", "kb_name": "kb-general", "ks_name": "ks-general", "top_k": 5, "transport": "mcp"}])
+    T.tools_for(settings, old); T.tools_for(settings, new)
+    assert seen[0] == ("kb-credit-card", {"server_url": "https://s/x", "auth": "identity", "ks_name": "ks-credit-card", "top_k": None, "transport": ""})
+    assert seen[1][1]["ks_name"] == "ks-general" and seen[1][1]["transport"] == "mcp" and seen[1][1]["top_k"] == 5
