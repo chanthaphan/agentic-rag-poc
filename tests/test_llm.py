@@ -29,6 +29,7 @@ def test_chat_model_uses_the_key_or_the_identity(monkeypatch):
     L.chat_model(_settings(), "gpt-4.1-mini", temperature=0)
     assert captured["azure_endpoint"] == "https://acct.openai.azure.com" and captured["azure_deployment"] == "gpt-4.1-mini"
     assert captured["api_key"] == "k" and captured["stream_usage"] is True and captured["temperature"] == 0 and "azure_ad_token_provider" not in captured
+    assert captured["timeout"] == L.MODEL_TIMEOUT_S and captured["max_retries"] == L.MODEL_MAX_RETRIES  # a stalled stream fails fast
     captured.clear()
     monkeypatch.setattr(L, "token_provider", lambda scope: f"provider:{scope}")
     L.chat_model(_settings(aoai_api_key=""), "gpt-5.1-chat")

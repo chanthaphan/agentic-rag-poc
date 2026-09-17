@@ -11,6 +11,10 @@ from .azure_auth import ARM_SCOPE, COGNITIVE_SCOPE, token, token_provider
 from .config import Settings
 
 USAGE_KEYS = ("input_tokens", "output_tokens", "total_tokens", "cached_tokens", "reasoning_tokens")
+# A healthy answer streams its first token within seconds and its chunks milliseconds apart; the SDK default of 600 s
+# let one stalled stream hold a customer for minutes (seen once in Azure). The read timeout applies between chunks.
+MODEL_TIMEOUT_S = 90.0
+MODEL_MAX_RETRIES = 2
 
 
 def chat_model(settings: Settings, model: str, *, temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> BaseChatModel:
@@ -19,7 +23,7 @@ def chat_model(settings: Settings, model: str, *, temperature: Optional[float] =
 
     settings.require("aoai_endpoint")
     kw: dict[str, Any] = dict(azure_endpoint=settings.aoai_endpoint, azure_deployment=model, model=model, api_version=settings.aoai_api_version,
-                              stream_usage=True)
+                              stream_usage=True, timeout=MODEL_TIMEOUT_S, max_retries=MODEL_MAX_RETRIES)
     if settings.aoai_api_key:
         kw["api_key"] = settings.aoai_api_key
     else:
