@@ -39,6 +39,7 @@ class TurnContext:
     location: Optional[tuple[float, float]] = None
     history_turns: int = 6
     max_tool_rounds: int = 6
+    context: str = ""  # documents already retrieved for this question (never checkpointed)
 
 
 @dataclass
@@ -49,6 +50,14 @@ class SupervisorContext(TurnContext):
     specialist_context: Optional[Callable[[str], TurnContext]] = None
     skill_of_tool: Optional[Callable[[str], str]] = None  # handoff tool name -> skill id
 
+
+CONTEXT_NOTE = ("Retrieved documents: the knowledge base has already been searched with the customer's question and the results "
+                "follow, each with its source URL. Answer from them, and cite inline as [title](url) with those URLs. "
+                "If the exact figure, condition or product the customer asked about is not in these documents, call "
+                "knowledge_base_retrieve with two or three reworded queries (Thai and English) before answering; never answer "
+                "approximately, and never send the customer elsewhere instead of searching.")
+NO_CONTEXT_NOTE = ("No documents were retrieved in advance for this question. Call knowledge_base_retrieve (the customer's question "
+                   "plus two or three reworded queries, Thai and English) before answering any product question.")
 
 REPLY_HINT = {
     "th": "Reply-language note: the customer wrote in Thai. Write the entire answer in Thai (product names may stay in English). Do not mention this note.",
@@ -115,8 +124,9 @@ def recap_note(dropped: list[list[AnyMessage]]) -> str:
     return recap
 
 
-def prompt_messages(ctx: TurnContext, messages: list[AnyMessage]) -> tuple[list[BaseMessage], int]:
-    """[system] + the last `history_turns` question/answer pairs (+ a recap of the dropped ones) + the current turn."""
+def prompt_messages(ctx: TurnContext, messages: list[AnyMessage], *, kb_tool: bool = False) -> tuple[list[BaseMessage], int]:
+    """[system] + the last `history_turns` question/answer pairs (+ a recap of the dropped ones) + the retrieved documents
+    (or, when the agent has a knowledge-base tool and nothing was prefetched, the order to search first) + the current turn."""
     turns, cur = split_turns(messages)
     keep = max(0, ctx.history_turns)
     dropped, kept = (turns[:-keep] if keep else turns), (turns[-keep:] if keep else [])
@@ -125,6 +135,10 @@ def prompt_messages(ctx: TurnContext, messages: list[AnyMessage]) -> tuple[list[
         out.append(SystemMessage(content=recap_note(dropped)))
     for t in kept:
         out.extend(_clean_history(t))
+    if ctx.context:
+        out.append(SystemMessage(content=CONTEXT_NOTE + "\n\n" + ctx.context))
+    elif kb_tool:
+        out.append(SystemMessage(content=NO_CONTEXT_NOTE))
     out.extend(cur)
     return out, len(dropped)
 
@@ -156,10 +170,11 @@ def _text(m: BaseMessage) -> str:
 # ---------------- skill graph (router mode; also each specialist) ----------------
 def build_skill_graph(llm, tools: list[BaseTool], *, checkpointer=None):
     bound = llm.bind_tools(tools) if tools else llm
+    has_kb = any(getattr(t, "name", "") == KB_TOOL for t in tools)
 
     def agent(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         ctx = runtime.context
-        msgs, dropped = prompt_messages(ctx, state["messages"])
+        msgs, dropped = prompt_messages(ctx, state["messages"], kb_tool=has_kb)
         if dropped:
             try:
                 get_stream_writer()({"trimmed": dropped})

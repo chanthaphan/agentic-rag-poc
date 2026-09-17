@@ -84,7 +84,8 @@ def tools_for(settings: Settings, definition: AgentDefinition, *, kb_tool_factor
     for ref in definition.tools:
         kind = ref.get("type")
         if kind == "mcp":
-            out.append(factory(settings, ref.get("kb_name") or "", server_url=ref.get("server_url") or "", auth=ref.get("auth") or ""))
+            out.append(factory(settings, ref.get("kb_name") or "", server_url=ref.get("server_url") or "", auth=ref.get("auth") or "",
+                               ks_name=ref.get("ks_name") or "", top_k=ref.get("top_k"), transport=ref.get("transport") or ""))
         elif kind == "function":
             live = live if live is not None else service_tools(settings)
             t = live.get(str(ref.get("name")))

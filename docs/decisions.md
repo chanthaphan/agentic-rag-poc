@@ -100,3 +100,21 @@ own MCP server needs `mcp>=2.2`, so `kb_tools.py` wraps the mcp 2.x client in ab
 logic is now code we run and test offline (fake model + fake tool), and specialist accounting is immediate; in exchange
 the app owns the tool loop, the prompt window and the checkpoint store, and a Foundry-portal view of the agents no
 longer exists. Supersedes 3, 4, 8, 12, 16, 19, 23, 24 and 25 where they describe Foundry mechanics.
+
+## 29. The documents are fetched before the model runs
+Measured on the same laptop, the LangGraph turn (16.5 s median) was slower than the Foundry one (12.1 s) for three
+reasons, none of them the search itself: the retrieval had moved from inside Azure into the app, so its 48 KB result
+crossed the wire twice; a fresh MCP session per call cost about 1.4 s of handshake before searching; and the model
+made two round trips (decide to retrieve, then answer) where Foundry streamed once. Meanwhile the app already ran a
+second, identical retrieve in parallel just to fill the Sources card and discarded its content. Now the skill's
+knowledge base is read once, through the REST retrieve action (1.3 s against 5 to 6 s over MCP), before the model
+runs; the documents are placed in the prompt right before the question, the same references fill the Sources card,
+and the tool stays bound for follow-ups the prefetch does not cover (the prompt orders a search first when nothing
+was prefetched). The MCP transport remains available with `KB_TRANSPORT=mcp` for comparison. Measured after the
+change: 6.4 to 9.3 s per turn with connections warm, input tokens down from about 27k to 4k to 10k (the MCP output
+was JSON with Thai escaped, which tokenises badly), citations intact. Trade-off: the first search uses the customer's
+question only, so recall depends on the model asking for a second search when the exact figure is missing; eight
+chunks instead of five compensate in part. Also fixed on the way: `skills sync --skip-kb` and the Skills panel now
+keep the knowledge-base owner the last real sync recorded, so a skill on the shared base is no longer republished
+pointing at a base that does not exist and no longer shows "outdated" forever.
+

@@ -82,8 +82,9 @@ def test_follow_up_sees_history_and_the_window_trims(settings, monkeypatch):
         ans = session.ask(q, with_sources=False)
     assert ans.trace["conversation"]["turn"] == 3 and ans.trace["conversation"]["trimmed"] == 1
     third = model.calls[2]
-    assert [m.type for m in third] == ["system", "system", "human", "ai", "human"]  # system, recap, q2, a2, q3
-    assert "q1" in third[1].content and [m.content for m in third[2:]] == ["q2", "a2", "q3"]
+    assert [m.type for m in third] == ["system", "system", "human", "ai", "system", "human"]  # system, recap, q2, a2, search-first note, q3
+    assert "q1" in third[1].content and [m.content for m in third if m.type in ("human", "ai")] == ["q2", "a2", "q3"]
+    assert third[4].content.startswith("No documents were retrieved in advance")
     assert session.history[-1] == {"role": "assistant", "content": "a3"} and session.prev_skill == "credit-card"
 
 
@@ -129,7 +130,7 @@ def test_reset_and_rehydration(settings, monkeypatch):
     monkeypatch.setattr(restored, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=0.9, language="th", reason="t"))
     ans = restored.ask("q1", with_sources=False)
     assert restored.conversation_id.startswith("thr_") and ans.conversation_id == restored.conversation_id
-    assert [m.content for m in model.calls[-1][1:]] == ["q0", "a0", "q1"]
+    assert [m.content for m in model.calls[-1] if m.type in ("human", "ai")] == ["q0", "a0", "q1"]
 
 
 def test_offtopic_never_touches_the_graph(settings, monkeypatch):
@@ -165,3 +166,46 @@ def test_real_kb_output_shape_counts_documents_and_resolves_citations(settings, 
     ans = session.ask("q", with_sources=False)
     assert ans.trace["retrieval"]["documents"] == 2
     assert [(c.title, c.url) for c in ans.citations] == [("บัตรอินฟินิท", "https://www.bangkokbank.com/infinite"), ("บัตรเครดิตวีซ่า แพลทินัม", "https://www.bangkokbank.com/platinum")]
+
+
+def test_prefetched_documents_reach_the_model_without_a_tool_round_trip(settings, monkeypatch):
+    """with_sources=True: the Sources retrieve runs first and its documents ride into the prompt, so one model call answers."""
+    from concurrent.futures import Future
+
+    from bankrag.models import Reference
+
+    refs = [Reference(id="a1", title="Bangkok Bank Visa Platinum", source_url="https://www.bangkokbank.com/platinum", snippet="ค่าธรรมเนียม 3,000 บาท", content="ค่าธรรมเนียมรายปี 3,000 บาท ยกเว้นเมื่อใช้จ่ายครบ 5,000 บาท")]
+    model = FakeAgentModel(responses=[ai("ค่าธรรมเนียมรายปี 3,000 บาทค่ะ [Bangkok Bank Visa Platinum](https://www.bangkokbank.com/platinum)", usage={"input_tokens": 500, "output_tokens": 40})])
+    session = _session(settings, monkeypatch, model)
+    done = Future(); done.set_result(refs)
+    monkeypatch.setattr(session, "_sources_future", lambda spec, owner, q: done)
+    events = list(session.ask_stream("ค่าธรรมเนียม Visa Platinum เท่าไหร่", with_sources=True))
+    phases = [e["phase"] for e in events if e["type"] == "status"]
+    assert phases == ["retrieving", "drafting"] and not any(e["type"] == "tool" for e in events)  # no tool round trip
+    ans = events[-1]["answer"]
+    assert len(model.calls) == 1  # one model call answered the question
+    prompt = model.calls[0]
+    ctx_msgs = [m for m in prompt if m.type == "system" and m.content.startswith("Retrieved documents:")]
+    assert len(ctx_msgs) == 1 and "ยกเว้นเมื่อใช้จ่ายครบ 5,000 บาท" in ctx_msgs[0].content and prompt[-1].type == "human"
+    assert ans.trace["retrieval"] == {"calls": 1, "documents": 1, "output_chars": len(ans.retrieval_context[0]), "output_tokens": ans.trace["retrieval"]["output_tokens"], "query_variants": ["ค่าธรรมเนียม Visa Platinum เท่าไหร่"], "prefetched": True}
+    assert ans.tool_calls[0]["type"] == "mcp_call" and ans.tool_calls[0]["prefetched"] is True and ans.tool_calls[0]["name"] == "knowledge_base_retrieve"
+    assert ans.retrieval_context and ans.retrieval_context[0].startswith("Retrieved 1 documents")
+    assert [r.id for r in ans.references] == ["a1"] and [c.url for c in ans.citations] == ["https://www.bangkokbank.com/platinum"]
+    assert ans.trace["timings_ms"]["sources"] >= 0 and ans.text.startswith("ค่าธรรมเนียมรายปี 3,000 บาทค่ะ")
+
+
+def test_a_failed_prefetch_leaves_the_tool_path_open(settings, monkeypatch):
+    from concurrent.futures import Future
+
+    calls = []
+    model = FakeAgentModel(responses=[
+        ai(tool_calls=[{"name": "knowledge_base_retrieve", "args": {"query": "q"}, "id": "c1"}]),
+        ai("answer from the tool"),
+    ])
+    session = _session(settings, monkeypatch, model, kb_calls=calls)
+    failed = Future(); failed.set_exception(TimeoutError("search down"))
+    monkeypatch.setattr(session, "_sources_future", lambda spec, owner, q: failed)
+    ans = session.ask("q", with_sources=True)
+    assert ans.text == "answer from the tool" and len(calls) == 1 and ans.references == []
+    assert any(tc["type"] == "sources_error" and "search down" in tc["error"] for tc in ans.tool_calls)
+    assert not ans.trace["retrieval"].get("prefetched") and ans.trace["retrieval"]["calls"] == 1

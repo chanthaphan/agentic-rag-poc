@@ -1,9 +1,14 @@
-"""The skill's Foundry IQ knowledge base as a LangChain tool, reached over its MCP endpoint in Azure AI Search.
+"""The skill's Foundry IQ knowledge base as a LangChain tool, and the text block the model reads.
 
-The agent calls `knowledge_base_retrieve` exactly as the Foundry agent did; the difference is that the app now
-authenticates itself: a bearer token of the signed-in identity (KB_MCP_AUTH=identity, needs Search Index Data Reader)
-or the query key (KB_MCP_AUTH=apikey). One MCP session per call: the endpoint is stateless and the graph runs
-synchronously (FastAPI threadpool / CLI), so each call opens its own event loop.
+Two transports reach the same knowledge base:
+- rest (default): one `retrieve` call through the search SDK, about a second from here; the model's query variants
+  become extra search intents.
+- mcp: the base's MCP endpoint, as the Foundry agent used it; a session is opened per call (a handshake of about
+  1.4 s before the search starts), so it is kept for comparison rather than speed.
+
+The app authenticates itself either way: the signed-in identity (KB_MCP_AUTH=identity, needs Search Index Data
+Reader) or the query key (KB_MCP_AUTH=apikey) for MCP; the admin key for the REST retrieve, as the Sources panel
+already does.
 """
 from __future__ import annotations
 
@@ -21,8 +26,8 @@ from .config import Settings
 
 log = logging.getLogger("bankrag.chat")
 KB_TOOL = "knowledge_base_retrieve"
-KB_DESCRIPTION = ("Search the bank's product documents for this product family. Call it for every product question, with the "
-                  "customer's question as the query (same language) and, when helpful, a few reworded variants.")
+KB_DESCRIPTION = ("Search the bank's product documents for this product family. Use it when the documents already given to you "
+                  "do not cover the question, with the customer's question as the query (same language) and a few reworded variants.")
 
 
 class RetrieveArgs(BaseModel):
@@ -30,6 +35,37 @@ class RetrieveArgs(BaseModel):
     query_variants: Optional[list[str]] = Field(default=None, description="Two or three rewordings or sub-questions to search as well (Thai and English); the search runs each of them.")
 
 
+# ---------------- the documents as the model reads them ----------------
+def format_context(refs: list, *, max_chars: int = 0) -> str:
+    """The retrieved documents as one block: a numbered title, the source URL, the chunk text.
+
+    Starts with 'Retrieved N documents' so the retrieval statistics can count it like a tool output; returns ''
+    when nothing was retrieved, so the caller can tell 'no documents' from 'no search'."""
+    if not refs:
+        return ""
+    parts: list[str] = []
+    for i, r in enumerate(refs, 1):
+        head = f"[{i}] {getattr(r, 'title', '') or ''}".rstrip()
+        url = getattr(r, "source_url", "") or ""
+        if url:
+            head += f"\n{url}"
+        body = (getattr(r, "content", "") or getattr(r, "snippet", "") or "").strip()
+        if max_chars and len(body) > max_chars:
+            body = body[:max_chars] + " ..."
+        parts.append(f"{head}\n{body}")
+    return f"Retrieved {len(refs)} documents\n\n" + "\n\n---\n\n".join(parts)
+
+
+def rest_retrieve(settings: Settings, kb_name: str, query: str, *, ks_name: str = "", max_docs: Optional[int] = None,
+                  variants: Optional[list[str]] = None) -> tuple[str, list]:
+    """(the text block for the model, the references for the Sources card) from one retrieve call."""
+    from . import knowledge_base as KB
+
+    refs = KB.retrieve(settings, kb_name, query, ks_name=ks_name or None, max_docs=max_docs, variants=variants)
+    return format_context(refs), refs
+
+
+# ---------------- the MCP transport ----------------
 def kb_headers(settings: Settings, auth: str = "") -> dict[str, str]:
     mode = auth or settings.kb_mcp_auth
     if mode == "apikey":
@@ -87,21 +123,27 @@ def call_sync(url: str, headers: dict[str, str], name: str, arguments: dict[str,
     return box["out"]
 
 
-def kb_tool(settings: Settings, kb_name: str, *, server_url: str = "", auth: str = "", timeout: float = 60) -> StructuredTool:
+# ---------------- the tool ----------------
+def kb_tool(settings: Settings, kb_name: str, *, server_url: str = "", auth: str = "", timeout: float = 60,
+            ks_name: str = "", top_k: Optional[int] = None, transport: str = "") -> StructuredTool:
     url = server_url or settings.kb_mcp_url(kb_name)
+    mode = (transport or settings.kb_transport or "rest").lower()
 
     def retrieve(query: str, query_variants: Optional[list[str]] = None) -> str:
-        # the endpoint requires query_variants as a JSON array; without any from the model, the question itself is the one variant
-        variants = [str(v) for v in (query_variants or []) if str(v).strip()] or [query]
-        args: dict[str, Any] = {"query": query, "query_variants": variants}
+        variants = [str(v) for v in (query_variants or []) if str(v).strip()]
         try:
-            out = call_sync(url, kb_headers(settings, auth), KB_TOOL, args, timeout)
+            if mode == "mcp":
+                # the endpoint requires query_variants as a JSON array; without any from the model, the question is the one variant
+                out = call_sync(url, kb_headers(settings, auth), KB_TOOL, {"query": query, "query_variants": variants or [query]}, timeout)
+            else:
+                out, _refs = rest_retrieve(settings, kb_name, query, ks_name=ks_name, max_docs=top_k, variants=variants)
+                out = out or "Retrieved 0 documents"
         except ToolException:
             raise
         except Exception as e:  # noqa: BLE001
-            log.warning("knowledge_base_retrieve(%s) failed: %s: %s", kb_name, type(e).__name__, str(e)[:200])
+            log.warning("knowledge_base_retrieve(%s, %s) failed: %s: %s", kb_name, mode, type(e).__name__, str(e)[:200])
             raise ToolException(f"knowledge base unavailable: {type(e).__name__}: {str(e)[:200]}") from e
-        log.info("knowledge_base_retrieve(%s) query=%r -> %d chars", kb_name, query[:80], len(out))
+        log.info("knowledge_base_retrieve(%s, %s) query=%r -> %d chars", kb_name, mode, query[:80], len(out))
         return out
 
     return StructuredTool.from_function(retrieve, name=KB_TOOL, description=KB_DESCRIPTION, args_schema=RetrieveArgs, handle_tool_error=True)

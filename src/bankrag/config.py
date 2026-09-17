@@ -97,6 +97,7 @@ class Settings:
     public_base_aliases: list[str]  # other names this app answers on, so a domain move does not 421 mid-cutover
     google_maps_key: str  # optional: with it a place card shows an embedded map, without it a link that opens Maps
     kb_mcp_auth: str
+    kb_transport: str  # rest: one retrieve call | mcp: the knowledge base's MCP endpoint (a session per call)
     kb_max_output_tokens: int
     # App
     studio_password: str
@@ -155,6 +156,7 @@ class Settings:
             public_base_aliases=[u.strip().rstrip("/") for u in _env("PUBLIC_BASE_ALIASES", "").split(",") if u.strip()],
             google_maps_key=_env("GOOGLE_MAPS_KEY", ""),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
+            kb_transport=(_env("KB_TRANSPORT", "rest").strip().lower() or "rest"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),
             studio_admins=[e.strip().lower() for e in _env("STUDIO_ADMINS", "").split(",") if e.strip()],

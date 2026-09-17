@@ -174,6 +174,7 @@ class Reference(BaseModel):
     doc_type: str = ""
     snippet: str = ""
     score: Optional[float] = None
+    content: str = Field(default="", exclude=True)  # the whole chunk, for grounding the answer; never stored on the turn
 
 
 class Answer(BaseModel):

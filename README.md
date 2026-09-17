@@ -71,7 +71,7 @@ uv run bankrag serve               # http://localhost:8010
 
 ## Environment
 
-Copy `.env.example` to `.env`. Keys: `AOAI_API_KEY` (embeddings + index vectorizer), `SEARCH_ADMIN_KEY` (index and knowledge-base management), `SEARCH_QUERY_KEY` (only for `KB_MCP_AUTH=apikey`, a POC fallback when your identity has no Search Index Data Reader role). Chat models use `AOAI_API_KEY`, or `DefaultAzureCredential` (your `az login`) when the key is empty; the knowledge-base MCP endpoint and the deployments list always use `DefaultAzureCredential`.
+Copy `.env.example` to `.env`. Keys: `AOAI_API_KEY` (embeddings + index vectorizer), `SEARCH_ADMIN_KEY` (index and knowledge-base management), `SEARCH_QUERY_KEY` (only for `KB_MCP_AUTH=apikey`, a POC fallback when your identity has no Search Index Data Reader role). `KB_TRANSPORT` picks how the agent reads the knowledge base: `rest` (default, one retrieve call) or `mcp` (the base's MCP endpoint, kept for comparison). Chat models use `AOAI_API_KEY`, or `DefaultAzureCredential` (your `az login`) when the key is empty; the knowledge-base MCP endpoint and the deployments list always use `DefaultAzureCredential`.
 
 ## Deploy to Azure (low cost)
 

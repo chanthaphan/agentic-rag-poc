@@ -13,6 +13,7 @@ import tiktoken
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from . import knowledge_base as KB
+from . import kb_tools as KBT
 from . import router as R
 from . import rules as RL
 from . import graph as G
@@ -32,6 +33,7 @@ OFFTOPIC_REPLY = {
 MIN_CONFIDENCE = 0.5
 HISTORY_TURNS = 6  # default window of earlier question/answer pairs the agent sees (HISTORY_TURNS in settings)
 MAX_TOOL_ROUNDS = 6
+PREFETCH_DOCS = 8  # chunks fetched before the model runs (a chunk is ~450 tokens); top_k still bounds the Sources card
 audit = logging.getLogger("bankrag.audit")
 log = logging.getLogger("bankrag.chat")
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sources")
@@ -240,26 +242,48 @@ class ChatSession:
         future = self._sources_future(spec, owner, question) if with_sources else None
         yield {"type": "status", "phase": "retrieving" if future is not None else "drafting", "skill_id": spec.id}
 
-        t_agent = time.perf_counter()
-        collector = TurnCollector(spec.id)
-        for item in graph.stream({"messages": [HumanMessage(content=question)]}, config=self._config(),
-                                 context=self._turn_context(definition, lang, location), stream_mode=["messages", "updates", "custom"]):
-            yield from collector.feed(item)
-        agent_ms = int((time.perf_counter() - t_agent) * 1000)
-        raw_text = collector.final_text
-        tool_calls = list(collector.tool_calls)
-
-        references = []
+        # The documents are fetched once, before the model runs, and handed to it together with the question: in the
+        # common case one model call writes the answer, and the same documents fill the Sources card. The tool stays
+        # bound for the follow-ups the prefetch does not cover. (Before, the same retrieve ran in parallel only to
+        # feed the card, while the model made a second round trip to fetch the documents again through its tool.)
+        references: list = []
+        context = ""
         sources_ms = 0
+        prefetch_error = ""
         if future is not None:
             t_src = time.perf_counter()
             try:
                 references = future.result(timeout=60)
-            except Exception as e:  # noqa: BLE001 - sources are a debugging aid, never fail the answer
-                tool_calls.append({"type": "sources_error", "error": f"{type(e).__name__}: {str(e)[:200]}"})
-            sources_ms = int((time.perf_counter() - t_src) * 1000)  # time waited beyond the agent call
+                context = KBT.format_context(references)
+            except Exception as e:  # noqa: BLE001 - the model can still retrieve through its tool
+                prefetch_error = f"{type(e).__name__}: {str(e)[:200]}"
+            sources_ms = int((time.perf_counter() - t_src) * 1000)  # the prefetch is on the critical path now
+            yield {"type": "status", "phase": "drafting", "skill_id": spec.id}
+
+        t_agent = time.perf_counter()
+        collector = TurnCollector(spec.id)
+        ctx = self._turn_context(definition, lang, location)
+        ctx.context = context
+        for item in graph.stream({"messages": [HumanMessage(content=question)]}, config=self._config(),
+                                 context=ctx, stream_mode=["messages", "updates", "custom"]):
+            yield from collector.feed(item)
+        agent_ms = int((time.perf_counter() - t_agent) * 1000)
+        raw_text = collector.final_text
+        tool_calls = list(collector.tool_calls)
+        if context:  # the prefetch is a retrieval like any other: the trace, the evals and the card all see it
+            tool_calls.insert(0, {"type": "mcp_call", "name": KBT.KB_TOOL, "arguments": json.dumps({"query": question}, ensure_ascii=False)[:500],
+                                  "output": context[:1500], "error": "", "prefetched": True})
+        elif prefetch_error:
+            tool_calls.append({"type": "sources_error", "error": prefetch_error})
         agent_usage = collector.usage()
         retrieval = collector.retrieval(_tokens)
+        if context:
+            retrieval["calls"] += 1
+            retrieval["documents"] += len(references)
+            retrieval["output_chars"] += len(context)
+            retrieval["output_tokens"] += _tokens(context)
+            retrieval["query_variants"] = [question] + list(retrieval["query_variants"])
+            retrieval["prefetched"] = True
         trace = {
             "timings_ms": {"route": decision.elapsed_ms, "agent": agent_ms, "sources": sources_ms, "total": int((time.perf_counter() - t_start) * 1000)},
             "usage": {"router": decision.usage, "agent": agent_usage, "total": sum_usage(decision.usage, agent_usage)},
@@ -298,7 +322,7 @@ class ChatSession:
             places=places_for_map(self.settings, text, map_location, question),
             conversation_id=self.conversation_id or "",
             trace=trace,
-            retrieval_context=collector.retrieval_context(),
+            retrieval_context=([context] if context else []) + collector.retrieval_context(),
         )}
 
     def _suggestions_llm(self):
@@ -327,11 +351,12 @@ class ChatSession:
     def _sources_future(self, spec, owner, question: str):
         """Start the Sources lookup in the background: the skill's own knowledge base when it has one, otherwise a
         hybrid index search filtered to the skill's knowledge space (skills on the shared base, e.g. on the free tier)."""
+        n = max(spec.top_k, PREFETCH_DOCS)
         if owner.id == spec.id:
-            return _POOL.submit(KB.retrieve, self.settings, owner.kb_name, question, ks_name=owner.ks_name, max_docs=spec.top_k)
+            return _POOL.submit(KB.retrieve, self.settings, owner.kb_name, question, ks_name=owner.ks_name, max_docs=n)
         if spec.product_category in ("all", "*", ""):
             return None
-        return _POOL.submit(_index_references, self.settings, question, spec.product_category, spec.top_k)
+        return _POOL.submit(_index_references, self.settings, question, spec.product_category, n)
 
     # ---- supervisor mode ----
     def _supervisor_graph(self):

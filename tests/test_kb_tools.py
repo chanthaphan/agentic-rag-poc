@@ -16,6 +16,7 @@ def settings():
     s.search_endpoint = "https://s.search.windows.net"
     s.search_query_key = "qk"
     s.search_api_version = "2026-08-01-preview"
+    s.kb_transport = "mcp"  # these tests exercise the MCP transport; the default is rest
     return s
 
 
@@ -70,3 +71,32 @@ def test_text_of_joins_text_parts_or_falls_back_to_structured():
     assert K._text_of(R([C("a"), C(None), C("b")])) == "a\nb"
     assert K._text_of(R([], {"references": [1]})) == '{"references": [1]}'
     assert K._text_of(R([])) == ""
+
+
+def test_rest_transport_passes_the_variants_as_intents(settings, monkeypatch):
+    from bankrag import knowledge_base as KB
+    from bankrag.models import Reference
+
+    seen = {}
+
+    def fake_retrieve(s, kb_name, question, *, ks_name=None, max_docs=None, variants=None):
+        seen.update(kb=kb_name, q=question, ks=ks_name, max_docs=max_docs, variants=variants)
+        return [Reference(id="a1", title="Doc A", source_url="https://www.bangkokbank.com/a", snippet="short", content="the whole chunk")]
+
+    monkeypatch.setattr(KB, "retrieve", fake_retrieve)
+    settings.kb_transport = "rest"
+    tool = K.kb_tool(settings, "kb-credit-card", ks_name="ks-credit-card", top_k=5)
+    out = tool.invoke({"query": "ค่าธรรมเนียม", "query_variants": ["annual fee"]})
+    assert seen == {"kb": "kb-credit-card", "q": "ค่าธรรมเนียม", "ks": "ks-credit-card", "max_docs": 5, "variants": ["annual fee"]}
+    assert out.startswith("Retrieved 1 documents") and "[1] Doc A" in out and "https://www.bangkokbank.com/a" in out and "the whole chunk" in out
+    monkeypatch.setattr(KB, "retrieve", lambda *a, **kw: [])
+    assert tool.invoke({"query": "nothing"}) == "Retrieved 0 documents"
+
+
+def test_format_context_falls_back_to_the_snippet_and_caps():
+    from bankrag.models import Reference
+
+    assert K.format_context([]) == ""
+    refs = [Reference(title="T", snippet="only a snippet"), Reference(title="U", source_url="https://x/u", content="x" * 50)]
+    out = K.format_context(refs, max_chars=20)
+    assert "Retrieved 2 documents" in out and "only a snippet" in out and "x" * 20 + " ..." in out and "x" * 21 not in out and "https://x/u" in out

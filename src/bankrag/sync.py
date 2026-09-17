@@ -33,8 +33,11 @@ def kb_tool_ref(settings: Settings, spec: SkillSpec, kb_owner: Optional[SkillSpe
         "server_label": "knowledge-base",
         "server_url": settings.kb_mcp_url(owner.kb_name),
         "kb_name": owner.kb_name,
+        "ks_name": owner.ks_name,
+        "top_k": spec.top_k,
         "allowed_tools": [KB_TOOL],
         "auth": "apikey" if settings.kb_mcp_auth == "apikey" else "identity",
+        "transport": settings.kb_transport,
     }
 
 
@@ -189,6 +192,9 @@ def sync_skills(
     state = _load_state(settings)
     state.setdefault("agents", {})
     owners = plan_kb_owners(settings, skills)
+    # Without touching the knowledge bases, the only truth about quota is what the last real sync recorded: a skill
+    # with documents that landed on the shared base must keep pointing there, or its tool names a base that does not exist.
+    prior = synced_kb_owners(settings, skills) if skip_kb else None
     shared = KB.shared_kb_spec(skills)
     ordered = sorted(skills.values(), key=lambda s: (0 if shared and s.id == shared.id else 1, s.id))
 
@@ -201,8 +207,13 @@ def sync_skills(
         owner = owners[spec.id]
         row = SyncRow(skill_id=spec.id, agent=spec.agent_name)
         shared_by_quota = False
+        if prior is not None and owner.id == spec.id and prior[spec.id].id != spec.id:
+            shared_by_quota, owner = True, prior[spec.id]
+            row.knowledge_base, row.note = f"{owner.kb_name} (shared: quota)", "no knowledge-source quota at the last sync; agent keeps the shared base"
         try:
-            if owner.id == spec.id:
+            if shared_by_quota:
+                pass  # decided above from the recorded state
+            elif owner.id == spec.id:
                 if not skip_kb:
                     try:
                         row.knowledge_source, row.knowledge_base = KB.ensure_knowledge_objects(settings, spec, client=sic)
@@ -272,8 +283,12 @@ def status(settings: Settings, skills: dict[str, SkillSpec], base_body: str) -> 
     """Local vs published hash per skill (for the Skills panel)."""
     rows: list[dict] = []
     owners = plan_kb_owners(settings, skills)
+    prior = synced_kb_owners(settings, skills)  # a skill the last sync put on the shared base (quota) is compared as such
     for spec in sorted(skills.values(), key=lambda s: s.id):
-        local = spec_hash(desired_definition(settings, spec, base_body, owners[spec.id]))
+        owner, shared_by_quota = owners[spec.id], False
+        if owner.id == spec.id and prior[spec.id].id != spec.id:
+            owner, shared_by_quota = prior[spec.id], True
+        local = spec_hash(desired_definition(settings, spec, base_body, owner, shared_by_quota=shared_by_quota))
         latest = AV.latest(settings, spec.agent_name)
         if latest is None:
             remote, version, state = None, "", "missing"
