@@ -92,16 +92,27 @@ def validate_skill(spec: SkillSpec, knowledge_dir: Path | None = None) -> tuple[
     return errors, warnings
 
 
-def compose_instructions(base_body: str, spec: SkillSpec, rules_block: str = "") -> str:
+PERSONA_PLACEHOLDERS = ("{assistant_name}", "{assistant_name_en}")
+
+
+def personalize(text: str, names: dict[str, str] | None) -> str:
+    """Fill the persona placeholders ({assistant_name}, {assistant_name_en}) so the name lives in one setting, not in
+    every prompt file. Plain replacement, not str.format: prompts are free to contain other braces."""
+    for key, value in (names or {}).items():
+        text = text.replace("{" + key + "}", value)
+    return text
+
+
+def compose_instructions(base_body: str, spec: SkillSpec, rules_block: str = "", names: dict[str, str] | None = None) -> str:
     """base rules + the skill's own instructions + the Responsible Lending rules that cover its products (last, so the
-    agent reads the compliance obligations right before it answers)."""
+    agent reads the compliance obligations right before it answers), with the persona name filled in."""
     parts = []
     if base_body:
         parts.append(base_body)
     parts.append(f"# Skill: {spec.name} (id: {spec.id})\n\n{spec.body}")
     if rules_block:
         parts.append(rules_block)
-    return "\n\n---\n\n".join(parts).strip() + "\n"
+    return personalize("\n\n---\n\n".join(parts).strip() + "\n", names)
 
 
 def install_skill_zip(data: bytes | Path, skills_dir: Path, overwrite: bool = True) -> SkillSpec:

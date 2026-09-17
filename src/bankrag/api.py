@@ -256,6 +256,7 @@ def app_config(request: Request):
         "user_initials": _initials(who["name"]) or settings.app_user_initials,
         "user_email": who["email"],
         "assistant_name": settings.assistant_name,
+        "assistant_name_en": settings.assistant_name_en,
         "maps_key": settings.google_maps_key,  # empty: a place card links out to Maps instead of embedding it
         "starter_prompts": starters[:3],
         "skills": [{"id": s.id, "name": s.name, "product_category": s.product_category} for s in skills.values()],
@@ -575,7 +576,7 @@ def get_app_settings():
     from .config import OVERLAY_KEYS, load_overlay
 
     eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
-           "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
+           "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "ASSISTANT_NAME_EN": settings.assistant_name_en, "APP_USER_NAME": settings.app_user_name,
            "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model,
            "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model, "HISTORY_TURNS": settings.history_turns,
            "SUGGESTIONS_MODE": settings.suggestions_mode, "SUGGESTIONS_MODEL": settings.suggestions_model}

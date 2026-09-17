@@ -24,6 +24,10 @@ KB_TOOL = "knowledge_base_retrieve"
 
 
 # ---------- definitions ----------
+def persona_names(settings: Settings) -> dict[str, str]:
+    return {"assistant_name": settings.assistant_name, "assistant_name_en": settings.assistant_name_en}
+
+
 def kb_tool_ref(settings: Settings, spec: SkillSpec, kb_owner: Optional[SkillSpec] = None) -> dict:
     """The knowledge-base MCP tool of a skill; `kb_owner` overrides which skill's knowledge base is used (shared KB).
     The auth mode is part of the definition; the key itself never is."""
@@ -75,7 +79,7 @@ def desired_definition(settings: Settings, spec: SkillSpec, base_body: str, kb_o
     """Skills whose category has documents get their own KB tool; `general` (no filter) always has one.
     A skill without documents gets NO tool and must say its knowledge base is empty (keeps the POC honest).
     `shared_by_quota`: documents exist but the search tier has no knowledge-source quota left -> use the shared base with a scoping note."""
-    instructions = compose_instructions(base_body, spec, RL.prompt_block_for_skill(RL.active_pack(settings), spec))
+    instructions = compose_instructions(base_body, spec, RL.prompt_block_for_skill(RL.active_pack(settings), spec), names=persona_names(settings))
     live = services_tool_refs(settings, spec)
     tools = [kb_tool_ref(settings, spec)]
     if kb_owner is not None and kb_owner.id != spec.id:

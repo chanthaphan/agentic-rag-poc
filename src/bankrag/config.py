@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS")
+OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS")
 _overlay: dict[str, str] = {}
 
 
@@ -106,7 +106,8 @@ class Settings:
     studio_externals: list[str]
     app_user_name: str
     app_user_initials: str
-    assistant_name: str
+    assistant_name: str  # the persona's Thai name; {assistant_name} in the prompts, the app title and greeting
+    assistant_name_en: str  # the same persona in English; {assistant_name_en} in the prompts and the English greeting
     root: Path
     skills_dir: Path
     knowledge_dir: Path
@@ -165,6 +166,7 @@ class Settings:
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
             assistant_name=_env("ASSISTANT_NAME", "เกรส"),
+            assistant_name_en=_env("ASSISTANT_NAME_EN", "Grace"),
             root=root,
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),

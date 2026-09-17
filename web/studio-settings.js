@@ -30,13 +30,13 @@ $("#base-save").addEventListener("click", () => saveBase().catch((e) => { $("#ba
 $("#base-save-sync").addEventListener("click", async () => { try { await saveBase(); const j = await api("/skills/sync", { method: "POST" }); pollJob(j.job_id, $("#st-log"), $("#base-status")); } catch (e) { $("#base-status").textContent = e.message; } });
 
 // ---- runtime settings ----
-const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL"];
+const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "ASSISTANT_NAME_EN", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL"];
 S.loaders["spane-runtime"] = async () => {
   const s = await api("/app/settings"); await loadModels();
   for (const k of ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "SUGGESTIONS_MODEL"]) fillModelSelect($(`#rt-${k}`), s.effective[k]);
   $("#rt-SUGGESTIONS_MODE").value = s.effective.SUGGESTIONS_MODE || "dynamic";
   fillModelSelect($("#rt-CONCIERGE_MODEL"), s.effective.CONCIERGE_MODEL || s.effective.DEFAULT_CHAT_MODEL); $("#rt-ORCHESTRATION_MODE").value = s.effective.ORCHESTRATION_MODE || "router"; $("#rt-HISTORY_TURNS").value = s.effective.HISTORY_TURNS ?? 6;
-  $("#rt-KB_REASONING_EFFORT").value = s.effective.KB_REASONING_EFFORT; $("#rt-ASSISTANT_NAME").value = s.effective.ASSISTANT_NAME; $("#rt-APP_USER_NAME").value = s.effective.APP_USER_NAME; $("#rt-APP_USER_INITIALS").value = s.effective.APP_USER_INITIALS;
+  $("#rt-KB_REASONING_EFFORT").value = s.effective.KB_REASONING_EFFORT; $("#rt-ASSISTANT_NAME").value = s.effective.ASSISTANT_NAME; $("#rt-ASSISTANT_NAME_EN").value = s.effective.ASSISTANT_NAME_EN || ""; $("#rt-APP_USER_NAME").value = s.effective.APP_USER_NAME; $("#rt-APP_USER_INITIALS").value = s.effective.APP_USER_INITIALS;
   $("#rt-status").textContent = Object.keys(s.overlay).length ? `overrides active: ${Object.keys(s.overlay).join(", ")}` : "no overrides (values from .env)";
 };
 async function saveRuntime() { const data = {}; for (const k of RT_KEYS) data[k] = $(`#rt-${k}`).value; const r = await api("/app/settings", json(data, "PUT")); $("#rt-status").textContent = r.note; return r; }

@@ -13,8 +13,8 @@ from .models import CONCIERGE_AGENT, AgentDefinition, SkillSpec
 
 HANDOFF_PREFIX = "handoff_to_"
 
-CONCIERGE_TEMPLATE = """You are เกรส (Grace), a product specialist on the Bangkok Bank team and the first point of contact in the
-Bangkok Bank mobile app. To the customer there is only เกรส: you hand each product question to the right specialist with a
+CONCIERGE_TEMPLATE = """You are {assistant_name} ({assistant_name_en}), a product specialist on the Bangkok Bank team and the first point of contact in the
+Bangkok Bank mobile app. To the customer there is only {assistant_name}: you hand each product question to the right specialist with a
 handoff tool, and the specialist answers in your voice - the customer never learns that anyone else was involved.
 Introduce yourself by name once, in the first reply of a conversation, and never again. You are a woman, you work for Bangkok Bank,
 and you never say you are an AI, a bot or a system.
@@ -73,7 +73,8 @@ def handoff_tool(spec: SkillSpec) -> StructuredTool:
 def concierge_instructions(settings: Settings, skills: dict[str, SkillSpec]) -> str:
     ordered = sorted(skills.values(), key=lambda s: (s.id == "general", s.id))
     lines = "\n".join(f"- {handoff_tool_name(s.id)} ({s.name}): {s.description.strip()}" for s in ordered)
-    return CONCIERGE_TEMPLATE.format(specialists=lines, responsible_lending=RL.prompt_block_for_concierge(RL.active_pack(settings))).strip() + "\n"
+    return CONCIERGE_TEMPLATE.format(specialists=lines, responsible_lending=RL.prompt_block_for_concierge(RL.active_pack(settings)),
+                                     assistant_name=settings.assistant_name, assistant_name_en=settings.assistant_name_en).strip() + "\n"
 
 
 def concierge_definition(settings: Settings, skills: dict[str, SkillSpec]) -> AgentDefinition:

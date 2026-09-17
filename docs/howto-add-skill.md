@@ -40,6 +40,10 @@ Markdown instructions for this product family...
 
 Upload instead of editing: zip the folder (SKILL.md at the root or inside one folder) and use **Upload skill zip** in the web UI, or `uv run bankrag skills install mortgage.zip`, then sync.
 
+## Rename the persona
+
+The assistant's name is one setting, not text in the prompt files: Studio › Settings › Runtime › *Assistant name* (Thai and English), or `ASSISTANT_NAME` / `ASSISTANT_NAME_EN`. The base rules and the concierge refer to it as `{assistant_name}` / `{assistant_name_en}`, and the app greeting reads the same values. Save, then **Sync all**: the name is part of every agent definition, so the change is published as a new version.
+
 ## Change a skill
 
 Edit `SKILL.md`, run `bankrag skills sync`. Only skills whose definition hash changed get a new agent version; `bankrag skills list` shows `in-sync` / `outdated` / `missing`.

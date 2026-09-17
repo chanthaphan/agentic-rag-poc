@@ -78,3 +78,15 @@ def test_live_service_tools_are_function_refs():
     d = desired_definition(s, spec, base, plan_kb_owners(s, skills)[spec.id]).as_dict()
     names = [t["name"] for t in d["tools"] if t["type"] == "function"]
     assert "fx_rate" in names and "TOOL_ONLY" not in d["instructions"]
+
+
+def test_the_persona_name_comes_from_settings():
+    from bankrag.supervisor import concierge_instructions
+
+    skills, base = load_skills(ROOT / "skills"), load_base(ROOT / "skills")
+    s = _settings(assistant_name="เคอร์วอน", assistant_name_en="Kervon")
+    text = desired_definition(s, skills["credit-card"], base).instructions
+    assert "เคอร์วอน" in text and "Kervon" in text and "{assistant_name" not in text and "เกรส" not in text and "Grace" not in text
+    assert "เคอร์วอน" in concierge_instructions(s, skills) and "{assistant_name" not in concierge_instructions(s, skills)
+    # a different name is a different definition, so a sync republishes it
+    assert spec_hash(desired_definition(s, skills["credit-card"], base)) != spec_hash(desired_definition(_settings(), skills["credit-card"], base))
