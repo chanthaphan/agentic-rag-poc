@@ -225,13 +225,13 @@ def list_jobs(kind: Optional[str] = None, limit: int = 10):
 def health():
     return {
         "ok": True,
-        "project_endpoint": settings.project_endpoint,
+        "aoai_endpoint": settings.aoai_endpoint,
         "search_endpoint": settings.search_endpoint,
         "index": settings.search_index,
         "kb_reasoning_effort": settings.kb_reasoning_effort,
         "kb_mcp_auth": settings.kb_mcp_auth,
         "studio_enabled": bool(settings.studio_password),
-        "configured": bool(settings.project_endpoint and settings.search_endpoint and settings.search_admin_key),
+        "configured": bool(settings.aoai_endpoint and settings.search_endpoint and settings.search_admin_key),
     }
 
 
@@ -498,84 +498,6 @@ def append_eval_cases(set_name: str, req: AppendCases):
         raise HTTPException(404, str(e)) from e
 
 
-def reconcile_pending(hours: int = 24, limit: int = 50) -> dict:
-    """Read specialist usage from Application Insights for recent handoff turns still marked pending."""
-    from . import observability as OBS
-
-    if not OBS.enabled(settings):
-        return {"enabled": False, "checked": 0, "updated": 0}
-    checked = updated = 0
-    for sid, idx in SESS.pending_handoff_turns(settings, hours=hours, limit=limit):
-        rec = SESS.load_session(settings, sid)
-        if rec is None or idx >= len(rec.turns):
-            continue
-        checked += 1
-        trace = dict(rec.turns[idx].trace or {})
-        try:
-            if OBS.reconcile_trace(settings, trace):
-                SESS.update_turn_trace(settings, sid, idx, trace)
-                updated += 1
-            elif int((trace.get("handoff") or {}).get("reconcile_attempts", 0)) >= 20:
-                trace.setdefault("handoff", {})["usage_pending"] = False  # give up after ~30 min of polling
-                trace["handoff"]["reconcile_note"] = "specialist spans never appeared in Application Insights"
-                SESS.update_turn_trace(settings, sid, idx, trace)
-            else:
-                SESS.update_turn_trace(settings, sid, idx, trace)  # persists the attempt counter
-        except Exception as e:  # noqa: BLE001
-            log_msg = f"reconcile {sid}#{idx}: {type(e).__name__}: {str(e)[:120]}"
-            print(log_msg)
-            break
-    return {"enabled": True, "checked": checked, "updated": updated}
-
-
-def _start_reconcile_thread() -> None:
-    from . import observability as OBS
-
-    if not OBS.enabled(settings):
-        return
-
-    def loop() -> None:
-        import time as _t
-
-        _t.sleep(60)
-        while True:
-            try:
-                reconcile_pending()
-            except Exception as e:  # noqa: BLE001
-                print(f"reconcile thread: {type(e).__name__}: {e}")
-            _t.sleep(90)
-
-    threading.Thread(target=loop, daemon=True, name="handoff-reconcile").start()
-
-
-@app.post("/sessions/{session_id}/reconcile")
-def reconcile_session(session_id: str, request: Request):
-    """Pull the specialist's tokens for this conversation's handoff answers now (otherwise a background job does it every 90 s)."""
-    from . import observability as OBS
-
-    if not SESS.ID_RE.match(session_id):
-        raise HTTPException(400, "bad session id")
-    rec = SESS.load_session(settings, session_id)
-    if rec is None:
-        raise HTTPException(404, "session not found")
-    _require_owner(request, rec)
-    if not OBS.enabled(settings):
-        return {"enabled": False, "updated": 0, "pending": 0}
-    updated = pending = 0
-    for i, turn in enumerate(rec.turns):
-        ho = (turn.trace or {}).get("handoff") or {}
-        if ho.get("usage_pending"):
-            trace = dict(turn.trace)
-            try:
-                ok = OBS.reconcile_trace(settings, trace)
-            except Exception as e:  # noqa: BLE001
-                raise HTTPException(502, f"trace query failed: {type(e).__name__}: {str(e)[:200]}") from e
-            SESS.update_turn_trace(settings, session_id, i, trace)
-            updated += int(ok)
-            pending += int(not ok)
-    return {"enabled": True, "updated": updated, "pending": pending, "session": SESS.load_session(settings, session_id)}
-
-
 @app.get("/sessions/{session_id}")
 def get_session(session_id: str, request: Request):
     if not SESS.ID_RE.match(session_id):
@@ -627,24 +549,25 @@ _models_cache: dict = {"at": 0.0, "items": []}
 
 @app.get("/app/models")
 def list_models(refresh: bool = False):
-    """Live model deployments of the Foundry project (cached 120 s)."""
+    """Model deployments of the Azure OpenAI account (ARM, cached 120 s); the configured models when ARM is unreachable."""
     import time
 
     if not refresh and _models_cache["items"] and time.time() - _models_cache["at"] < 120:
         return _models_cache["items"]
-    items = []
     try:
-        from .foundry import project_client
+        from .llm import list_deployments
 
-        for d in project_client(settings).deployments.list():
-            items.append({"name": getattr(d, "name", ""), "model": getattr(d, "model_name", "") or "", "publisher": getattr(d, "model_publisher", "") or "", "type": getattr(d, "type", "") or ""})
-        items = [i for i in items if i["name"] and not any(x in i["name"] for x in ("embedding", "audio", "realtime", "image"))]
+        items = [i for i in list_deployments(settings) if i["name"] and not any(x in i["name"] for x in ("embedding", "audio", "realtime", "image"))]
         _models_cache.update(at=time.time(), items=items)
+        return items
     except Exception as e:  # noqa: BLE001
-        if not _models_cache["items"]:
-            return [{"name": settings.default_chat_model, "model": settings.default_chat_model, "publisher": "", "type": "", "error": f"{type(e).__name__}"}]
-        return _models_cache["items"]
-    return items
+        if _models_cache["items"]:
+            return _models_cache["items"]
+        names: list[str] = []
+        for n in (settings.default_chat_model, settings.router_model, settings.suggestions_model, settings.concierge_model, settings.judge_model):
+            if n and n not in names:
+                names.append(n)
+        return [{"name": n, "model": n, "publisher": "", "type": "", "error": f"{type(e).__name__}"} for n in names]
 
 
 @studio.get("/app/settings")
@@ -653,8 +576,8 @@ def get_app_settings():
 
     eff = {"ROUTER_MODEL": settings.router_model, "DEFAULT_CHAT_MODEL": settings.default_chat_model, "KB_REASONING_EFFORT": settings.kb_reasoning_effort,
            "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "APP_USER_NAME": settings.app_user_name,
-           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model, "FOUNDRY_NATIVE_SKILLS": "1" if settings.foundry_native_skills else "0",
-           "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model,
+           "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model,
+           "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model, "HISTORY_TURNS": settings.history_turns,
            "SUGGESTIONS_MODE": settings.suggestions_mode, "SUGGESTIONS_MODEL": settings.suggestions_model}
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
 
@@ -666,20 +589,20 @@ def put_app_settings(data: dict):
     saved = save_overlay(settings.root, {k: ("" if v is None else str(v)) for k, v in data.items()})
     fresh = Settings.load(settings.root)
     settings.__dict__.update(fresh.__dict__)  # hot-reload for this process
-    return {"overlay": saved, "note": "applied; run skills sync to update agents that use ROUTER_MODEL / DEFAULT_CHAT_MODEL / KB settings"}
+    return {"overlay": saved, "note": "applied; run skills sync to publish agent versions that use DEFAULT_CHAT_MODEL / CONCIERGE_MODEL / KB settings"}
 
 
 @app.post("/route")
 def route_only(data: dict):
     """Router-only check (no answer): which skill would this message go to?"""
     from . import router as R
-    from .foundry import project_client
+    from .llm import chat_model
 
     skills, _ = _skills()
     msg = str(data.get("message", "")).strip()
     if not msg:
         raise HTTPException(400, "message required")
-    d = R.route(project_client(settings).get_openai_client(), msg, [], data.get("prev_skill"), skills)
+    d = R.route(chat_model(settings, settings.router_model), msg, [], data.get("prev_skill"), skills)
     return d.model_dump()
 
 
@@ -687,7 +610,7 @@ def route_only(data: dict):
 def skills_lint():
     skills, _ = _skills()
     models = [m["name"] for m in list_models()] or None
-    from .foundry_sync import plan_kb_owners
+    from .sync import plan_kb_owners
 
     owners = plan_kb_owners(settings, skills)
     has_docs = {sid: owners[sid].id == sid or skills[sid].product_category in ("all", "*", "") for sid in skills}
@@ -696,46 +619,36 @@ def skills_lint():
 
 @app.get("/skills/{skill_id}/versions")
 def skill_versions(skill_id: str):
-    from .foundry import project_client
+    from . import agent_versions as AV
 
     skills, _ = _skills()
     spec = skills.get(skill_id)
     if not spec:
         raise HTTPException(404, "skill not found")
-    out = []
-    try:
-        for v in project_client(settings).agents.list_versions(agent_name=spec.agent_name):
-            d = v.definition.as_dict() if getattr(v, "definition", None) else {}
-            out.append({"version": str(v.version), "created_at": getattr(v, "created_at", None), "model": d.get("model", ""), "metadata": dict(v.metadata or {}), "description": getattr(v, "description", "") or "", "tools": [t.get("type") for t in d.get("tools", [])]})
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"{type(e).__name__}: {str(e)[:300]}") from e
-    out.sort(key=lambda r: int(r["version"]) if r["version"].isdigit() else 0, reverse=True)
-    return out
+    return AV.list_versions(settings, spec.agent_name)
 
 
 @app.get("/skills/{skill_id}/versions/{version}")
 def skill_version(skill_id: str, version: str):
-    from .foundry import project_client
-    from .foundry_sync import desired_definition, plan_kb_owners
+    from . import agent_versions as AV
+    from .sync import desired_definition, plan_kb_owners
 
     skills, base = _skills()
     spec = skills.get(skill_id)
     if not spec:
         raise HTTPException(404, "skill not found")
-    try:
-        v = project_client(settings).agents.get_version(agent_name=spec.agent_name, agent_version=version)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(404, f"version not found: {type(e).__name__}") from e
-    d = v.definition.as_dict()
+    v = AV.get_version(settings, spec.agent_name, version)
+    if v is None:
+        raise HTTPException(404, "version not found")
     local = desired_definition(settings, spec, base, plan_kb_owners(settings, skills)[skill_id]).as_dict()
-    return {"version": str(v.version), "model": d.get("model"), "instructions": d.get("instructions", ""), "tools": d.get("tools", []), "metadata": dict(v.metadata or {}),
+    return {"version": v["version"], "created_at": v["created_at"], "model": v["model"], "instructions": v["instructions"], "tools": v["tools"], "metadata": v["metadata"],
             "local_instructions": local.get("instructions", ""), "local_model": local.get("model")}
 
 
 # ---------------- skills (read: open; write: studio) ----------------
 @app.get("/skills")
 def list_skills(remote: bool = True):
-    from .foundry_sync import status
+    from .sync import status
 
     skills, base = _skills()
     if remote:
@@ -791,7 +704,7 @@ def delete_skill_endpoint(skill_id: str, prune: bool = True):
         raise HTTPException(400, str(e)) from e
     job_id = None
     if prune:
-        from .foundry_sync import sync_skills
+        from .sync import sync_skills
 
         def run(log):
             skills, base = _skills()
@@ -822,67 +735,17 @@ async def upload_skill(file: UploadFile = File(...)):
 
 
 @studio.post("/skills/sync")
-def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, register_native: bool = False, role: str = Depends(require_studio)):
-    from .foundry_sync import sync_skills
+def sync_skills_endpoint(only: Optional[str] = None, prune: bool = False, role: str = Depends(require_studio)):
+    from .sync import sync_skills
 
     if prune and role != "admin":
         raise HTTPException(403, "prune is for Studio admins")
 
     def run(log):
         skills, base = _skills()
-        return sync_skills(settings, skills, base, only=only, prune=prune, register_native=register_native, log=log).model_dump()
+        return sync_skills(settings, skills, base, only=only, prune=prune, log=log).model_dump()
 
     return {"job_id": _start_job("sync", run)}
-
-
-# ---------------- Foundry skill registry ----------------
-@studio.get("/registry/skills")
-def registry_skills():
-    from .foundry import project_client
-    from .foundry_native import list_registry
-
-    skills, _ = _skills()
-    try:
-        with project_client(settings) as pc:
-            return list_registry(pc, set(skills))
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
-
-
-@studio.get("/registry/skills/{name}")
-def registry_skill_content(name: str, version: Optional[str] = None):
-    from .foundry import project_client
-    from .foundry_native import download_skill_md
-
-    try:
-        with project_client(settings) as pc:
-            meta, body = download_skill_md(pc, name, version)
-        return {"name": name, "frontmatter": meta, "body": body}
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
-
-
-class RegistryImport(BaseModel):
-    name: str
-    version: Optional[str] = None
-    id: Optional[str] = None
-
-
-@studio.post("/registry/import")
-def registry_import(req: RegistryImport):
-    from .foundry import project_client
-    from .foundry_native import import_registry_skill
-
-    try:
-        with project_client(settings) as pc:
-            spec = import_registry_skill(pc, settings, req.name, req.version, req.id)
-    except FileExistsError as e:
-        raise HTTPException(409, str(e)) from e
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
-    return {"id": spec.id, "name": spec.name, "note": "imported as a local skill; review keywords and description, then Save & sync"}
 
 
 # ---------------- responsible lending rules ----------------
@@ -1109,7 +972,7 @@ def ingest_endpoint(category: Optional[str] = None, full: bool = False, role: st
 @app.get("/knowledge/retrieve")
 def retrieve_endpoint(q: str, skill: str = "credit-card", max_docs: int = 5):
     from . import knowledge_base as KB
-    from .foundry_sync import synced_kb_owners
+    from .sync import synced_kb_owners
 
     skills, _ = _skills()
     if skill not in skills:
@@ -1263,7 +1126,7 @@ async def bundle_import(mode: str = "merge", parts: str = "skills,rules,knowledg
                     rep = run_ingest(settings, category=cat, log=job_log)
                     summary[f"ingest {cat}"] = rep.summary()
             if do_sync:
-                from .foundry_sync import sync_skills
+                from .sync import sync_skills
 
                 job_log("== sync skills")
                 skills, base = _skills()
@@ -1625,8 +1488,8 @@ def access_delete(email: str, request: Request):
 app.include_router(studio)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
-# Live-service tools for the agents (FX today, branches next). In Azure the path stays behind Easy Auth and the caller
-# is pinned to the Foundry project's managed identity (MCP_CALLER_PRINCIPALS); MCP_TOOL_KEY is the local-dev guard.
+# Live-service tools over MCP for external clients (the app's own agents call them in-process). In Azure the path stays
+# behind Easy Auth and the caller is pinned to the allowed object ids (MCP_CALLER_PRINCIPALS); MCP_TOOL_KEY is the local-dev guard.
 if settings.services_mcp_key or settings.services_mcp_callers:
     from contextlib import asynccontextmanager
 
@@ -1644,10 +1507,3 @@ if settings.services_mcp_key or settings.services_mcp_callers:
                 yield
 
     app.router.lifespan_context = _lifespan_with_mcp
-
-
-@app.on_event("startup")
-def _startup_handoff_reconcile() -> None:
-    if not os.environ.get("BANKRAG_NO_RECONCILE"):
-        _start_reconcile_thread()
-

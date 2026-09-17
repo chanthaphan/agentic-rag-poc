@@ -1,9 +1,11 @@
 """Chat session persistence in SQLite (.state/bankrag.db) so follow-up questions survive restarts.
 
 Tables:
-  sessions(id, title, created_at, updated_at, conversation_id, prev_skill, turn_count, data)  -- data = full JSON record
+  sessions(id, title, created_at, updated_at, conversation_id, prev_skill, turn_count, data)  -- data = full JSON record; conversation_id = LangGraph thread id
   turns(session_id, idx, role, at, text, skill_id, confidence, language, agent_name, route_reason,
         input_tokens, output_tokens, total_ms, retrieved_docs, data)                              -- one row per message, for analysis
+  agent_versions(agent, version, ...)                                                             -- published agent definitions (see agent_versions.py)
+  checkpoints / writes                                                                            -- LangGraph conversation memory (see checkpoints.py)
 Existing .state/sessions/*.json files (older versions) are imported once.
 """
 from __future__ import annotations
@@ -16,7 +18,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +46,12 @@ CREATE TABLE IF NOT EXISTS turns (
   session_id TEXT NOT NULL, idx INTEGER NOT NULL, role TEXT, at TEXT, text TEXT, skill_id TEXT, confidence REAL, language TEXT,
   agent_name TEXT, route_reason TEXT, input_tokens INTEGER, output_tokens INTEGER, total_ms INTEGER, retrieved_docs INTEGER, cost_usd REAL, data TEXT,
   PRIMARY KEY (session_id, idx));
+CREATE TABLE IF NOT EXISTS agent_versions (
+  agent TEXT NOT NULL, version INTEGER NOT NULL, skill_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  spec_hash TEXT NOT NULL, model TEXT NOT NULL, instructions TEXT NOT NULL,
+  tools TEXT NOT NULL, definition TEXT NOT NULL, metadata TEXT NOT NULL, description TEXT DEFAULT '',
+  PRIMARY KEY (agent, version));
+CREATE INDEX IF NOT EXISTS agent_versions_agent ON agent_versions(agent, version DESC);
 """
 
 
@@ -259,7 +267,14 @@ def delete_session(settings: Settings, sid: str) -> bool:
     if not ID_RE.match(sid):
         raise ValueError("bad session id")
     with _lock, connect(settings) as con:
+        thread = con.execute("SELECT conversation_id FROM sessions WHERE id=?", (sid,)).fetchone()
         cur = con.execute("DELETE FROM sessions WHERE id=?", (sid,))
+        if thread and thread[0]:  # the LangGraph memory of this conversation (tables owned by checkpoints.py)
+            for t in ("checkpoints", "writes"):
+                try:
+                    con.execute(f"DELETE FROM {t} WHERE thread_id=?", (thread[0],))
+                except sqlite3.OperationalError:
+                    pass
         con.execute("DELETE FROM turns WHERE session_id=?", (sid,))
         con.commit()
         return cur.rowcount > 0
@@ -488,15 +503,6 @@ def delete_access(settings: Settings, email: str) -> bool:
         cur = con.execute("DELETE FROM studio_access WHERE email=?", (email.strip().lower(),))
         con.commit()
         return cur.rowcount > 0
-
-
-# ---------------- handoff usage reconciliation ----------------
-def pending_handoff_turns(settings: Settings, hours: int = 24, limit: int = 200) -> list[tuple[str, int]]:
-    """(session_id, idx) of assistant turns whose A2A specialist usage has not been read from the trace yet."""
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-    with _lock, connect(settings) as con:
-        rows = con.execute("SELECT session_id, idx FROM turns WHERE role='assistant' AND at > ? AND (data LIKE '%usage_pending%:true%' OR data LIKE '%usage_pending%: true%') ORDER BY at DESC LIMIT ?", (since, limit)).fetchall()
-    return [(r[0], r[1]) for r in rows]
 
 
 def update_turn_trace(settings: Settings, session_id: str, idx: int, trace: dict) -> bool:

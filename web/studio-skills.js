@@ -1,4 +1,4 @@
-// Skills tab: skill cards + lint badges, Foundry sync panel (progress, per-skill result rows, log), editor
+// Skills tab: skill cards + lint badges, publish (sync) panel (progress, per-skill result rows, log), editor
 // (routing/answering form, markdown body, lint, preview, versions diff, playground, try routing).
 let current = null; let lintCache = {}; window.skillDirty = false;
 const SY = { timer: null };
@@ -9,16 +9,16 @@ document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.
 
 const STATE_LABEL = { "in-sync": "in sync", outdated: "outdated", missing: "not deployed", error: "error" };
 async function loadSkills() {
-  $("#sk-status").textContent = "checking Foundry…";
+  $("#sk-status").textContent = "checking published versions…";
   const [rows, lint] = await Promise.all([api("/skills"), api("/skills/lint").catch(() => ({}))]);
   S.skillsCache = rows; lintCache = lint; const box = $("#sk-cards"); box.innerHTML = "";
   for (const r of rows) {
     const findings = lint[r.id] || []; const warns = findings.filter((f) => f.level === "warn").length; const infos = findings.length - warns;
     const st = String(r.state || "").replace(/[^a-z-]/g, "");
     const el = document.createElement("div"); el.className = "sk-card" + (current === r.id ? " sel" : ""); el.dataset.id = r.id;
-    el.innerHTML = `<span class="id">${esc(r.id)}</span><span class="st" title="Foundry agent ${esc(r.agent || "")}"><span class="dot ${st}"></span>${esc(STATE_LABEL[st] || r.state)}${r.version ? ` · v${esc(r.version)}` : ""}</span>
+    el.innerHTML = `<span class="id">${esc(r.id)}</span><span class="st" title="agent ${esc(r.agent || "")}"><span class="dot ${st}"></span>${esc(STATE_LABEL[st] || r.state)}${r.version ? ` · v${esc(r.version)}` : ""}</span>
       <span class="nm">${esc(r.name)}</span>
-      <span class="meta"><span class="pill">${esc(r.product_category)}</span><span class="pill">${esc(r.model)}</span><span class="pill" title="knowledge base">${esc(r.knowledge_base || "no knowledge base")}</span>${r.registry_version ? `<span class="pill reg" title="published to the Foundry skill registry as bankrag-${esc(r.id)}">registry v${esc(r.registry_version)}</span>` : ""}${r.a2a ? '<span class="pill a2a" title="exposed as an A2A endpoint; the concierge can hand off to it">A2A</span>' : ""}${warns ? `<span class="pill warn" title="lint warnings">⚠ ${warns}</span>` : ""}${infos ? `<span class="pill info" title="lint notes">ℹ ${infos}</span>` : ""}</span>`;
+      <span class="meta"><span class="pill">${esc(r.product_category)}</span><span class="pill">${esc(r.model)}</span><span class="pill" title="knowledge base">${esc(r.knowledge_base || "no knowledge base")}</span>${warns ? `<span class="pill warn" title="lint warnings">⚠ ${warns}</span>` : ""}${infos ? `<span class="pill info" title="lint notes">ℹ ${infos}</span>` : ""}</span>`;
     el.addEventListener("click", () => { if (window.skillDirty && current !== r.id && !confirm("Discard unsaved changes?")) return; openSkill(r.id); });
     box.appendChild(el);
   }
@@ -28,7 +28,7 @@ async function loadSkills() {
 }
 S.loaders.skills = loadSkills;
 
-function setStatePill(row) { const st = String(row.state || "").replace(/[^a-z-]/g, ""); const p = $("#ed-state"); p.className = `pill st-${st}`; p.textContent = `Foundry: ${STATE_LABEL[st] || row.state}${row.version ? ` · version ${row.version}` : ""}`; }
+function setStatePill(row) { const st = String(row.state || "").replace(/[^a-z-]/g, ""); const p = $("#ed-state"); p.className = `pill st-${st}`; p.textContent = `Published: ${STATE_LABEL[st] || row.state}${row.version ? ` · version ${row.version}` : ""}`; }
 function renderLint() {
   const f = lintCache[current] || []; const warns = f.filter((x) => x.level === "warn").length;
   $("#ed-lint").innerHTML = f.length ? f.map((x) => `<div class="lint-${x.level}">${x.level === "warn" ? "⚠" : "ℹ"} <b>${esc(x.code)}</b> ${esc(x.message)}</div>`).join("") : '<div class="lint-ok">✓ no findings</div>';
@@ -76,7 +76,7 @@ $("#ed-save-sync").addEventListener("click", async () => {
   } catch (e) { showMsgs([e.message], []); }
 });
 $("#ed-delete").addEventListener("click", async () => {
-  if (!confirm(`Delete skill '${current}' and its Foundry agent / knowledge base?`)) return;
+  if (!confirm(`Delete skill '${current}', its published versions and its knowledge base?`)) return;
   const r = await api(`/skills/${current}?prune=true`, { method: "DELETE" }); $("#sk-editor").hidden = true; $("#sk-empty").hidden = false; current = null; setDirty(false);
   if (r.job_id) { await watchSync(r.job_id); } loadSkills();
 });
@@ -95,7 +95,7 @@ $("#dlg-new form").addEventListener("submit", async (e) => {
     $("#dlg-new").close(); await loadSkills(); openSkill(r.spec.id); } catch (err) { alert(err.message); }
 });
 
-// ---- Foundry sync panel ----
+// ---- publish (sync) panel ----
 function watchSync(id) {
   clearInterval(SY.timer);
   $("#sync-barwrap").hidden = false; $("#sync-rows").innerHTML = ""; $("#sync-logwrap").open = false;
@@ -188,17 +188,3 @@ async function pgSend() {
 }
 S.loaders["pane-playground"] = pgBanner;
 
-// ---- Foundry skill registry ----
-async function loadRegistry() {
-  $("#rg-status").textContent = "loading…";
-  try {
-    const rows = await api("/registry/skills"); const box = $("#rg-list");
-    box.innerHTML = rows.length ? rows.map((r) => `<div class="rg"><span><span class="n">${esc(r.name)}</span> <span class="pill">v${esc(r.default_version)}</span> ${r.in_app ? '<span class="pill ok">in app</span>' : '<span class="pill warn">registry only</span>'}<span class="d">${esc(r.description.slice(0, 120))}</span></span><span>${r.in_app ? "" : `<button class="btn-secondary imp" data-name="${esc(r.name)}" data-id="${esc(r.local_id)}">Import</button>`}</span></div>`).join("") : '<div class="muted">no skills in the registry yet: run Sync all</div>';
-    box.querySelectorAll(".imp").forEach((b) => b.addEventListener("click", async () => {
-      const id = prompt("Local skill id for this import (lowercase, dashes):", b.dataset.id); if (!id) return;
-      try { const r = await api("/registry/import", json({ name: b.dataset.name, id })); $("#rg-status").textContent = r.note; await loadSkills(); openSkill(r.id); loadRegistry(); } catch (e) { $("#rg-status").textContent = e.message; }
-    }));
-    $("#rg-status").textContent = `${rows.length} in registry`;
-  } catch (e) { $("#rg-status").textContent = e.message; }
-}
-$("#rg-refresh").addEventListener("click", loadRegistry);

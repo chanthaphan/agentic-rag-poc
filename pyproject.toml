@@ -1,10 +1,9 @@
 [project]
 name = "bankrag"
 version = "0.1.0"
-description = "Bank product recommendation agent POC: Microsoft Foundry agents + Azure AI Search (Foundry IQ) with per-product skills"
+description = "Bank product recommendation agent POC: LangGraph agents on Azure OpenAI + Azure AI Search (Foundry IQ knowledge bases over MCP) with per-product skills"
 requires-python = ">=3.12"
 dependencies = [
-    "azure-ai-projects>=2.6.0",
     "azure-search-documents==12.1.0b2",
     "azure-identity>=1.25.0",
     "azure-core>=1.35.0",
@@ -25,6 +24,10 @@ dependencies = [
     "deepeval>=4.2.1",
     "httpx>=0.27,<1",
     "mcp>=2.2.0",
+    "langchain-core>=1.6.2,<2",
+    "langchain-openai>=1.6.2,<2",
+    "langgraph>=1.2.11,<2",
+    "langgraph-checkpoint-sqlite>=3.1.1,<4",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +46,7 @@ packages = ["src/bankrag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 
 [tool.uv]
 prerelease = "allow"

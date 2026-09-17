@@ -9,13 +9,11 @@ from bankrag.skills import load_skills
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class FakeOpenAI:
-    pass
+def _kw():
+    """A session that never builds a real model or opens the sessions DB for memory."""
+    from langgraph.checkpoint.memory import InMemorySaver
 
-
-class FakeProject:
-    def get_openai_client(self):
-        return FakeOpenAI()
+    return {"llm_factory": lambda m: None, "checkpointer": InMemorySaver()}
 
 
 def _settings(tmp_path):
@@ -36,7 +34,7 @@ def test_session_roundtrip_and_rehydration(tmp_path):
     loaded = load_session(s, rec.id)
     assert loaded.title.startswith("บัตรอินฟินิท") and loaded.turns[1].citations[0].url == "https://x"
     skills = load_skills(ROOT / "skills")
-    cs = ChatSession.from_record(s, skills, loaded, project=FakeProject())
+    cs = ChatSession.from_record(s, skills, loaded, **_kw())
     assert cs.conversation_id == "conv_123" and cs.prev_skill == "credit-card"
     assert [h["role"] for h in cs.history] == ["user", "assistant"]
     from bankrag.sessions import stats
@@ -67,21 +65,26 @@ def test_language_detection_and_language_filtered_suggestions():
         assert len(en) == 3 and all(detect_language(x) == "en" for x in en), sid
 
 
-def test_recap_items_and_rotation_counter(tmp_path):
-    from bankrag.chat import MAX_TURNS_PER_CONVERSATION
+def test_recap_note_and_history_window(tmp_path):
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+    from bankrag.graph import TurnContext, prompt_messages
+
+    msgs = [HumanMessage("q1"), AIMessage("a1"), HumanMessage("q2"), AIMessage("a2"), HumanMessage("q3")]
+    out, dropped = prompt_messages(TurnContext(instructions="sys", history_turns=1), msgs)
+    assert dropped == 1 and isinstance(out[1], SystemMessage) and "q1" in out[1].content and "a1" in out[1].content
+    assert [m.content for m in out[2:]] == ["q2", "a2", "q3"]
+    out, dropped = prompt_messages(TurnContext(instructions="sys", history_turns=6), msgs)
+    assert dropped == 0 and len(out) == 6 and out[0].content.startswith("sys")
+    # rehydration keeps the thread id and counts the answers on it
     s = _settings(tmp_path)
     skills = load_skills(ROOT / "skills")
-    cs = ChatSession(s, skills, project=FakeProject())
-    cs.history = [{"role": "user", "content": "q1"}, {"role": "assistant", "content": "a1"}, {"role": "user", "content": "q2"}]
-    items = cs._recap_items()
-    assert items[0]["role"] == "developer" and "q1 | q2" in items[0]["content"] and "a1" in items[0]["content"]
-    rec = new_record(); rec.conversation_id = "conv_a"
+    rec = new_record(); rec.conversation_id = "thr_a"
     for i in range(8):
-        ans = Answer(skill_id="credit-card", confidence=0.9, text=f"a{i}", trace={"conversation": {"id": "conv_a" if i >= 5 else "conv_old"}})
+        ans = Answer(skill_id="credit-card", confidence=0.9, text=f"a{i}", trace={"conversation": {"id": "thr_a" if i >= 5 else "thr_old"}})
         append_turns(rec, f"q{i}", ans)
-    restored = ChatSession.from_record(s, skills, rec, project=FakeProject())
-    assert restored.turns_in_conversation == 3 and MAX_TURNS_PER_CONVERSATION == 6
+    restored = ChatSession.from_record(s, skills, rec, **_kw())
+    assert restored.turns_in_conversation == 3 and restored.conversation_id == "thr_a"
 
 
 def test_backup_and_restore(tmp_path, monkeypatch):

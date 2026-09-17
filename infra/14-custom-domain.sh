@@ -6,7 +6,7 @@
 #
 # Run it twice. The first run prints the two DNS records to create and stops; the second, once they resolve, binds the
 # hostname and moves the app onto it. Nothing is destructive: the old *.azurecontainerapps.io name keeps working, and
-# stays in PUBLIC_BASE_ALIASES so a Foundry agent calling the old name is still answered rather than 421'd.
+# stays in PUBLIC_BASE_ALIASES so an MCP client calling the old name is still answered rather than 421'd.
 #
 # Usage: infra/14-custom-domain.sh chat.example.com
 set -euo pipefail
@@ -48,8 +48,8 @@ az containerapp hostname add -g "$RG" -n "$APP" --hostname "$HOST" -o none 2>/de
 az containerapp hostname bind -g "$RG" -n "$APP" --hostname "$HOST" --environment "$ENVNAME" --validation-method CNAME -o none
 
 echo "== app settings"
-# The custom name becomes canonical (it is what the Foundry connection will target); the old one stays allowed so the
-# agent keeps working until `bankrag skills sync` has repointed the connection and you have tested a tool call.
+# The custom name becomes canonical; the old one stays allowed so an external MCP client keeps working until it has
+# been repointed and you have tested a tool call.
 az containerapp update -g "$RG" -n "$APP" --set-env-vars \
   "PUBLIC_BASE_URL=https://$HOST" \
   "PUBLIC_BASE_ALIASES=https://$FQDN" -o none
@@ -60,7 +60,7 @@ Done: https://$HOST
 
 Still to do, in this order:
   1. bash infra/12-easyauth.sh     # adds the new callback, keeps the old one
-  2. uv run bankrag skills sync    # repoints the bank-services-mcp connection at the new name
+  2. repoint any external MCP client at the new name
   3. Ask the assistant for a branch near you and check the answer really came from the tool.
   4. Only then, drop the old name:
        az containerapp update -g $RG -n $APP --set-env-vars PUBLIC_BASE_ALIASES=""

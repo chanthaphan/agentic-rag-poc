@@ -192,14 +192,14 @@ def new_run(set_name: str) -> dict:
     return {"id": uuid.uuid4().hex[:10], "set": set_name, "started_at": _now(), "rows": [], "summary": {}}
 
 
-def run_routing(settings: Settings, skills: dict[str, SkillSpec], cases: list[dict], *, openai_client=None, log: Log = print) -> dict:
+def run_routing(settings: Settings, skills: dict[str, SkillSpec], cases: list[dict], *, llm=None, log: Log = print) -> dict:
     from . import router as R
     from .pricing import load_pricing, usage_cost
 
-    if openai_client is None:
-        from .foundry import project_client
+    if llm is None:
+        from .llm import chat_model
 
-        openai_client = project_client(settings).get_openai_client()
+        llm = chat_model(settings, settings.router_model)
     pricing = load_pricing(settings)
     run = new_run("routing")
     ok = 0
@@ -207,7 +207,7 @@ def run_routing(settings: Settings, skills: dict[str, SkillSpec], cases: list[di
     for i, c in enumerate(cases):
         progress(log, "questions", i, len(cases), message=c["q"][:80], passed=ok, failed=i - ok)
         t0 = time.perf_counter()
-        d = R.route(openai_client, c["q"], [], None, skills)
+        d = R.route(llm, c["q"], [], None, skills)
         ms = int((time.perf_counter() - t0) * 1000)
         cost = usage_cost(pricing, settings.router_model, d.usage)["total_usd"] if d.usage else 0.0
         hit = d.skill_id == c["skill"]
@@ -257,72 +257,49 @@ def run_rag(settings: Settings, skills: dict[str, SkillSpec], cases: list[dict],
     return run
 
 
-def run_compare(settings: Settings, skills: dict[str, SkillSpec], base_body: str, skill_id: str, models: list[str], questions: list[str], *, log: Log = print) -> dict:
-    """Temporary agents bank-<skill>-cmp-<model> (same definition, model swapped); deleted afterwards."""
-    import re
+def run_compare(settings: Settings, skills: dict[str, SkillSpec], base_body: str, skill_id: str, models: list[str], questions: list[str], *, log: Log = print,
+                session_factory=None) -> dict:
+    """The same skill definition with the model swapped, each question on a fresh in-memory thread; nothing to clean up."""
+    from langgraph.checkpoint.memory import InMemorySaver
 
-    from .foundry import project_client
-    from .foundry_sync import SOURCE_TAG, desired_definition, ensure_agent, plan_kb_owners
-    from .models import Answer
-    from .chat import ChatSession, parse_response, strip_markers
-    from .pricing import load_pricing, usage_cost
-    from .router import usage_dict
+    from .chat import ChatSession
+    from .llm import chat_model
 
     spec = skills[skill_id]
-    client = project_client(settings)
-    openai_client = client.get_openai_client()
-    owner = plan_kb_owners(settings, skills)[skill_id]
-    pricing = load_pricing(settings)
     run = new_run("compare")
     run["summary"] = {"skill": skill_id, "models": models, "questions": len(questions)}
-    temp_agents: list[str] = []
-    try:
-        progress(log, "agents", 0, len(models), message="")
-        for m in models:
-            progress(log, "agents", models.index(m), len(models), message=m)
-            name = f"{spec.agent_name}-cmp-{re.sub(r'[^a-z0-9]+', '-', m.lower()).strip('-')}"[:60]
-            spec_m = spec.model_copy(update={"model": m})
-            definition = desired_definition(settings, spec_m, base_body, owner)
-            action, version = ensure_agent(client, name, definition, {"source": f"{SOURCE_TAG}-compare", "skill_id": skill_id}, f"temporary comparison agent for {skill_id} on {m}")
-            temp_agents.append(name)
-            log(f"[{m}] agent {name} {action} v{version}")
-        rows = [{"q": q, "by_model": {}} for q in questions]
-        total = len(models) * len(questions)
-        done = 0
-        progress(log, "questions", 0, total, message="")
-        for m, name in zip(models, temp_agents):
-            for row in rows:
-                progress(log, "questions", done, total, message=f"{m}: {row['q'][:60]}")
-                done += 1
-                t0 = time.perf_counter()
-                try:
-                    conv = openai_client.conversations.create()
-                    resp = openai_client.responses.create(conversation=conv.id, input=row["q"], extra_body={"agent_reference": {"name": name, "type": "agent_reference"}})
-                    text, _c, _t, extra = parse_response(resp)
-                    usage = usage_dict(getattr(resp, "usage", None))
-                    cost = usage_cost(pricing, m, usage)["total_usd"]
-                    row["by_model"][m] = {"text": strip_markers(text), "ms": int((time.perf_counter() - t0) * 1000), "input_tokens": usage.get("input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),
-                                          "cost_usd": cost, "retrieval_calls": extra["retrieval"]["calls"], "documents": extra["retrieval"]["documents"]}
-                    try:
-                        openai_client.conversations.delete(conversation_id=conv.id)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    log(f"[{m}] {row['q'][:50]} -> {row['by_model'][m]['ms']} ms, ${cost:.4f}")
-                except Exception as e:  # noqa: BLE001
-                    row["by_model"][m] = {"error": f"{type(e).__name__}: {str(e)[:200]}", "ms": int((time.perf_counter() - t0) * 1000), "cost_usd": 0.0}
-                    log(f"[{m}] ERROR {row['by_model'][m]['error']}")
-        run["rows"] = rows
-        progress(log, "cleanup", total, total, message="deleting temporary agents")
-        for m in models:
-            vals = [r["by_model"].get(m, {}) for r in rows]
-            run["summary"][f"{m} avg_ms"] = int(sum(v.get("ms", 0) for v in vals) / max(1, len(vals)))
-            run["summary"][f"{m} cost_usd"] = sum(v.get("cost_usd", 0.0) for v in vals)
-    finally:
-        for name in temp_agents:
+    rows = [{"q": q, "by_model": {}} for q in questions]
+    total = len(models) * len(questions)
+    done = 0
+    progress(log, "questions", 0, total, message="")
+    for m in models:
+        skills_m = {**skills, skill_id: spec.model_copy(update={"model": m})}
+        for row in rows:
+            progress(log, "questions", done, total, message=f"{m}: {row['q'][:60]}")
+            done += 1
+            t0 = time.perf_counter()
             try:
-                client.agents.delete(name, force=True)
-                log(f"deleted temporary agent {name}")
+                session = session_factory(m) if session_factory else ChatSession(
+                    settings, skills_m, llm_factory=lambda _model, m=m: chat_model(settings, m), checkpointer=InMemorySaver(), base_body=base_body)
+                session.kb_owners = {**session.kb_owners}  # per-session copy; the model swap does not move the knowledge base
+                # the live (unpublished) definition carries the swapped model: bypass the registry for this one skill
+                from .sync import desired_definition
+
+                session._definition_for = lambda sp, _d=desired_definition, _o=session.kb_owners: (_d(settings, sp, base_body, _o.get(sp.id, sp)), "compare")
+                ans = session.ask(row["q"], force_skill=skill_id, with_sources=False)
+                usage = (ans.trace.get("usage") or {}).get("agent") or {}
+                cost = (ans.trace.get("cost") or {})
+                row["by_model"][m] = {"text": ans.text, "ms": int((time.perf_counter() - t0) * 1000), "input_tokens": usage.get("input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),
+                                      "cost_usd": float((cost.get("agent") or {}).get("total_usd", cost.get("total_usd", 0.0)) or 0.0),
+                                      "retrieval_calls": (ans.trace.get("retrieval") or {}).get("calls", 0), "documents": (ans.trace.get("retrieval") or {}).get("documents", 0)}
+                log(f"[{m}] {row['q'][:50]} -> {row['by_model'][m]['ms']} ms, ${row['by_model'][m]['cost_usd']:.4f}")
             except Exception as e:  # noqa: BLE001
-                log(f"could not delete {name}: {e}")
+                row["by_model"][m] = {"error": f"{type(e).__name__}: {str(e)[:200]}", "ms": int((time.perf_counter() - t0) * 1000), "cost_usd": 0.0}
+                log(f"[{m}] ERROR {row['by_model'][m]['error']}")
+    run["rows"] = rows
+    for m in models:
+        vals = [r["by_model"].get(m, {}) for r in rows]
+        run["summary"][f"{m} avg_ms"] = int(sum(v.get("ms", 0) for v in vals) / max(1, len(vals)))
+        run["summary"][f"{m} cost_usd"] = sum(v.get("cost_usd", 0.0) for v in vals)
     run["finished_at"] = _now()
     return run

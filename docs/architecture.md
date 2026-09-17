@@ -5,25 +5,29 @@
 ```mermaid
 flowchart LR
   U[User / web page] --> API[FastAPI bankrag.api]
-  API -->|1 route| RA[Foundry agent bank-router\ngpt-4.1-mini, strict JSON]
-  API -->|2 answer| SA[Foundry agent bank-&lt;skill&gt;\ninstructions = _base + SKILL.md]
-  SA -->|MCP knowledge_base_retrieve| KB[(AI Search knowledge base kb-&lt;skill&gt;)]
+  API -->|1 route| RM[router model\nAzureChatOpenAI, strict JSON]
+  API -->|2 answer| G[LangGraph skill graph bank-&lt;skill&gt;\nagent &lt;-&gt; tools -&gt; compact]
+  G -->|knowledge_base_retrieve over MCP\napp identity or query key| KB[(AI Search knowledge base kb-&lt;skill&gt;)]
+  G -->|fx_rate, find_branch in-process| SV[services.py -&gt; bangkokbank.com APIs]
   KB --> KS[knowledge source ks-&lt;skill&gt;\nbase_filter product_category eq skill]
   KS --> IDX[(index bank-products\nvector + semantic)]
   API -->|3 sources| KB
+  G --- CK[(SqliteSaver thread per session\n.state/bankrag.db)]
   subgraph build time
-    SK[skills/&lt;id&gt;/SKILL.md] -->|bankrag skills sync| SA
+    SK[skills/&lt;id&gt;/SKILL.md] -->|bankrag skills sync| AV[(agent_versions\nSQLite registry)]
     SK --> KS
-    SK --> CONN[project connection kb-&lt;skill&gt;-mcp\nProjectManagedIdentity]
     DOCS[knowledge/&lt;category&gt;/**] -->|bankrag ingest| IDX
   end
+  AV -.->|latest published definition| G
 ```
 
 ## Request flow (`POST /chat`)
 
-1. **Route.** The message, the last user turns and the previous skill are sent to the `bank-router` agent, whose output is a strict JSON object `{skill_id, confidence, language, reason}`. Low-confidence follow-ups stay on the previous skill; `offtopic` returns a canned reply without retrieval. If the router agent is unreachable, a keyword fallback picks a skill.
-2. **Answer.** The chosen skill agent (`bank-<skill>`) runs through the Foundry Responses API on a per-session conversation (`agent_reference` per call, one conversation shared by all skills). The agent's MCP tool calls `knowledge_base_retrieve` on its knowledge base; the model writes the answer with citations.
-3. **Sources.** The API also calls the knowledge base `retrieve` action directly to return references with real `source_url`s (citations from search-index knowledge sources otherwise point at the MCP endpoint).
+1. **Route.** The message, the last user turns and the previous skill go to the router model (`ROUTER_MODEL`) with the published `bank-router` instructions and a strict JSON schema `{skill_id, confidence, language, reason}`. Low-confidence follow-ups stay on the previous skill; `offtopic` returns a canned reply without touching the thread. If the model call fails, a keyword fallback picks a skill.
+2. **Answer.** The chosen skill's LangGraph graph runs on the session's thread (`SqliteSaver`, thread id in `sessions.conversation_id`). Its `agent` node calls the skill's model with the published instructions, a reply-language note and the customer's location note, bound to the skill's tools: `knowledge_base_retrieve` (the Foundry IQ knowledge base over its MCP endpoint, authenticated by the app itself) and any live-service tools (`fx_rate`, `find_branch`, called in-process). Tool rounds are capped; `compact` then removes the turn's tool traffic from the thread so only the question and the answer stay. Tokens stream to the browser as they are produced.
+3. **Sources.** In parallel the API calls the knowledge base `retrieve` action directly to return references with real `source_url`s; the `【n:m†title】` markers the model echoes are resolved against them (or by one index lookup) into citations.
+
+Supervisor mode (`ORCHESTRATION_MODE=supervisor`) replaces step 1: one graph per session whose `concierge` node (the published `bank-concierge` instructions, `CONCIERGE_MODEL`) is bound to one `handoff_to_<skill>` tool per skill. A handoff runs that skill's graph statelessly inside the `specialist` node and its answer streams straight to the customer; the trace carries a `handoff` block with the specialist's own usage and cost. Small talk is answered by the concierge itself.
 
 ## Data model
 
@@ -44,7 +48,7 @@ Knowledge objects per skill: knowledge source `ks-<id>` (search-index kind, `bas
 
 ## Sessions and traces
 
-`POST /chat` loads or creates a session (SQLite `.state/bankrag.db`), rehydrates a `ChatSession` (Foundry conversation id, history, previous skill), routes, calls the skill agent with a developer-role reply-language note, then stores both turns. Each assistant turn carries a `trace`: timings per phase, router/agent token usage (input, output, cached, reasoning), retrieval calls/chunks/tokens, query variants and reasoning summaries; the `turns` table exposes these columns for analysis and `GET /sessions/stats` aggregates them.
+`POST /chat` loads or creates a session (SQLite `.state/bankrag.db`), rehydrates a `ChatSession` (LangGraph thread id, history, previous skill), routes, runs the skill graph with a reply-language note in the system prompt, then stores both turns. The graph's prompt holds the last `HISTORY_TURNS` question/answer pairs of the thread plus a short recap of older ones (`trace.conversation.trimmed` counts the dropped pairs), so input tokens stay bounded however long the chat runs; a record whose thread has no checkpoint yet (a conversation from before the LangGraph memory, or a restored backup) is re-seeded from its stored turns on the next question. The checkpoint tables (`checkpoints`, `writes`) live in the same file as the sessions and travel with the backup; deleting a session deletes its thread. Each assistant turn carries a `trace`: timings per phase, router/agent token usage (input, output, cached, reasoning), retrieval calls/chunks/tokens, query variants and reasoning summaries; the `turns` table exposes these columns for analysis and `GET /sessions/stats` aggregates them.
 
 ## Ingest
 
@@ -54,7 +58,7 @@ Long actions run as in-memory jobs (`api._start_job`). Besides a log, each job c
 
 ## Sync
 
-`bankrag skills sync` is idempotent: for each skill it upserts the knowledge source and knowledge base, the project connection, then computes a hash of the desired agent definition and creates a new agent version only if the hash stored in the latest version's metadata differs. The router agent is rebuilt last because its enum depends on the skill set.
+`bankrag skills sync` is idempotent: for each skill it upserts the knowledge source and knowledge base, then computes a hash of the desired agent definition (`AgentDefinition`: model, composed instructions, tool refs) and publishes a new version in the SQLite `agent_versions` table only if the hash of the latest version differs. The concierge and the router are republished last because their tool list / enum depend on the skill set. The runtime answers with the latest published version, so an edit reaches the assistant only after a sync; before the first sync it composes the definition live. Studio's Versions pane reads the same table (`GET /skills/{id}/versions[/{v}]`).
 
 ## Eval reports
 
@@ -91,7 +95,7 @@ The `external` role is for people outside the team (a partner, a business review
 | Open the chat web page (`/` for externals, in place of the customer app; `/studio` is refused): chat with voice input, history and a how-it-was-produced panel, own conversations only | yes | no (they get Studio) | no (they get Studio) |
 | Open Studio, view every tab except Access | no | yes | yes |
 | Skills: create, edit, save, sync one or all, upload zip, playground, versions and restore | no | yes | yes |
-| Skills: delete a skill (and its Foundry agent / knowledge base), prune | no | no | yes |
+| Skills: delete a skill (and its published versions / knowledge base), prune | no | no | yes |
 | Knowledge: upload, crawl, import URLs, incremental ingest, re-ingest one file, chunk browser, search | no | yes | yes |
 | Knowledge: delete a file, full re-ingest of a category | no | no | yes |
 | Evals: edit question sets, upload xlsx/csv, run routing / grounded / quality / comparison, export, delete runs | no | yes | yes |
@@ -106,21 +110,16 @@ The server enforces this (`require_studio` refuses the external role, `require_a
 
 In the customer app, `GET /sessions` returns only the signed-in person's conversations (matched by email, or by name for sessions saved before emails were recorded) and `GET /sessions/{id}`, `/chat` on an existing session and `/chat/{id}/reset` refuse other people's sessions with 403. Studio members (tester or admin) may open any session and can pass `?all=1` to list them all (the external role may not); Studio's Conversations tab uses the review endpoints, which already cover everyone. Without SSO (local dev) nothing is filtered.
 
-## Native Foundry: registry and A2A handoff
+## Supervisor mode (in-process handoff)
 
-`foundry_native.py` runs inside `sync_skills`: publish each skill to the Foundry Skills API (hash-guarded, default version promoted) and the `bankrag-skills` toolbox; enable incoming A2A on each skill agent with an agent card; create `a2a-<id>` RemoteA2A connections; maintain the `bank-concierge` prompt agent whose tools are one `A2APreviewTool` per specialist. `ChatSession._ask_concierge` is used when `ORCHESTRATION_MODE=a2a`: no local router, the concierge streams its reply, A2A items land in `tool_calls`, the specialist is inferred from the A2A item fields and the trace carries a `handoff` block. Registry routes: `GET /registry/skills`, `GET /registry/skills/{name}`, `POST /registry/import`.
-
-## Handoff usage reconciliation
-
-`observability.py` queries Application Insights (`APPINSIGHTS_APP_ID`, Entra token, Monitoring Reader) for the spans sharing the concierge response's operation, summarises tokens per agent and writes `usage.specialist`, the combined `usage.total`, `cost.specialist` and `timings_ms.specialist` into the stored turn. `api.reconcile_pending` runs in a thread every 90 s over turns flagged `handoff.usage_pending`; `POST /sessions/{id}/reconcile` does it on demand.
-
+`supervisor.py` builds the `bank-concierge` definition (one `{"type": "handoff", "skill_id": ...}` tool ref per skill) and `graph.build_supervisor_graph` runs it: `concierge` -> `specialist` (the chosen skill's graph, stateless) -> `compact`. `ChatSession._ask_supervisor` is used when `ORCHESTRATION_MODE=supervisor`: no local router, the specialist's tokens stream to the customer, the handoff and the knowledge-base calls land in `tool_calls`, and the trace carries `handoff` (`mode`, `concierge`, `specialist`, `calls`), `usage.specialist` and `cost.specialist` immediately (this replaced the Foundry A2A relay, whose specialist usage had to be read back from Application Insights minutes later).
 
 ## Responsible Lending
 
-`rules.py` loads `rules/<pack>/` (PACK.md product taxonomy + one file per rule) and applies it twice: `prompt_block_for_skill` / `prompt_block_for_concierge` are compiled into the agent instructions at sync time (part of the hashed definition, so a rule change re-versions the affected agents), and `guard()` runs over every drafted answer in both `ask_stream` and `_ask_concierge` — it detects the regulated product families in the question and answer, evaluates the active rules covering them, appends missing mandatory warnings verbatim (streamed as one more delta) and writes the findings to `trace.compliance`. `rules_xlsx.py` merges the compliance team's sheet into the files, keeping how each rule is checked. Routes: `GET /rules`, `GET /rules/prompt`, `POST /rules/check`, `PUT /rules/{id}` (admin), `GET /rules.xlsx`, `POST /rules/import` (admin); Studio → Settings → Responsible lending. See [responsible-lending.md](responsible-lending.md).
+`rules.py` loads `rules/<pack>/` (PACK.md product taxonomy + one file per rule) and applies it twice: `prompt_block_for_skill` / `prompt_block_for_concierge` are compiled into the agent instructions at sync time (part of the hashed definition, so a rule change re-versions the affected agents), and `guard()` runs over every drafted answer in both `ask_stream` and `_ask_supervisor` — it detects the regulated product families in the question and answer, evaluates the active rules covering them, appends missing mandatory warnings verbatim (streamed as one more delta) and writes the findings to `trace.compliance`. `rules_xlsx.py` merges the compliance team's sheet into the files, keeping how each rule is checked. Routes: `GET /rules`, `GET /rules/prompt`, `POST /rules/check`, `PUT /rules/{id}` (admin), `GET /rules.xlsx`, `POST /rules/import` (admin); Studio → Settings → Responsible lending. See [responsible-lending.md](responsible-lending.md).
 
 ## Live services (FX, branches)
 
-`services.py` calls the public bangkokbank.com JSON APIs the website uses (exchange rates today, province/country lookups) with the site's APIM subscription value from `BBL_API_KEY`, through curl_cffi Chrome impersonation because the site is behind Akamai; responses are normalised defensively and the raw JSON is kept. `mcp_server.py` exposes them as MCP tools (`fx_rate` today) over stateless streamable HTTP, mounted at `/mcp/services`. A skill opts in with `tools:` in its frontmatter and `foundry_sync.services_tool` attaches an `MCPTool` to that agent; `bank-services` is the skill that carries it, and a skill with tools but no documents gets `TOOL_ONLY_NOTE` instead of the empty-knowledge-base refusal.
+`services.py` calls the public bangkokbank.com JSON APIs the website uses (exchange rates today, province/country lookups) with the site's APIM subscription value from `BBL_API_KEY`, through curl_cffi Chrome impersonation because the site is behind Akamai; responses are normalised defensively and the raw JSON is kept. `tools.py` wraps them as LangChain tools (`fx_rate`, `find_branch`) that the skill graphs call in-process; a skill opts in with `tools:` in its frontmatter and `sync.services_tool_refs` puts a `{"type": "function"}` ref in its definition. `bank-services` is the skill that carries them, and a skill with tools but no documents gets `TOOL_ONLY_NOTE` instead of the empty-knowledge-base refusal. `mcp_server.py` serves the same tool bodies over stateless streamable HTTP at `/mcp/services` for external MCP clients.
 
-Auth: in Azure the path stays behind Easy Auth and `connections.ensure_services_connection` creates a RemoteTool connection with `ProjectManagedIdentity` and the Easy Auth `api://<client-id>` audience, so the agent calls as the project's managed identity; the app then pins the caller's object id to `MCP_CALLER_PRINCIPALS` (Easy Auth alone would admit any tenant user). `MCP_TOOL_KEY` is the local-dev guard where there is no Easy Auth. `infra/13-services-tool.sh` sets the three container variables. Two integration details the transport forces: Starlette's `Mount` does not run a mounted app's lifespan (the parent lifespan runs the inner app's, or the task group never starts), and DNS-rebinding protection validates `Host`, so allowed hosts come from `PUBLIC_BASE_URL`.
+Auth for `/mcp/services`: in Azure the path stays behind Easy Auth and the app pins the caller's object id to `MCP_CALLER_PRINCIPALS` (Easy Auth alone would admit any tenant user). `MCP_TOOL_KEY` is the local-dev guard where there is no Easy Auth. `infra/13-services-tool.sh` sets the container variables. Two integration details the transport forces: Starlette's `Mount` does not run a mounted app's lifespan (the parent lifespan runs the inner app's, or the task group never starts), and DNS-rebinding protection validates `Host`, so allowed hosts come from `PUBLIC_BASE_URL`.

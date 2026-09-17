@@ -82,3 +82,21 @@ not leak into the other; its conversations are tagged `source=external` so the t
 `STUDIO_EXTERNALS` seeds the role like the other two, and because a seeded row is re-created on every start, the API
 refuses to delete any seeded account (admin, tester or external) and names the variable to change instead.
 Trade-off: a third front end to maintain; the shared helpers moved to `web/studio-common.js` to keep that small.
+
+## 28. LangGraph in-process agents replace the Foundry prompt agents, A2A and the trace reconciliation
+The agent layer moved from Foundry prompt agents (Responses API + server-side conversations, `MCPTool`, A2A concierge,
+native skill registry, ARM project connections, Application Insights reconciliation) to LangGraph graphs run inside the
+app on `AzureChatOpenAI`. What stayed: Foundry IQ retrieval (the graph calls the knowledge base's MCP endpoint itself,
+with the app's identity or the query key), the skill files and `compose_instructions`, `spec_hash` and the
+versioning contract (now a SQLite `agent_versions` table instead of Foundry agent versions), the SSE event protocol,
+the trace shape, the Sources panel, the Responsible Lending guard and the evals. What changed: memory is a LangGraph
+`SqliteSaver` thread in the sessions database, with a `HISTORY_TURNS` window plus recap and per-turn compaction instead
+of rotating Foundry conversations (decisions 12 and 16); the router is one structured-output call (decision 4); the
+handoff mode is an in-process supervisor whose specialist streams to the customer with its usage on the trace at once
+(decisions 24 and 25); model comparison runs the same definition with the model swapped, no temporary agents
+(decision 19); live tools are called in-process (`/mcp/services` stays for external clients); the registry/toolbox
+publishing is gone (decision 23). `langchain-mcp-adapters` could not be used because it pins `mcp<2` while the app's
+own MCP server needs `mcp>=2.2`, so `kb_tools.py` wraps the mcp 2.x client in about eighty lines. Trade-offs: agent
+logic is now code we run and test offline (fake model + fake tool), and specialist accounting is immediate; in exchange
+the app owns the tool loop, the prompt window and the checkpoint store, and a Foundry-portal view of the agents no
+longer exists. Supersedes 3, 4, 8, 12, 16, 19, 23, 24 and 25 where they describe Foundry mechanics.

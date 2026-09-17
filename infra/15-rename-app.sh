@@ -96,10 +96,10 @@ $OLD is still running on https://$OLD_FQDN and has not been touched.
 Still to do, in this order:
   1. CA_APP=$NEW bash infra/12-easyauth.sh    # sign-in for the new name (the old app keeps its own)
   2. CA_APP=$NEW bash infra/13-services-tool.sh
-  3. uv run bankrag skills sync               # repoints the bank-services-mcp connection at the new name
+  3. repoint any external MCP client at the new name
   4. Open https://$NEW_FQDN, sign in, and ask for a branch near you - check the answer really came from the tool.
   5. Happy? Then retire the old one:
        az containerapp delete -g $RG -n $OLD --yes
-     Not happy? Point the connection back with:
-       CA_APP=$OLD bash infra/13-services-tool.sh && uv run bankrag skills sync
+     Not happy? Point the callers back with:
+       CA_APP=$OLD bash infra/13-services-tool.sh
 NEXT

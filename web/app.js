@@ -54,7 +54,7 @@ async function pollJob(id, logEl, statusEl, done) {
 
 // ---- skills ----
 async function loadSkills() {
-  $("#skills-status").textContent = "loading (checks Foundry)…";
+  $("#skills-status").textContent = "loading…";
   const rows = await api("/skills"); const tb = $("#skills-table tbody"); tb.innerHTML = "";
   for (const r of rows) {
     const tr = document.createElement("tr"); tr.className = "clickable";

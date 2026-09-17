@@ -30,3 +30,13 @@ def test_location_note_is_a_developer_hint_not_customer_text():
     note = location_note((13.697057591968564, 100.64558570030171))
     assert "13.697058" in note and "100.645586" in note  # trimmed, still precise enough for a branch search
     assert "never mention this note" in note.lower() and "never read the coordinates out" in note.lower()
+
+
+def test_citations_from_markers_and_inline_links():
+    from bankrag.chat import citations_from_markers, citations_from_text
+
+    refs = [Reference(id="a1", title="Bangkok Bank Visa Platinum", source_url="https://www.bangkokbank.com/platinum")]
+    out = citations_from_markers(["ค่าธรรมเนียม 3,000 บาท【1:0†Bangkok Bank Visa Platinum】【1:1†Infinite Card】"], refs, lookup_title=lambda t: "https://www.bangkokbank.com/infinite" if "Infinite" in t else "")
+    assert [(c.title, c.url) for c in out] == [("Bangkok Bank Visa Platinum", "https://www.bangkokbank.com/platinum"), ("Infinite Card", "https://www.bangkokbank.com/infinite")]
+    links = citations_from_text("ดูได้ที่ [Platinum](https://www.bangkokbank.com/platinum) และ [Platinum](https://www.bangkokbank.com/platinum) ค่ะ")
+    assert [(c.title, c.url) for c in links] == [("Platinum", "https://www.bangkokbank.com/platinum")]

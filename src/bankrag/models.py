@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 AGENT_PREFIX = "bank-"
 KS_PREFIX = "ks-"
 KB_PREFIX = "kb-"
-CONNECTION_SUFFIX = "-mcp"
 ROUTER_AGENT = "bank-router"
+CONCIERGE_AGENT = "bank-concierge"
 
 
 class SkillSpec(BaseModel):
@@ -41,16 +41,30 @@ class SkillSpec(BaseModel):
         return f"{KB_PREFIX}{self.id}"
 
     @property
-    def connection_name(self) -> str:
-        return f"{self.kb_name}{CONNECTION_SUFFIX}"
-
-    @property
     def effective_filter(self) -> str:
         if self.filter is None:
             if self.product_category in ("", "all", "*"):
                 return ""
             return f"product_category eq '{self.product_category}'"
         return self.filter
+
+
+class AgentDefinition(BaseModel):
+    """What an agent is made of: the model, the composed instructions and the tools it may call.
+
+    Tool refs are plain dicts so the definition hashes and stores as JSON (never a secret inside):
+      {"type": "mcp", "server_label": "knowledge-base", "server_url": ..., "kb_name": ..., "allowed_tools": [...], "auth": "identity|apikey"}
+      {"type": "function", "name": "fx_rate"}
+      {"type": "handoff", "skill_id": "credit-card"}
+    `response_format` carries the router's strict JSON schema."""
+
+    model: str
+    instructions: str
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    response_format: Optional[dict[str, Any]] = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.model_dump(exclude_none=True)
 
 
 class RuleProduct(BaseModel):
@@ -205,7 +219,6 @@ class SyncRow(BaseModel):
     skill_id: str
     knowledge_source: str = ""
     knowledge_base: str = ""
-    connection: str = ""
     agent: str = ""
     action: str = ""  # created | unchanged | error | pruned | skipped
     version: str = ""

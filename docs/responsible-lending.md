@@ -81,7 +81,7 @@ bankrag rules prompt --skill credit-card   # the block that goes into bank-credi
 bankrag rules prompt                       # the block that goes into bank-concierge
 ```
 
-**Answer time — the app proves it.** Before an answer leaves `ChatSession` (both the router path and the A2A concierge
+**Answer time — the app proves it.** Before an answer leaves `ChatSession` (both the router path and the supervisor
 path), `rules.guard()` runs over the drafted text:
 
 1. detect the product families in the **answer** (taxonomy `match`, or the specialist's own family). What the customer

@@ -38,7 +38,7 @@ echo "== secrets + env"
 az containerapp secret set -g "$RG" -n "$APP" --secrets aoai-key="$AOAI_API_KEY" search-admin-key="$SEARCH_ADMIN_KEY" search-query-key="$SEARCH_QUERY_KEY" studio-password="$STUDIO_PASSWORD" -o none
 az containerapp update -g "$RG" -n "$APP" --image "$IMAGE" --min-replicas "$MIN" --max-replicas 1 \
   --set-env-vars AZURE_TENANT_ID="$AZURE_TENANT_ID" AZURE_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID" AZURE_RESOURCE_GROUP="$RG" \
-    FOUNDRY_ACCOUNT="$FOUNDRY_ACCOUNT" FOUNDRY_PROJECT="$FOUNDRY_PROJECT" FOUNDRY_PROJECT_ENDPOINT="$FOUNDRY_PROJECT_ENDPOINT" \
+    FOUNDRY_ACCOUNT="$FOUNDRY_ACCOUNT" AOAI_API_VERSION="${AOAI_API_VERSION:-2025-04-01-preview}" \
     AOAI_ENDPOINT="$AOAI_ENDPOINT" AOAI_API_KEY=secretref:aoai-key EMBED_DEPLOYMENT="$EMBED_DEPLOYMENT" EMBED_DIMS="$EMBED_DIMS" \
     DEFAULT_CHAT_MODEL="$DEFAULT_CHAT_MODEL" ROUTER_MODEL="$ROUTER_MODEL" \
     SEARCH_SERVICE_NAME="$SEARCH_SERVICE_NAME" SEARCH_ENDPOINT="$SEARCH_ENDPOINT" SEARCH_ADMIN_KEY=secretref:search-admin-key SEARCH_QUERY_KEY=secretref:search-query-key \
@@ -58,10 +58,14 @@ yaml.safe_dump(d, open(p, "w"))
 PY
 az containerapp update -g "$RG" -n "$APP" --yaml /tmp/ca.yaml -o none
 
-echo "== Foundry roles for the app identity"
+echo "== roles for the app identity"
 ACCOUNT_ID="/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$FOUNDRY_ACCOUNT"
-for role in "53ca6127-db72-4b80-b1b0-d745d6d5456d" "Contributor"; do   # Azure AI User (Foundry User) + Contributor (project connections)
+# Cognitive Services OpenAI User: chat completions without a key (the AOAI_API_KEY fallback); Reader: the deployments list in Studio
+for role in "Cognitive Services OpenAI User" "Reader"; do
   az role assignment create --assignee-object-id "$PRINCIPAL" --assignee-principal-type ServicePrincipal --role "$role" --scope "$ACCOUNT_ID" -o none 2>/dev/null && echo "assigned $role" || echo "exists: $role"
 done
+# the app calls the knowledge-base MCP endpoint itself (KB_MCP_AUTH=identity)
+SEARCH_ID="/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$RG/providers/Microsoft.Search/searchServices/$SEARCH_SERVICE_NAME"
+az role assignment create --assignee-object-id "$PRINCIPAL" --assignee-principal-type ServicePrincipal --role "Search Index Data Reader" --scope "$SEARCH_ID" -o none 2>/dev/null && echo "assigned Search Index Data Reader" || echo "exists: Search Index Data Reader"
 FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
 echo "APP URL: https://$FQDN"

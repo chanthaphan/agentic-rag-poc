@@ -17,10 +17,8 @@ const TR = (() => {
   if (t.route_reason) html += `<div class="tc-row"><span class="k">why</span><span class="v">${esc(t.route_reason)}</span></div>`;
   if (tr.handoff) {
     const ho = tr.handoff; const sp = u.specialist; const sc = cost.specialist;
-    let line = `${esc(ho.concierge)} → ${esc(ho.specialist)} over A2A (${(ho.calls || []).length} call${(ho.calls || []).length === 1 ? "" : "s"})`;
+    let line = `${esc(ho.concierge)} → ${esc(ho.specialist)} (in-process handoff, ${(ho.calls || []).length} call${(ho.calls || []).length === 1 ? "" : "s"})`;
     if (sp) line += `<br>specialist: ${sp.input_tokens} in / ${sp.output_tokens} out${sp.cached_tokens ? ` (${sp.cached_tokens} cached)` : ""}${sc ? ` · ${fmtUsd(sc.total_usd)}` : ""}${tm.specialist ? ` · ${(tm.specialist / 1000).toFixed(1)} s` : ""}${(sc && sc.agents && sc.agents[0] && sc.agents[0].tools && sc.agents[0].tools.length) ? ` · ${sc.agents[0].tools.map((x) => x.replace(/^mcp_[^.]*\./, "")).join(", ")}` : ""}`;
-    else if (ho.usage_pending) line += `<br><span class="muted">specialist tokens: waiting for the Foundry trace (a few minutes)…</span> <a href="#" class="tc-reconcile" data-session="${esc(t.session_id || "")}">check now</a>`;
-    else if (ho.reconcile_note) line += `<br><span class="muted">${esc(ho.reconcile_note)}</span>`;
     else if (cost.note) line += `<br><span class="muted">${esc(cost.note)}</span>`;
     html += `<div class="tc-row"><span class="k">handoff</span><span class="v">${line}</span></div>`;
   }

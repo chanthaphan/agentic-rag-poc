@@ -28,7 +28,7 @@ az ad app update --id "$CLIENT_ID" --web-redirect-uris $REDIRECTS --enable-id-to
 SECRET=$(az ad app credential reset --id "$CLIENT_ID" --display-name "easyauth-$APP" --years 1 --append --query password -o tsv)
 az containerapp secret set -g "$RG" -n "$APP" --secrets easyauth-secret="$SECRET" -o none
 # Easy Auth is told to accept api://<client-id>, so that URI has to actually exist on the app registration: without it
-# Entra cannot issue a token for that resource, and a service calling us with its managed identity (the Foundry agents
+# Entra cannot issue a token for that resource, and a service calling us with its managed identity (an MCP client
 # reaching /mcp/services) fails before any request leaves Azure.
 az ad app update --id "$CLIENT_ID" --identifier-uris "api://$CLIENT_ID" -o none
 

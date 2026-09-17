@@ -204,27 +204,26 @@ def test_rules_endpoints(tmp_path, monkeypatch):
 
 
 # ---- the guard inside the chat flow ----
-class _Ev:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
+def _session(settings, skills, text: str):
+    """A ChatSession whose model replays one answer and whose memory lives in-process."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from bankrag import chat as chat_mod
+    from fakes import FakeAgentModel, ai
+
+    model = FakeAgentModel(responses=[ai(text)])
+    return chat_mod.ChatSession(settings, skills, llm_factory=lambda m: model, checkpointer=InMemorySaver())
 
 
-def _fake_openai(answer_text: str):
-    """Just enough of the Foundry Responses API for ChatSession.ask_stream."""
-    final = _Ev(type="response", output_text=answer_text, output=[], usage=None, model="gpt-4.1-mini", id="resp_1")
-    stream = [_Ev(type="response.output_text.delta", delta=answer_text), _Ev(type="response.completed", response=final)]
-    return _Ev(conversations=_Ev(create=lambda **kw: _Ev(id="conv_1")),
-               responses=_Ev(create=lambda **kw: iter(stream)))
-
-
-def test_chat_appends_the_missing_warning_and_traces_it(settings, monkeypatch):
+def test_chat_appends_the_missing_warning_and_traces_it(settings, monkeypatch, tmp_path):
     from bankrag import chat as chat_mod
     from bankrag.models import RouteDecision
 
+    settings.state_dir = tmp_path / ".state"
     text = "บัตรเครดิต Visa Platinum ค่าธรรมเนียมรายปี 3,000 บาทค่ะ"
     skills = load_skills(ROOT / "skills")
     monkeypatch.setattr(chat_mod, "synced_kb_owners", lambda s, sk: dict(sk))
-    session = chat_mod.ChatSession(settings, skills, project=_Ev(get_openai_client=lambda: _fake_openai(text)))
+    session = _session(settings, skills, text)
     monkeypatch.setattr(session, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=1.0, language="th", reason="test"))
 
     events = list(session.ask_stream("ค่าธรรมเนียมบัตรเครดิตเท่าไหร่", with_sources=False))
@@ -236,14 +235,15 @@ def test_chat_appends_the_missing_warning_and_traces_it(settings, monkeypatch):
     assert "appended" not in answer.trace["compliance"]  # the trace keeps the report, not the payload
 
 
-def test_a_broken_rule_pack_does_not_break_the_chat(settings, monkeypatch):
+def test_a_broken_rule_pack_does_not_break_the_chat(settings, monkeypatch, tmp_path):
     from bankrag import chat as chat_mod
     from bankrag.models import RouteDecision
 
+    settings.state_dir = tmp_path / ".state"
     monkeypatch.setattr(chat_mod.RL, "guard", lambda *a, **kw: (_ for _ in ()).throw(ValueError("bad pack")))
     monkeypatch.setattr(chat_mod, "synced_kb_owners", lambda s, sk: dict(sk))
     skills = load_skills(ROOT / "skills")
-    session = chat_mod.ChatSession(settings, skills, project=_Ev(get_openai_client=lambda: _fake_openai("บัตรเครดิต")))
+    session = _session(settings, skills, "บัตรเครดิต")
     monkeypatch.setattr(session, "decide", lambda q, force=None: RouteDecision(skill_id="credit-card", confidence=1.0, language="th", reason="test"))
     answer = next(e["answer"] for e in session.ask_stream("q", with_sources=False) if e["type"] == "done")
     assert answer.text == "บัตรเครดิต" and "bad pack" in answer.trace["compliance"]["error"]
