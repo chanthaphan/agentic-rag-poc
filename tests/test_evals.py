@@ -8,28 +8,24 @@ from bankrag.skills import load_skills
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class FakeResp:
-    def __init__(self, text):
-        self.output_text = text
-        self.usage = None
+def _router():
+    from langchain_core.messages import AIMessage
 
+    from fakes import FakeAgentModel
 
-class FakeResponses:
-    def create(self, **kw):
-        q = kw["input"]
+    def respond(messages):
+        q = messages[-1].content
         skill = "credit-card" if "บัตรเครดิต" in q or "credit" in q.lower() else "offtopic" if "อากาศ" in q else "general"
-        return FakeResp(f'{{"skill_id": "{skill}", "confidence": 0.9, "language": "th", "reason": "stub"}}')
+        return AIMessage(content=f'{{"skill_id": "{skill}", "confidence": 0.9, "language": "th", "reason": "stub"}}')
 
-
-class FakeOpenAI:
-    responses = FakeResponses()
+    return FakeAgentModel(responder=respond)
 
 
 def test_run_routing_with_stub_router(tmp_path):
     s = Settings.load(ROOT)
     skills = load_skills(ROOT / "skills")
     cases = [{"q": "บัตรเครดิตใบไหนดี", "skill": "credit-card"}, {"q": "วันนี้อากาศดีไหม", "skill": "offtopic"}, {"q": "อยากซื้อประกัน", "skill": "insurance"}]
-    run = run_routing(s, skills, cases, openai_client=FakeOpenAI(), log=lambda m: None)
+    run = run_routing(s, skills, cases, llm=_router(), log=lambda m: None)
     assert run["summary"]["passed"] == 2 and round(run["summary"]["accuracy"], 2) == 0.67 and run["rows"][2]["got"] == "general"
 
 

@@ -1,4 +1,4 @@
-"""Skill router: a Foundry prompt agent with strict JSON output, plus a keyword fallback."""
+"""Skill router: one chat-model call with strict JSON output, plus a keyword fallback."""
 from __future__ import annotations
 
 import json
@@ -6,10 +6,11 @@ import re
 import time
 from typing import Any
 
-from azure.ai.projects.models import PromptAgentDefinition, PromptAgentDefinitionTextOptions, TextResponseFormatJsonSchema
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from .config import Settings
-from .models import ROUTER_AGENT, RouteDecision, SkillSpec
+from .llm import usage_from_message
+from .models import ROUTER_AGENT, AgentDefinition, RouteDecision, SkillSpec
 
 OFFTOPIC = "offtopic"
 
@@ -17,6 +18,8 @@ OFFTOPIC = "offtopic"
 def route_schema(skills: dict[str, SkillSpec]) -> dict[str, Any]:
     ids = sorted(skills) + [OFFTOPIC]
     return {
+        "title": "route",  # langchain-openai needs a name on a dict schema to turn it into a response format
+        "description": "Which skill answers the customer's message.",
         "type": "object",
         "additionalProperties": False,
         "properties": {
@@ -50,11 +53,11 @@ def router_instructions(skills: dict[str, SkillSpec]) -> str:
     )
 
 
-def build_router_definition(settings: Settings, skills: dict[str, SkillSpec]) -> PromptAgentDefinition:
-    return PromptAgentDefinition(
+def build_router_definition(settings: Settings, skills: dict[str, SkillSpec]) -> AgentDefinition:
+    return AgentDefinition(
         model=settings.router_model,
         instructions=router_instructions(skills),
-        text=PromptAgentDefinitionTextOptions(format=TextResponseFormatJsonSchema(name="route", schema=route_schema(skills), strict=True)),
+        response_format={"type": "json_schema", "name": "route", "schema": route_schema(skills), "strict": True},
     )
 
 
@@ -71,7 +74,17 @@ def keyword_route(question: str, skills: dict[str, SkillSpec]) -> RouteDecision:
     return RouteDecision(skill_id=best.id, confidence=min(0.9, 0.4 + 0.15 * best_hits), reason=f"keyword fallback: {best_hits} keyword hit(s)")
 
 
-def route(openai_client, question: str, history: list[dict[str, str]], prev_skill: str | None, skills: dict[str, SkillSpec]) -> RouteDecision:
+def _parse(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    text = raw if isinstance(raw, str) else str(getattr(raw, "content", raw) or "")
+    m = re.search(r"\{.*\}", text, re.S)
+    return json.loads(m.group(0) if m else text)
+
+
+def route(llm, question: str, history: list[dict[str, str]], prev_skill: str | None, skills: dict[str, SkillSpec],
+          instructions: str | None = None) -> RouteDecision:
+    """Ask the router model; on any failure degrade to keywords (a broken router must never block the chat)."""
     payload = {
         "prev_skill": prev_skill,
         "recent_turns": [t for t in history[-6:] if t.get("role") == "user"][-3:],
@@ -79,13 +92,17 @@ def route(openai_client, question: str, history: list[dict[str, str]], prev_skil
     }
     t0 = time.perf_counter()
     try:
-        resp = openai_client.responses.create(
-            input=json.dumps(payload, ensure_ascii=False),
-            extra_body={"agent_reference": {"name": ROUTER_AGENT, "type": "agent_reference"}},
-        )
-        raw = resp.output_text.strip()
-        m = re.search(r"\{.*\}", raw, re.S)
-        data = json.loads(m.group(0) if m else raw)
+        structured = llm.with_structured_output(route_schema(skills), method="json_schema", strict=True, include_raw=True)
+        out = structured.invoke([SystemMessage(content=instructions or router_instructions(skills)),
+                                 HumanMessage(content=json.dumps(payload, ensure_ascii=False))])
+        raw_msg = out.get("raw") if isinstance(out, dict) else None
+        data = out.get("parsed") if isinstance(out, dict) else None
+        if data is None:
+            if isinstance(out, dict) and out.get("parsing_error"):
+                raise out["parsing_error"]
+            data = _parse(raw_msg if raw_msg is not None else out)
+        if not isinstance(data, dict):
+            data = data.model_dump() if hasattr(data, "model_dump") else dict(data)
         skill_id = str(data.get("skill_id", ""))
         if skill_id != OFFTOPIC and skill_id not in skills:
             raise ValueError(f"router returned unknown skill '{skill_id}'")
@@ -94,20 +111,22 @@ def route(openai_client, question: str, history: list[dict[str, str]], prev_skil
             confidence=float(data.get("confidence", 0.5)),
             language=str(data.get("language", "th")),
             reason=str(data.get("reason", "")),
-            usage=usage_dict(getattr(resp, "usage", None)),
+            usage=usage_from_message(raw_msg),
             elapsed_ms=int((time.perf_counter() - t0) * 1000),
         )
     except Exception as e:  # noqa: BLE001 - degrade to keywords, never block the chat
         d = keyword_route(question, skills)
-        d.reason = f"{d.reason} (router agent failed: {type(e).__name__}: {str(e)[:120]})"
+        d.reason = f"{d.reason} (router model failed: {type(e).__name__}: {str(e)[:120]})"
         d.elapsed_ms = int((time.perf_counter() - t0) * 1000)
         return d
 
 
 def usage_dict(usage: Any) -> dict[str, int]:
-    """Normalise a Responses API usage object to plain ints."""
+    """Normalise a usage object (LangChain `usage_metadata` dict, an AIMessage, or an OpenAI-style object) to plain ints."""
     if usage is None:
         return {}
+    if isinstance(usage, dict) or hasattr(usage, "usage_metadata"):
+        return usage_from_message(usage)
     g = lambda obj, name: getattr(obj, name, None) if obj is not None else None  # noqa: E731
     out = {
         "input_tokens": g(usage, "input_tokens") or 0,

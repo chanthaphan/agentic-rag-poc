@@ -57,6 +57,7 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 .account { position:absolute; right:18px; top:96px; z-index:20; min-width:200px; background:rgba(255,255,255,.98); border:1px solid rgba(20,40,70,.08); border-radius:14px; padding:12px 14px; box-shadow:0 8px 24px rgba(20,40,70,.14); animation:fadeUp .2s ease; }
 .account .acc-name { font:var(--label-lg); font-weight:600; color:var(--bbl-ink); }
 .account .acc-email { font:var(--caption-lg); color:var(--gray-70); margin-top:2px; word-break:break-all; }
+.account .acc-link { display:block; margin-top:10px; padding:8px 0 0; border-top:1px solid var(--gray-20); font:var(--label-sm); font-weight:600; color:var(--bbl-70); text-decoration:none; }
 .account .acc-signout { display:block; margin-top:10px; padding:8px 0; border-top:1px solid var(--gray-20); font:var(--label-sm); font-weight:600; color:var(--red-70); text-decoration:none; }
 .icon-btn { width:40px; height:40px; border-radius:50%; border:none; background:transparent; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--bbl-60); }
 .avatar { width:40px; height:40px; border-radius:50%; background:var(--bbl-20); color:var(--bbl-70); font:var(--label-sm); font-weight:600; letter-spacing:.02em; display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.5); }
@@ -166,16 +167,14 @@ html, body { margin:0; background:#0c1622; min-height:100vh; font: var(--body-md
 
 /* real phones: drop the device frame and use the whole screen */
 @media (max-width: 700px) {
-  html, body { background:#0c1622; }
+  html, body { background:#d3dceb; }
   .stage { padding:0; min-height:100dvh; display:block; }
   .phone { width:100vw; height:100dvh; border-radius:0; box-shadow:none; transform:none; }
   .island, .statusbar, .home, .devpanel, .dp-show, .stage-note { display:none !important; }
-  .screen { padding-top:12px; }
+  .screen { padding-top:max(12px, env(safe-area-inset-top)); }
   .hdr h1 { font-size:26px; line-height:32px; }
-  .topnav { height:44px; background:#0c1622; padding:0 10px; }
-  .tn-btn { padding:5px 12px; font-size:13px; }
-  .stage { padding-top:44px; }
-  .phone { height:calc(100dvh - 44px); }
+  /* no dark bar on a real phone: Studio and Sign out live in the account menu (tap the initials) */
+  .topnav { display:none; }
   .composer { padding-bottom:max(12px, env(safe-area-inset-bottom)); }
   .sheet { max-height:80%; }
 }

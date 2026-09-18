@@ -258,15 +258,6 @@ function startListening() {
 }
 $("#btn-mic").addEventListener("click", () => (listening ? rec && rec.stop() : startListening()));
 if (!SR) $("#btn-mic").title = "Voice input needs Chrome or Edge";
-
-// handoff answers: the trace card's "check now" link pulls the specialist's tokens from the Foundry trace on demand
-document.addEventListener("click", async (e) => {
-  const a = e.target.closest(".tc-reconcile"); if (!a) return; e.preventDefault();
-  const sid = a.dataset.session || state.sessionId || ""; if (!sid) return; a.textContent = "checking…";
-  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); a.textContent = r.updated ? "updated" : (r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"); if (r.updated) loadSession(sid); }
-  catch (err) { a.textContent = err.message; }
-});
-
 // ---------- init ----------
 (async function init() {
   applyLang();

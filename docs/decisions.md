@@ -82,3 +82,39 @@ not leak into the other; its conversations are tagged `source=external` so the t
 `STUDIO_EXTERNALS` seeds the role like the other two, and because a seeded row is re-created on every start, the API
 refuses to delete any seeded account (admin, tester or external) and names the variable to change instead.
 Trade-off: a third front end to maintain; the shared helpers moved to `web/studio-common.js` to keep that small.
+
+## 28. LangGraph in-process agents replace the Foundry prompt agents, A2A and the trace reconciliation
+The agent layer moved from Foundry prompt agents (Responses API + server-side conversations, `MCPTool`, A2A concierge,
+native skill registry, ARM project connections, Application Insights reconciliation) to LangGraph graphs run inside the
+app on `AzureChatOpenAI`. What stayed: Foundry IQ retrieval (the graph calls the knowledge base's MCP endpoint itself,
+with the app's identity or the query key), the skill files and `compose_instructions`, `spec_hash` and the
+versioning contract (now a SQLite `agent_versions` table instead of Foundry agent versions), the SSE event protocol,
+the trace shape, the Sources panel, the Responsible Lending guard and the evals. What changed: memory is a LangGraph
+`SqliteSaver` thread in the sessions database, with a `HISTORY_TURNS` window plus recap and per-turn compaction instead
+of rotating Foundry conversations (decisions 12 and 16); the router is one structured-output call (decision 4); the
+handoff mode is an in-process supervisor whose specialist streams to the customer with its usage on the trace at once
+(decisions 24 and 25); model comparison runs the same definition with the model swapped, no temporary agents
+(decision 19); live tools are called in-process (`/mcp/services` stays for external clients); the registry/toolbox
+publishing is gone (decision 23). `langchain-mcp-adapters` could not be used because it pins `mcp<2` while the app's
+own MCP server needs `mcp>=2.2`, so `kb_tools.py` wraps the mcp 2.x client in about eighty lines. Trade-offs: agent
+logic is now code we run and test offline (fake model + fake tool), and specialist accounting is immediate; in exchange
+the app owns the tool loop, the prompt window and the checkpoint store, and a Foundry-portal view of the agents no
+longer exists. Supersedes 3, 4, 8, 12, 16, 19, 23, 24 and 25 where they describe Foundry mechanics.
+
+## 29. The documents are fetched before the model runs
+Measured on the same laptop, the LangGraph turn (16.5 s median) was slower than the Foundry one (12.1 s) for three
+reasons, none of them the search itself: the retrieval had moved from inside Azure into the app, so its 48 KB result
+crossed the wire twice; a fresh MCP session per call cost about 1.4 s of handshake before searching; and the model
+made two round trips (decide to retrieve, then answer) where Foundry streamed once. Meanwhile the app already ran a
+second, identical retrieve in parallel just to fill the Sources card and discarded its content. Now the skill's
+knowledge base is read once, through the REST retrieve action (1.3 s against 5 to 6 s over MCP), before the model
+runs; the documents are placed in the prompt right before the question, the same references fill the Sources card,
+and the tool stays bound for follow-ups the prefetch does not cover (the prompt orders a search first when nothing
+was prefetched). The MCP transport remains available with `KB_TRANSPORT=mcp` for comparison. Measured after the
+change: 6.4 to 9.3 s per turn with connections warm, input tokens down from about 27k to 4k to 10k (the MCP output
+was JSON with Thai escaped, which tokenises badly), citations intact. Trade-off: the first search uses the customer's
+question only, so recall depends on the model asking for a second search when the exact figure is missing; eight
+chunks instead of five compensate in part. Also fixed on the way: `skills sync --skip-kb` and the Skills panel now
+keep the knowledge-base owner the last real sync recorded, so a skill on the shared base is no longer republished
+pointing at a base that does not exist and no longer shows "outdated" forever.
+

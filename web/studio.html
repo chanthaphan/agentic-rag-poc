@@ -31,19 +31,14 @@
     <aside class="sk-side">
       <div class="panel">
         <div class="panel-head"><h3>Skills</h3><span id="sk-status" class="muted"></span></div>
-        <div class="row wrap sk-actions"><button id="sk-new">New skill</button><label class="btn-secondary">Upload zip <input type="file" id="sk-zip" accept=".zip" hidden></label><button id="sk-refresh" class="btn-secondary" title="Re-check Foundry">Refresh</button></div>
+        <div class="row wrap sk-actions"><button id="sk-new">New skill</button><label class="btn-secondary">Upload zip <input type="file" id="sk-zip" accept=".zip" hidden></label><button id="sk-refresh" class="btn-secondary" title="Re-check the published versions">Refresh</button></div>
         <div id="sk-cards" class="sk-cards"></div>
         <div class="muted sk-legend"><span class="dot in-sync"></span>in sync <span class="dot outdated"></span>outdated (save &amp; sync) <span class="dot missing"></span>not deployed</div>
       </div>
-      <div class="panel" id="sk-registry">
-        <div class="panel-head"><h3>Foundry skill registry</h3><span id="rg-status" class="muted"></span><span class="spacer"></span><button id="rg-refresh" class="btn-secondary">Load</button></div>
-        <div class="muted">Skills published to the Foundry Skills API (name <code>bankrag-&lt;id&gt;</code>) and attached to the toolbox <code>bankrag-skills</code>. Skills authored in the Foundry portal or VS Code can be imported here.</div>
-        <div id="rg-list" class="rg-list"></div>
-      </div>
       <div class="panel" id="sk-syncpanel">
-        <div class="panel-head"><h3>Foundry sync</h3><span id="sync-state" class="pill">idle</span></div>
-        <div id="sync-hint" class="muted">Edits reach the assistant only after a sync. "Save &amp; sync" pushes one skill; "Sync all" reconciles every agent, knowledge base and the router.</div>
-        <div class="row wrap sk-actions"><button id="sk-sync-all" class="btn-secondary">Sync all to Foundry</button><span id="sync-progress" class="muted"></span></div>
+        <div class="panel-head"><h3>Publish (sync)</h3><span id="sync-state" class="pill">idle</span></div>
+        <div id="sync-hint" class="muted">Edits reach the assistant only after a sync. "Save &amp; sync" pushes one skill; "Sync all" publishes every agent version, reconciles the knowledge bases, the concierge and the router.</div>
+        <div class="row wrap sk-actions"><button id="sk-sync-all" class="btn-secondary">Sync all</button><span id="sync-progress" class="muted"></span></div>
         <div class="bar" id="sync-barwrap" hidden><div id="sync-bar" class="fill"></div></div>
         <div id="sync-rows" class="sync-rows"></div>
         <details id="sync-logwrap"><summary class="muted">log</summary><pre id="sk-log" class="log"></pre></details>
@@ -57,7 +52,7 @@
         <ol class="muted sk-howto">
           <li><b>Edit</b> the description, keywords and instructions. The router reads the description and keywords to pick the skill.</li>
           <li><b>Try routing</b> with a real customer question to confirm the router picks this skill.</li>
-          <li><b>Save &amp; sync</b> to publish a new agent version in Foundry, then test it in the <b>Playground</b>.</li>
+          <li><b>Save &amp; sync</b> to publish a new agent version, then test it in the <b>Playground</b>.</li>
           <li><b>Versions</b> shows every deployed version and a diff against the local file, with restore.</li>
         </ol>
       </div>
@@ -72,7 +67,7 @@
             <button id="ed-save" class="btn-secondary" title="Cmd/Ctrl+S">Save</button>
             <button id="ed-save-sync">Save &amp; sync</button>
             <a id="ed-zip" class="btn-secondary" href="#" title="Download this skill as a zip">Zip</a>
-            <button id="ed-delete" class="btn-danger" data-admin title="Delete the skill folder and its Foundry agent / knowledge base">Delete</button>
+            <button id="ed-delete" class="btn-danger" data-admin title="Delete the skill folder, its published versions and its knowledge base">Delete</button>
           </div>
         </div>
         <div class="subtabs"><button data-pane="edit" class="on">Edit</button><button data-pane="preview">Preview</button><button data-pane="versions">Versions</button><button data-pane="playground">Playground</button></div>
@@ -232,7 +227,7 @@
           <div class="row wrap ev-actions"><button id="ev-add-quality" class="btn-secondary">Add question</button><button id="ev-save-quality" class="btn-secondary">Save questions</button><span class="ev-file"><a class="btn-secondary" href="/evals/quality.xlsx" title="Download the set as .xlsx (also the upload template)">Download .xlsx</a><label class="btn-secondary">Upload .xlsx / .csv <input type="file" class="ev-upload" data-set="quality" accept=".xlsx,.csv" hidden></label><select class="ev-upload-mode" data-set="quality" title="what to do with the uploaded questions"><option value="append">append (skip duplicates)</option><option value="replace">replace the whole set</option></select></span></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h3>Metrics and judge</h3><span class="muted">LLM-as-judge through your Foundry deployment (Azure OpenAI key from .env)</span></div>
+          <div class="panel-head"><h3>Metrics and judge</h3><span class="muted">LLM-as-judge through an Azure OpenAI deployment (key from .env)</span></div>
           <div class="qm-grid"><div><h4 class="qm-h">RAG</h4><div id="qm-rag" class="qm-list"></div></div><div><h4 class="qm-h">Agentic</h4><div id="qm-agentic" class="qm-list"></div></div></div>
           <div class="row wrap ev-actions"><label>Judge model <select id="qm-judge"></select></label><label>Pass threshold <input id="qm-threshold" type="number" min="0" max="1" step="0.05" value="0.7" style="width:80px"></label><label>Only first <input id="qm-limit" type="number" min="0" max="100" value="0" style="width:70px" title="0 = all questions"></label><button id="ev-run-quality">Run quality eval</button><span class="muted">Each question costs one answer plus several judge calls (roughly 5 to 10 s and a few cents per metric on gpt-4.1-mini).</span></div>
         </div>
@@ -373,10 +368,10 @@
     <div class="form" id="rt-form">
       <div class="two"><label>Router model <select id="rt-ROUTER_MODEL"></select></label><label>Default skill model <select id="rt-DEFAULT_CHAT_MODEL"></select></label></div>
       <div class="two"><label>Knowledge base reasoning <select id="rt-KB_REASONING_EFFORT"><option>minimal</option><option>low</option><option>medium</option></select></label><label>KB LLM deployment (for low/medium) <select id="rt-KB_LLM_DEPLOYMENT"></select></label></div>
-      <div class="two"><label>Orchestration <small>(how a question reaches a skill)</small><select id="rt-ORCHESTRATION_MODE"><option value="router">router: app-side router agent picks the skill (fast, one hop)</option><option value="a2a">a2a: Foundry concierge agent hands off to the specialist over A2A (native, two hops)</option></select></label><label>Concierge model <small>(a2a mode)</small><select id="rt-CONCIERGE_MODEL"></select></label></div>
+      <div class="two"><label>Orchestration <small>(how a question reaches a skill)</small><select id="rt-ORCHESTRATION_MODE"><option value="router">router: a routing model picks the skill (fast, one small call)</option><option value="supervisor">supervisor: the concierge model hands off to a specialist in-process (LangGraph)</option></select></label><label>Concierge model <small>(supervisor mode)</small><select id="rt-CONCIERGE_MODEL"></select></label></div>
       <div class="two"><label>Follow-up suggestions <small>(the chips under an answer)</small><select id="rt-SUGGESTIONS_MODE"><option value="dynamic">dynamic: written from the answer that was just given</option><option value="static">static: the skill's suggestions list</option></select></label><label>Suggestions model <small>(dynamic mode)</small><select id="rt-SUGGESTIONS_MODEL"></select></label></div>
-      <div class="two"><label>Foundry skill registry <select id="rt-FOUNDRY_NATIVE_SKILLS"><option value="1">on: publish every skill to the Foundry Skills API + toolbox bankrag-skills on sync</option><option value="0">off</option></select></label><label>Judge model <small>(quality evals)</small><select id="rt-JUDGE_MODEL"></select></label></div>
-      <div class="two"><label>Assistant name <input id="rt-ASSISTANT_NAME"></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
+      <div class="two"><label>History window <small>(earlier question/answer pairs the agent sees; older ones become a recap)</small><input id="rt-HISTORY_TURNS" type="number" min="0" max="50" style="width:90px"></label><label>Judge model <small>(quality evals)</small><select id="rt-JUDGE_MODEL"></select></label></div>
+      <div class="two"><label>Assistant name <small>(Thai, then English; both go into every prompt as {assistant_name} / {assistant_name_en}, and into the app greeting)</small><div class="row"><input id="rt-ASSISTANT_NAME"><input id="rt-ASSISTANT_NAME_EN"></div></label><label>Customer name / initials <div class="row"><input id="rt-APP_USER_NAME"><input id="rt-APP_USER_INITIALS" style="width:70px"></div></label></div>
       <div class="toolbar"><button id="rt-save" data-admin>Save settings</button><button id="rt-save-sync" class="btn-secondary" data-admin>Save &amp; sync all agents</button><span class="muted admin-note" data-tester>read-only: models and runtime settings are changed by a Studio admin</span><span id="rt-status" class="muted"></span></div>
     </div>
   </div>
@@ -423,7 +418,7 @@
             <label><input type="radio" name="bd-mode" value="merge" checked> Merge <span class="muted">(write the bundle's files over existing ones; keep everything else)</span></label>
             <label><input type="radio" name="bd-mode" value="replace"> Replace <span class="muted">(delete existing skills/ and knowledge/ first, for the parts you import)</span></label>
             <label><input type="checkbox" id="bd-ingest" checked> Ingest the knowledge spaces that changed</label>
-            <label><input type="checkbox" id="bd-sync" checked> Sync skills to Foundry afterwards</label>
+            <label><input type="checkbox" id="bd-sync" checked> Publish the skills (sync) afterwards</label>
           </div>
           <div class="row wrap"><button id="bd-import">Import</button><span id="bd-status" class="muted"></span></div>
         </div>

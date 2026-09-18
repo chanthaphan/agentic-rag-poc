@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "FOUNDRY_NATIVE_SKILLS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL")
+OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS")
 _overlay: dict[str, str] = {}
 
 
@@ -21,6 +21,11 @@ def _env(name: str, default: str = "") -> str:
     if name in _overlay and str(_overlay[name]).strip():
         return str(_overlay[name]).strip()
     return os.environ.get(name, default).strip()
+
+
+def _orchestration_mode(value: str) -> str:
+    v = (value or "").strip().lower() or "router"
+    return "supervisor" if v in ("supervisor", "a2a", "handoff", "concierge") else "router"
 
 
 def overlay_path(root: Path) -> Path:
@@ -59,12 +64,11 @@ class Settings:
     tenant_id: str
     subscription_id: str
     resource_group: str
-    foundry_account: str
-    foundry_project: str
-    # Foundry / models
-    project_endpoint: str
+    foundry_account: str  # the Azure OpenAI / Foundry account that holds the model deployments
+    # Azure OpenAI
     aoai_endpoint: str
     aoai_api_key: str
+    aoai_api_version: str
     embed_deployment: str
     embed_dims: int
     default_chat_model: str
@@ -80,21 +84,20 @@ class Settings:
     kb_reasoning_effort: str
     kb_llm_deployment: str
     judge_model: str
-    foundry_native_skills: bool
-    orchestration_mode: str  # router | a2a
+    orchestration_mode: str  # router | supervisor
     concierge_model: str
+    history_turns: int  # how many earlier question/answer pairs the agent sees; older ones become a short recap
     suggestions_mode: str  # dynamic: written from the turn | static: the skill's frontmatter list
     suggestions_model: str
-    appinsights_app_id: str  # Application Insights application id connected to the Foundry project (tracing)
     bbl_api_subscription: str  # subscription value the bangkokbank.com site sends with its own public API calls (FX, branches)
     bbl_api_base: str
     services_mcp_key: str  # local-dev fallback guard for /mcp/services; in Azure the caller is checked by identity
-    services_mcp_callers: list[str]  # object ids allowed to call /mcp/services (the Foundry project's managed identity)
-    services_mcp_audience: str  # token audience the agent's connection asks for, i.e. the Easy Auth api://<client-id>
-    public_base_url: str  # public https base of this app, so a Foundry agent can reach /mcp/services
+    services_mcp_callers: list[str]  # object ids allowed to call /mcp/services (external MCP clients)
+    public_base_url: str  # public https base of this app (Host allow-list of /mcp/services)
     public_base_aliases: list[str]  # other names this app answers on, so a domain move does not 421 mid-cutover
     google_maps_key: str  # optional: with it a place card shows an embedded map, without it a link that opens Maps
     kb_mcp_auth: str
+    kb_transport: str  # rest: one retrieve call | mcp: the knowledge base's MCP endpoint (a session per call)
     kb_max_output_tokens: int
     # App
     studio_password: str
@@ -103,7 +106,8 @@ class Settings:
     studio_externals: list[str]
     app_user_name: str
     app_user_initials: str
-    assistant_name: str
+    assistant_name: str  # the persona's Thai name; {assistant_name} in the prompts, the app title and greeting
+    assistant_name_en: str  # the same persona in English; {assistant_name_en} in the prompts and the English greeting
     root: Path
     skills_dir: Path
     knowledge_dir: Path
@@ -124,10 +128,9 @@ class Settings:
             subscription_id=_env("AZURE_SUBSCRIPTION_ID"),
             resource_group=_env("AZURE_RESOURCE_GROUP", "my-aiverse"),
             foundry_account=_env("FOUNDRY_ACCOUNT", "my-model-hub"),
-            foundry_project=_env("FOUNDRY_PROJECT", "firstProject"),
-            project_endpoint=_env("FOUNDRY_PROJECT_ENDPOINT").rstrip("/"),
             aoai_endpoint=_env("AOAI_ENDPOINT").rstrip("/"),
             aoai_api_key=_env("AOAI_API_KEY"),
+            aoai_api_version=_env("AOAI_API_VERSION", "2025-04-01-preview"),
             embed_deployment=_env("EMBED_DEPLOYMENT", "text-embedding-3-large"),
             embed_dims=int(_env("EMBED_DIMS", "3072")),
             default_chat_model=_env("DEFAULT_CHAT_MODEL", "gpt-4.1-mini"),
@@ -141,21 +144,20 @@ class Settings:
             kb_reasoning_effort=_env("KB_REASONING_EFFORT", "minimal"),
             kb_llm_deployment=_env("KB_LLM_DEPLOYMENT", "gpt-4.1-mini"),
             judge_model=_env("JUDGE_MODEL", "gpt-4.1-mini"),
-            foundry_native_skills=_env("FOUNDRY_NATIVE_SKILLS", "1").strip().lower() in ("1", "true", "yes", "on"),
-            orchestration_mode=(_env("ORCHESTRATION_MODE", "router").strip().lower() or "router"),
+            orchestration_mode=_orchestration_mode(_env("ORCHESTRATION_MODE", "router")),
             concierge_model=_env("CONCIERGE_MODEL", ""),
+            history_turns=int(_env("HISTORY_TURNS", "6") or "6"),
             suggestions_mode=(_env("SUGGESTIONS_MODE", "dynamic").strip().lower() or "dynamic"),
             suggestions_model=_env("SUGGESTIONS_MODEL", ""),
-            appinsights_app_id=_env("APPINSIGHTS_APP_ID", ""),
             bbl_api_subscription=_env("BBL_API_KEY", ""),
             bbl_api_base=_env("BBL_API_BASE", "https://www.bangkokbank.com/api").rstrip("/"),
             services_mcp_key=_env("MCP_TOOL_KEY", ""),
             services_mcp_callers=[p.strip() for p in _env("MCP_CALLER_PRINCIPALS", "").split(",") if p.strip()],
-            services_mcp_audience=_env("MCP_AUDIENCE", ""),
             public_base_url=_env("PUBLIC_BASE_URL", "").rstrip("/"),
             public_base_aliases=[u.strip().rstrip("/") for u in _env("PUBLIC_BASE_ALIASES", "").split(",") if u.strip()],
             google_maps_key=_env("GOOGLE_MAPS_KEY", ""),
             kb_mcp_auth=_env("KB_MCP_AUTH", "identity"),
+            kb_transport=(_env("KB_TRANSPORT", "rest").strip().lower() or "rest"),
             kb_max_output_tokens=int(_env("KB_MAX_OUTPUT_TOKENS", "0")),
             studio_password=_env("STUDIO_PASSWORD"),
             studio_admins=[e.strip().lower() for e in _env("STUDIO_ADMINS", "").split(",") if e.strip()],
@@ -164,6 +166,7 @@ class Settings:
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
             assistant_name=_env("ASSISTANT_NAME", "เกรส"),
+            assistant_name_en=_env("ASSISTANT_NAME_EN", "Grace"),
             root=root,
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),
@@ -176,10 +179,10 @@ class Settings:
 
     # ---- derived ----
     @property
-    def project_resource_id(self) -> str:
+    def account_resource_id(self) -> str:
         return (
             f"/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group}"
-            f"/providers/Microsoft.CognitiveServices/accounts/{self.foundry_account}/projects/{self.foundry_project}"
+            f"/providers/Microsoft.CognitiveServices/accounts/{self.foundry_account}"
         )
 
     @property

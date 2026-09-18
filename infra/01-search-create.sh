@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create the Free-tier Azure AI Search service, trying regions in order
 # (East US 2 is often capacity constrained). Enables RBAC + API keys (aadOrApiKey)
-# so the Foundry project identity can read the knowledge bases.
+# so the app identity can read the knowledge bases.
 set -euo pipefail
 RG="${AZURE_RESOURCE_GROUP:-my-aiverse}"
 NAME="${SEARCH_SERVICE_NAME:-bankrag-search-$(printf '%04x' $RANDOM)}"

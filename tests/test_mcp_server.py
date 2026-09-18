@@ -84,7 +84,7 @@ def _principal_header(oid: str) -> str:
     return b64.b64encode(json.dumps(claims).encode()).decode()
 
 
-def test_azure_pins_the_caller_to_the_foundry_identity(settings):
+def test_azure_pins_the_caller_to_the_allowed_identity(settings):
     """Easy Auth proves a tenant identity; only the project's managed identity may call the tools."""
     settings.services_mcp_callers = ["11111111-2222-3333-4444-555555555555"]
     settings.services_mcp_key = ""  # the key guard is not in play once identities are configured
@@ -128,7 +128,7 @@ def test_branch_tool_is_registered_and_passes_coordinates(settings, monkeypatch)
 
 def test_the_app_answers_on_the_old_name_while_a_domain_move_is_in_flight(settings, monkeypatch):
     """A Host the transport does not know is a 421 with nothing in the answer to explain it, so both names are allowed
-    until the Foundry connection has been repointed."""
+    until the client has been repointed."""
     from urllib.parse import urlparse
 
     monkeypatch.setattr(settings, "public_base_url", "https://chat.example.com", raising=False)

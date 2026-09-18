@@ -114,7 +114,7 @@ function render() {
     const byLang = c.starter_prompts_by_lang || {};
     c.starter_prompts = (TH ? byLang.th : byLang.en) && (TH ? byLang.th : byLang.en).length ? (TH ? byLang.th : byLang.en) : c.starter_prompts;
     body.innerHTML = `<div class="empty"><div class="greet">${esc(greeting(c.user_name))}</div>
-      <h2>${TH ? `${esc(c.assistant_name || "เกรส")} ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพค่ะ` : `I'm ${esc(c.assistant_name || "Grace")}, here to help you<br>with Bangkok Bank products`}</h2>
+      <h2>${TH ? `${esc(c.assistant_name || "เกรส")} ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพค่ะ` : `I'm ${esc(c.assistant_name_en || c.assistant_name || "Grace")}, here to help you<br>with Bangkok Bank products`}</h2>
       <div class="chips">${c.starter_prompts.map((p, i) => `<button class="chip" style="animation-delay:${(i + 1) * 0.08}s" data-q="${esc(p)}">${ICON.sparkles}<span>${esc(p)}</span></button>`).join("")}</div></div>`;
     body.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
     renderLog();
@@ -329,17 +329,11 @@ async function loadSession(id) {
     box.hidden = false; $("#acc-name").textContent = "…"; $("#acc-email").textContent = "";
     try { const w = await api("/whoami"); $("#acc-name").textContent = w.name || w.email || (TH ? "ยังไม่ได้ลงชื่อเข้าใช้" : "Not signed in"); $("#acc-email").textContent = w.email || (w.sso ? "" : TH ? "โหมดทดสอบในเครื่อง ไม่มี Microsoft sign-in" : "local mode, no Microsoft sign-in"); $("#acc-signout").hidden = !w.sso; $("#acc-signout").textContent = TH ? "ออกจากระบบ Microsoft" : "Sign out of Microsoft"; }
     catch (err) { $("#acc-name").textContent = err.message; }
+    // the Studio link: for staff (admin or tester), or for everyone when there is no access list (local dev, shared password)
+    try { const m = await api("/studio/me"); $("#acc-studio").hidden = m.access_managed && !["admin", "tester"].includes(m.role); $("#acc-studio").textContent = TH ? "เปิด Studio" : "Open Studio"; } catch { $("#acc-studio").hidden = true; }
   });
   document.addEventListener("click", (e) => { if (!$("#account").contains(e.target)) $("#account").hidden = true; });
   try { state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant"; } catch {}
   let saved = null; try { saved = localStorage.getItem("bankrag_session"); } catch {}
   if (saved) await loadSession(saved); else render();
 })();
-
-// handoff answers: pull the specialist's tokens from the Foundry trace on demand
-document.addEventListener("click", async (e) => {
-  const a = e.target.closest(".tc-reconcile"); if (!a) return; e.preventDefault();
-  const sid = a.dataset.session || (window.state && state.sessionId) || ""; if (!sid) return; a.textContent = "checking…";
-  try { const r = await api(`/sessions/${sid}/reconcile`, { method: "POST" }); a.textContent = r.updated ? "updated, reopen the trace" : (r.enabled ? "not in the trace yet, try again in a minute" : "tracing not connected"); if (r.updated && typeof loadSession === "function") loadSession(sid); }
-  catch (err) { a.textContent = err.message; }
-});

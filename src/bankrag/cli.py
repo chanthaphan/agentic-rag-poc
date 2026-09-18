@@ -12,9 +12,9 @@ from rich.table import Table
 
 from .config import ConfigError, Settings
 
-app = typer.Typer(help="Bangkok Bank product agent POC: Foundry agents + Azure AI Search (Foundry IQ)", no_args_is_help=True)
-setup_app = typer.Typer(help="Provision search index, knowledge bases, project connections")
-skills_app = typer.Typer(help="Validate, list and sync skills to Foundry")
+app = typer.Typer(help="Bangkok Bank product agent POC: LangGraph agents on Azure OpenAI + Azure AI Search (Foundry IQ)", no_args_is_help=True)
+setup_app = typer.Typer(help="Provision the search index and the knowledge bases")
+skills_app = typer.Typer(help="Validate, list and publish skills (agent versions)")
 eval_app = typer.Typer(help="Evaluate routing and answers")
 rules_app = typer.Typer(help="Responsible Lending rules: list, validate, import from / export to xlsx, check an answer")
 services_app = typer.Typer(help="Live Bangkok Bank services (FX rates, branch locator): probe the API and check the key")
@@ -54,7 +54,7 @@ def setup_index(delete: bool = typer.Option(False, help="delete and recreate the
 def setup_kb(skill: Optional[str] = typer.Option(None, help="only this skill id")):
     """Create or update knowledge sources and knowledge bases for every skill."""
     from . import knowledge_base as KB
-    from .foundry_sync import plan_kb_owners
+    from .sync import plan_kb_owners
 
     s = _settings()
     skills, _ = _skills(s)
@@ -69,34 +69,12 @@ def setup_kb(skill: Optional[str] = typer.Option(None, help="only this skill id"
         rprint(f"[green]{spec.id}[/]: knowledge source {ks}, knowledge base {kb} (filter: {spec.effective_filter or '(none)'})")
 
 
-@setup_app.command("connections")
-def setup_connections(skill: Optional[str] = typer.Option(None, help="only this skill id")):
-    """Create the RemoteTool project connections (project managed identity -> KB MCP endpoint)."""
-    from . import connections as CONN
-    from .foundry import credential
-    from .foundry_sync import plan_kb_owners
-
-    s = _settings()
-    skills, _ = _skills(s)
-    owners = plan_kb_owners(s, skills)
-    for spec in skills.values():
-        if skill and spec.id != skill:
-            continue
-        if owners[spec.id].id != spec.id:
-            rprint(f"[yellow]{spec.id}[/]: shares {owners[spec.id].connection_name}")
-            continue
-        res = CONN.ensure_kb_connection(s, spec, credential())
-        rprint(f"[green]{spec.id}[/]: connection {res.get('name')} -> {res.get('properties', {}).get('target')}")
-
-
 @setup_app.command("all")
 def setup_all():
-    """index + kb + connections + skills sync."""
+    """index + kb + skills sync."""
     setup_index(delete=False)
     setup_kb(skill=None)
-    if _settings().kb_mcp_auth != "apikey":
-        setup_connections(skill=None)
-    skills_sync(only=None, prune=False, keep=0, register_native=False)
+    skills_sync(only=None, prune=False, keep=0)
 
 
 # ---------------- skills ----------------
@@ -120,8 +98,8 @@ def skills_validate():
 
 
 @skills_app.command("list")
-def skills_list(remote: bool = typer.Option(True, help="compare with Foundry agent versions")):
-    from .foundry_sync import status
+def skills_list(remote: bool = typer.Option(True, help="compare with the published agent versions")):
+    from .sync import status
 
     s = _settings()
     skills, base = _skills(s)
@@ -138,20 +116,37 @@ def skills_list(remote: bool = typer.Option(True, help="compare with Foundry age
 @skills_app.command("sync")
 def skills_sync(
     only: Optional[str] = typer.Option(None, help="sync a single skill id"),
-    prune: bool = typer.Option(False, help="delete Foundry agents/KBs for skills whose folder was removed"),
+    prune: bool = typer.Option(False, help="delete agent versions/KBs for skills whose folder was removed"),
     keep: int = typer.Option(0, help="keep only the N newest agent versions (0 = keep all)"),
-    register_native: bool = typer.Option(False, help="also publish as native Foundry Skills (beta)"),
+    skip_kb: bool = typer.Option(False, help="publish agent versions only; leave the knowledge bases untouched"),
 ):
-    """Create/update knowledge sources, knowledge bases, connections and agent versions for every skill."""
-    from .foundry_sync import sync_skills
+    """Create/update knowledge sources and knowledge bases, and publish agent versions for every skill."""
+    from .sync import sync_skills
 
     s = _settings()
     skills, base = _skills(s)
-    report = sync_skills(s, skills, base, only=only, prune=prune, keep=keep, register_native=register_native, log=lambda m: rprint(f"[dim]{m}[/]"))
-    t = Table("skill", "knowledge base", "connection", "agent", "action", "version", "note")
+    report = sync_skills(s, skills, base, only=only, prune=prune, keep=keep, skip_kb=skip_kb, log=lambda m: rprint(f"[dim]{m}[/]"))
+    t = Table("skill", "knowledge base", "agent", "action", "version", "note")
     for r in report.rows:
         color = {"created": "green", "updated": "green", "unchanged": "cyan", "error": "red", "pruned": "yellow"}.get(r.action, "white")
-        t.add_row(r.skill_id, r.knowledge_base, r.connection, r.agent, f"[{color}]{r.action}[/]", r.version, r.note[:80])
+        t.add_row(r.skill_id, r.knowledge_base, r.agent, f"[{color}]{r.action}[/]", r.version, r.note[:80])
+    console.print(t)
+
+
+@skills_app.command("versions")
+def skills_versions(skill: str = typer.Argument(..., help="skill id, or 'router' / 'concierge'")):
+    """The published versions of one agent (newest first)."""
+    from . import agent_versions as AV
+    from .models import AGENT_PREFIX
+
+    s = _settings()
+    rows = AV.list_versions(s, f"{AGENT_PREFIX}{skill}")
+    if not rows:
+        rprint(f"[yellow]no versions published for {AGENT_PREFIX}{skill} (run skills sync)[/]")
+        raise typer.Exit()
+    t = Table("version", "created", "model", "hash", "tools")
+    for r in rows:
+        t.add_row(r["version"], r["created_at"][:19], r["model"], str(r["metadata"].get("spec_hash", "")), ", ".join(r["tools"]))
     console.print(t)
 
 
@@ -216,7 +211,7 @@ def retrieve_cmd(question: str, skill: str = typer.Option("credit-card"), max_do
 
     s = _settings()
     skills, _ = _skills(s)
-    from .foundry_sync import synced_kb_owners
+    from .sync import synced_kb_owners
 
     spec = synced_kb_owners(s, skills)[skill]
     refs = KB.retrieve(s, spec.kb_name, question, ks_name=spec.ks_name, max_docs=max_docs)
@@ -233,7 +228,7 @@ def chat_cmd(
     skill: Optional[str] = typer.Option(None, help="force a skill id"),
     debug: bool = typer.Option(False, help="print routing, tool calls and sources"),
 ):
-    """Ask the agents (routes to a skill, answers with citations)."""
+    """Ask the agents (routes to a skill, answers with citations; memory lasts for the process)."""
     from .chat import ChatSession
 
     s = _settings()

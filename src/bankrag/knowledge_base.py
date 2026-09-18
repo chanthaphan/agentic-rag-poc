@@ -122,15 +122,22 @@ def list_knowledge_bases(settings: Settings) -> list[str]:
     return [kb.name for kb in index_client(settings).list_knowledge_bases()]
 
 
-def retrieve(settings: Settings, kb_name: str, question: str, *, ks_name: Optional[str] = None, max_docs: Optional[int] = None) -> list[Reference]:
-    """Call the knowledge base retrieve action directly (used for the Sources panel and for debugging)."""
+def retrieve(settings: Settings, kb_name: str, question: str, *, ks_name: Optional[str] = None, max_docs: Optional[int] = None,
+             variants: Optional[list[str]] = None) -> list[Reference]:
+    """One retrieve call on the knowledge base: the documents for the agent, the Sources panel and debugging.
+    `variants` are extra search intents (the model's rewordings) when the base does no query planning of its own."""
     settings.require("search_endpoint", "search_admin_key")
     client = KnowledgeBaseRetrievalClient(
         settings.search_endpoint, AzureKeyCredential(settings.search_admin_key), knowledge_base_name=kb_name, api_version=settings.search_api_version
     )
     if settings.kb_reasoning_effort == "minimal":
         # minimal effort = no query planning: the caller supplies the search intents directly
-        req = KnowledgeBaseRetrievalRequest(intents=[KnowledgeRetrievalSemanticIntent(search=question)], include_activity=False)
+        seen: list[str] = []
+        for q in [question, *(variants or [])]:
+            q = str(q or "").strip()
+            if q and q not in seen:
+                seen.append(q)
+        req = KnowledgeBaseRetrievalRequest(intents=[KnowledgeRetrievalSemanticIntent(search=q) for q in seen], include_activity=False)
     else:
         req = KnowledgeBaseRetrievalRequest(
             messages=[KnowledgeBaseMessage(role="user", content=[KnowledgeBaseMessageTextContent(text=question)])],
@@ -158,6 +165,7 @@ def retrieve(settings: Settings, kb_name: str, question: str, *, ks_name: Option
                 product_name=str(sd.get("product_name", "")),
                 doc_type=str(sd.get("doc_type", "")),
                 snippet=content[:400],
+                content=content,
                 score=getattr(r, "reranker_score", None),
             )
         )
