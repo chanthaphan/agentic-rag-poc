@@ -11,10 +11,11 @@ const ICON = {
   corner: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>',
 };
 const TH = (navigator.language || "").toLowerCase().startsWith("th");
+const P = () => ((state.config || {}).assistant_particle || "ครับ");  // the persona's Thai politeness particle
 const state = { config: null, sessionId: null, turns: [], suggestions: [], busy: false };
 // what the assistant is doing while the bubble is still empty (phases come from /chat/stream "status" events)
 const STATUS = {
-  th: { thinking: "กำลังคิดค่ะ…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแลค่ะ…", retrieving: "กำลังค้นหาข้อมูล{skill}ให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญด้าน{skill}ค่ะ…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบค่ะ…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียงให้ค่ะ…" },
+  th: { thinking: "กำลังคิด{p}…", choosing: "กำลังดูว่าเรื่องนี้ควรให้ใครดูแล{p}…", retrieving: "กำลังค้นหาข้อมูล{skill}ให้{p}…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญด้าน{skill}{p}…", drafting: "พบข้อมูลแล้ว กำลังเรียบเรียงคำตอบ{p}…", relaying: "ได้คำตอบจากผู้เชี่ยวชาญแล้ว กำลังเรียบเรียงให้{p}…" },
   en: { thinking: "Thinking…", choosing: "Working out who should handle this…", retrieving: "Looking up {skill} information…", specialist: "Handing this to the {skill} specialist…", drafting: "Found it, writing the answer…", relaying: "The specialist replied, putting the answer together…" },
 };
 const SKILL_TH = { "credit-card": "บัตรเครดิต", "debit-card": "บัตรเดบิต", wealth: "การลงทุน", insurance: "ประกัน", general: "ผลิตภัณฑ์ธนาคาร", "financial-knowledge": "การเงิน", "bank-profile": "ธนาคารกรุงเทพ", "bank-services": "สาขาและอัตราแลกเปลี่ยน" };
@@ -25,17 +26,23 @@ function skillLabel(id, lang) {
   return row ? row.name.replace(/\s+(Advisor|Assistant)$/i, "") : id.replace(/-/g, " ");
 }
 // a skill with no Thai label must not drop an English id into a Thai sentence: use the label-free wording instead
-const STATUS_TH_PLAIN = { retrieving: "กำลังค้นหาข้อมูลให้ค่ะ…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญค่ะ…" };
+const STATUS_TH_PLAIN = { retrieving: "กำลังค้นหาข้อมูลให้{p}…", specialist: "กำลังส่งเรื่องให้ผู้เชี่ยวชาญ{p}…" };
 function statusText(t) {
   const lang = t.language === "en" ? "en" : t.language === "th" ? "th" : TH ? "th" : "en";
   const status = t.status || "thinking";
-  if (lang === "th" && t.status_skill && !SKILL_TH[t.status_skill] && STATUS_TH_PLAIN[status]) return STATUS_TH_PLAIN[status];
+  if (lang === "th" && t.status_skill && !SKILL_TH[t.status_skill] && STATUS_TH_PLAIN[status]) return STATUS_TH_PLAIN[status].replace("{p}", P());
   const tpl = STATUS[lang][status] || STATUS[lang].thinking;
-  return tpl.replace("{skill}", skillLabel(t.status_skill, lang));
+  return tpl.replace("{skill}", skillLabel(t.status_skill, lang)).replace("{p}", P());
 }
 function statusHtml(t) { return `<span class="wait"><i class="spin"></i>${esc(statusText(t))}</span>`; }
 
 // ---------- rendering ----------
+// the persona's name comes from settings; with none configured the greeting simply drops it rather than inventing one
+function greetingHeading(c) {
+  const th = esc(c.assistant_name || ""), en = esc(c.assistant_name_en || c.assistant_name || "");
+  if (TH) return `${th ? th + " " : ""}ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพ${esc(P())}`;
+  return `${en ? "I'm " + en + ", here" : "Here"} to help you<br>with Bangkok Bank products`;
+}
 function greeting(name) {
   const h = new Date().getHours();
   if (TH) return `สวัสดี${h < 12 ? "ตอนเช้า" : h < 18 ? "ตอนบ่าย" : "ตอนเย็น"} คุณ${name}`;
@@ -114,7 +121,7 @@ function render() {
     const byLang = c.starter_prompts_by_lang || {};
     c.starter_prompts = (TH ? byLang.th : byLang.en) && (TH ? byLang.th : byLang.en).length ? (TH ? byLang.th : byLang.en) : c.starter_prompts;
     body.innerHTML = `<div class="empty"><div class="greet">${esc(greeting(c.user_name))}</div>
-      <h2>${TH ? `${esc(c.assistant_name || "เกรส")} ยินดีช่วยเรื่องผลิตภัณฑ์<br>ธนาคารกรุงเทพค่ะ` : `I'm ${esc(c.assistant_name_en || c.assistant_name || "Grace")}, here to help you<br>with Bangkok Bank products`}</h2>
+      <h2>${greetingHeading(c)}</h2>
       <div class="chips">${c.starter_prompts.map((p, i) => `<button class="chip" style="animation-delay:${(i + 1) * 0.08}s" data-q="${esc(p)}">${ICON.sparkles}<span>${esc(p)}</span></button>`).join("")}</div></div>`;
     body.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
     renderLog();
@@ -127,8 +134,9 @@ function render() {
     if (t.streaming) { html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md">${t.text ? esc(t.text).replace(/\n/g, "<br>") : statusHtml(t)}</div></div>`; return; }
     const badge = t.skill_id && t.skill_id !== "offtopic" ? `<button class="badge" data-turn="${i}">${esc(t.skill_id)} · ${Math.round((t.confidence || 0) * 100)}%</button>` : "";
     const cites = (t.citations || []).slice(0, 3).map((c) => `<a class="cite" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.url)}">${esc(c.title || c.url.replace(/^https?:\/\//, ""))}</a>`).join("");
+    const play = t.streaming || t.error || !t.text ? "" : Play.button(i, TH ? "ฟังคำตอบนี้" : "Listen to this answer");
     const fb = t.streaming || t.error || !state.sessionId ? "" : `<span class="fb" data-idx="${i}"><button class="${t.rating === "up" ? "on" : ""}" data-r="up" title="helpful">👍</button><button class="${t.rating === "down" ? "on" : ""}" data-r="down" title="not helpful">👎</button></span>`;
-    html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md ${t.error ? "err" : ""}">${linkify(t.text)}${placesHtml(t.places)}${badge || cites || fb ? `<div class="meta">${badge}${cites}${fb}</div>` : ""}${fb ? noteHtml(t, i) : ""}</div></div>`;
+    html += `<div class="row"><span class="ai-av">${ICON.sparkles}</span><div class="bubble md ${t.error ? "err" : ""}">${linkify(t.text)}${placesHtml(t.places)}${badge || cites || fb || play ? `<div class="meta">${badge}${cites}${play}${fb}</div>` : ""}${fb ? noteHtml(t, i) : ""}</div></div>`;
     if (isLast && !state.busy && (t.suggestions || []).length) {
       const lth = (t.language || (TH ? "th" : "en")) === "th";
       html += `<div class="suggest"><div class="lbl">${lth ? "คำถามที่เกี่ยวข้อง" : "Suggested"}</div>${t.suggestions.map((s) => `<button data-q="${esc(s)}">${ICON.corner}${esc(s)}</button>`).join("")}</div>`;
@@ -139,6 +147,7 @@ function render() {
   body.innerHTML = html;
   body.querySelectorAll(".suggest button").forEach((b) => b.addEventListener("click", () => send(b.dataset.q)));
   body.querySelectorAll(".badge").forEach((b) => b.addEventListener("click", () => showSources(state.turns[+b.dataset.turn])));
+  Play.bind(body, (i) => (state.turns[i] || {}).text || "", { tts: !!(state.config || {}).tts_enabled });
   body.querySelectorAll(".fb button").forEach((b) => b.addEventListener("click", async () => {
     const idx = +b.parentElement.dataset.idx; const t = state.turns[idx]; const rating = t.rating === b.dataset.r ? null : b.dataset.r; t.rating = rating;
     // a dislike opens the comment box (the rating is saved at once, the comment follows); anything else clears the comment
@@ -333,7 +342,24 @@ async function loadSession(id) {
     try { const m = await api("/studio/me"); $("#acc-studio").hidden = m.access_managed && !["admin", "tester"].includes(m.role); $("#acc-studio").textContent = TH ? "เปิด Studio" : "Open Studio"; } catch { $("#acc-studio").hidden = true; }
   });
   document.addEventListener("click", (e) => { if (!$("#account").contains(e.target)) $("#account").hidden = true; });
-  try { state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant"; } catch {}
+  try {
+    state.config = await api("/app/config"); $("#avatar").textContent = state.config.user_initials || "PW"; $("#title").textContent = state.config.assistant_name || "Assistant";
+    if (state.config.voice_enabled) {
+      // speech mode runs inside the phone itself; the link to the web page stays for a bigger screen
+      $("#btn-call").hidden = false;
+      $("#btn-call").addEventListener("click", () => window.Voice && window.Voice.start({
+        lang: TH ? "th" : "en",
+        config: { name: TH ? state.config.assistant_name : (state.config.assistant_name_en || state.config.assistant_name) },
+        avatarUrl: state.config.avatar_url || "", gender: state.config.assistant_gender || "male",
+        sessionId: state.sessionId,
+        onSaved: (sid) => { state.sessionId = sid; try { localStorage.setItem("bankrag_session", sid); } catch {} },
+        onEnd: (sid) => { if (sid) loadSession(sid); },
+      }));
+      const name = TH ? state.config.assistant_name : (state.config.assistant_name_en || state.config.assistant_name);
+      $("#tn-talk").hidden = false; $("#tn-talk").textContent = TH ? `คุยกับ${name}` : `Talk to ${name}`;
+      $("#acc-talk").hidden = false; $("#acc-talk").textContent = TH ? `คุยด้วยเสียงกับ${name}` : `Talk to ${name} by voice`;
+    }
+  } catch {}
   let saved = null; try { saved = localStorage.getItem("bankrag_session"); } catch {}
   if (saved) await loadSession(saved); else render();
 })();

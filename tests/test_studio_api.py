@@ -1,4 +1,5 @@
 import io
+import json
 import zipfile
 
 import frontmatter
@@ -114,3 +115,92 @@ def test_chat_persists_and_rehydrates(tmp_path, monkeypatch):
     pw = {"Authorization": "Basic " + base64.b64encode(f"x:{api.settings.studio_password}".encode()).decode()}
     assert c.delete(f"/sessions/{sid}").status_code in (401, 403)  # deleting conversations is admin-only now
     assert c.delete(f"/sessions/{sid}", headers=pw).json()["ok"] is True
+
+
+def test_an_llm_key_can_be_bound_from_outside_and_is_never_handed_back(tmp_path, monkeypatch):
+    """A team can point the POC at their own model service from Studio, without touching the image or .env.
+
+    The key itself is write-only: it is stored on the server, reported as dots, and the dots coming back must not
+    overwrite it - otherwise saving any other setting would quietly wipe the binding."""
+    from bankrag import llm as L
+
+    c = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(api.settings, "root", tmp_path)
+    # saving reloads Settings from disk, which is the point of the feature and also drops the test's password
+    def save(body):
+        out = c.put("/app/settings", json=body, auth=AUTH)
+        monkeypatch.setattr(api.settings, "studio_password", "secret")
+        monkeypatch.setattr(api.settings, "root", tmp_path)
+        return out
+
+    r = save({"LLM_PROVIDER": "openai", "LLM_BASE_URL": "https://api.openai.com/v1/", "LLM_API_KEY": "sk-secret-value"})
+    assert r.status_code == 200 and r.json()["overlay"]["LLM_API_KEY"] == api.MASK
+
+    res = c.get("/app/settings", auth=AUTH)
+    assert res.status_code == 200, res.text[:200]
+    got = res.json()
+    assert got["effective"]["LLM_PROVIDER"] == "openai"
+    assert got["effective"]["LLM_BASE_URL"] == "https://api.openai.com/v1"
+    assert got["effective"]["LLM_API_KEY"] == api.MASK and "sk-secret-value" not in json.dumps(got)
+    assert api.settings.uses_own_service and api.settings.model_key == "sk-secret-value"
+
+    # the page sends the mask back when it saves something else: the key survives
+    save({"LLM_API_KEY": api.MASK, "REALTIME_VOICE": "marin"})
+    assert api.settings.model_key == "sk-secret-value" and api.settings.realtime_voice == "marin"
+
+    # the models are then built against that service, with that key
+    model = L.chat_model(api.settings, "gpt-4.1-mini")
+    assert type(model).__name__ == "ChatOpenAI"
+    assert str(model.openai_api_base).rstrip("/") == "https://api.openai.com/v1"
+    from bankrag import realtime as RT
+    assert RT.auth_headers(api.settings) == {"Authorization": "Bearer sk-secret-value"}
+
+    # the test button reports the failure rather than throwing it
+    def boom(settings, m, **kw):
+        raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(L, "chat_model", boom)
+    out = c.post("/app/llm/test", json={}, auth=AUTH).json()
+    assert out["ok"] is False and "401" in out["error"] and out["service"] == "openai"
+
+    # clearing the box removes the binding and the app falls back to the Azure account
+    save({"LLM_API_KEY": "", "LLM_PROVIDER": "azure", "LLM_BASE_URL": ""})
+    assert not api.settings.uses_own_service and api.settings.llm_api_key == ""
+
+
+def test_a_key_can_come_from_any_of_the_four_services(tmp_path, monkeypatch):
+    """OpenAI, Azure OpenAI, an OpenAI-compatible gateway (LiteLLM and friends) or Anthropic.
+
+    Speech mode is the exception: realtime and audio models exist only on Azure OpenAI and OpenAI, so a gateway or
+    Claude answers the chat while the voice stays on the Azure account the app was deployed with."""
+    from bankrag import llm as L, realtime as RT
+    from bankrag.config import Settings
+
+    s = Settings.load(tmp_path)
+    s.aoai_endpoint, s.aoai_api_key = "https://acct.openai.azure.com", "azure-key"
+
+    s.llm_provider, s.llm_base_url, s.llm_api_key = "azure", "", ""
+    assert not s.uses_own_service and s.speech_service == "azure"
+    assert type(L.chat_model(s, "gpt-4.1-mini")).__name__ == "AzureChatOpenAI"
+    assert RT.auth_headers(s) == {"api-key": "azure-key"}
+
+    s.llm_provider, s.llm_base_url, s.llm_api_key = "openai", "", "sk-openai"
+    assert s.chat_base_url == "https://api.openai.com/v1" and s.speech_service == "openai"
+    assert type(L.chat_model(s, "gpt-4.1-mini")).__name__ == "ChatOpenAI"
+    assert RT.auth_headers(s) == {"Authorization": "Bearer sk-openai"}
+    assert s.aoai_v1_base_url == "https://api.openai.com/v1"
+
+    s.llm_provider, s.llm_base_url, s.llm_api_key = "compatible", "https://litellm.mybank.local/v1", "sk-lite"
+    assert s.uses_own_service and type(L.chat_model(s, "claude-sonnet-4")).__name__ == "ChatOpenAI"
+    assert s.speech_service == "azure"                      # the gateway has no realtime models
+    assert RT.auth_headers(s) == {"api-key": "azure-key"}
+    assert s.aoai_v1_base_url == "https://acct.openai.azure.com/openai/v1"
+
+    s.llm_provider, s.llm_base_url, s.llm_api_key = "anthropic", "", "sk-ant-key"
+    assert s.uses_own_service and s.speech_service == "azure"
+    assert type(L.chat_model(s, "claude-sonnet-4-5")).__name__ == "ChatAnthropic"
+
+    # the names a team actually types are accepted
+    from bankrag.config import _provider
+    assert _provider("litellm") == "compatible" and _provider("openrouter") == "compatible"
+    assert _provider("claude") == "anthropic" and _provider("nonsense") == "azure"

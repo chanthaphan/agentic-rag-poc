@@ -40,9 +40,19 @@ Markdown instructions for this product family...
 
 Upload instead of editing: zip the folder (SKILL.md at the root or inside one folder) and use **Upload skill zip** in the web UI, or `uv run bankrag skills install mortgage.zip`, then sync.
 
-## Rename the persona
+## Rename the persona, or change its voice
 
-The assistant's name is one setting, not text in the prompt files: Studio › Settings › Runtime › *Assistant name* (Thai and English), or `ASSISTANT_NAME` / `ASSISTANT_NAME_EN`. The base rules and the concierge refer to it as `{assistant_name}` / `{assistant_name_en}`, and the app greeting reads the same values. Save, then **Sync all**: the name is part of every agent definition, so the change is published as a new version.
+The assistant's name and gender are settings, not text in the prompt files: Studio › Settings › Runtime › *Assistant name* (Thai and English) and *Assistant gender*, or `ASSISTANT_NAME` / `ASSISTANT_NAME_EN` / `ASSISTANT_GENDER`. The prompts refer to them through placeholders, filled everywhere the persona speaks:
+
+| placeholder | male | female |
+|---|---|---|
+| `{assistant_name}` / `{assistant_name_en}` | the two names | the two names |
+| `{gender_word}` | man | woman |
+| `{particle}` / `{particle_q}` / `{particle_soft}` | ครับ / ครับ / นะครับ | ค่ะ / คะ / นะคะ |
+| `{pronoun_th}` | ผม | ดิฉัน |
+| `{wrong_particles}` | ค่ะ, คะ, นะคะ, ดิฉัน | ครับ, นะครับ, ผม |
+
+The app greeting and the speech-mode prompt read the same values. Save, then **Sync all**: they are part of every agent definition, so the change is published as a new version.
 
 ## Change a skill
 

@@ -11,15 +11,38 @@ async function loadUsage() {
 }
 function addPriceRow(name = "", row = {}) {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input class="pr-name" value="${esc(name)}" ${name === "default" ? "readonly" : ""} style="width:220px"></td><td><input class="pr-in" type="number" step="0.01" value="${row.input ?? 0}" style="width:90px"></td><td><input class="pr-cached" type="number" step="0.01" value="${row.cached_input ?? 0}" style="width:90px"></td><td><input class="pr-out" type="number" step="0.01" value="${row.output ?? 0}" style="width:90px"></td><td>${name === "default" ? "" : '<button class="btn-danger pr-del">remove</button>'}</td>`;
+  const cell = (cls, v) => `<td><input class="${cls}" type="number" step="0.01" value="${v ?? 0}" style="width:82px"></td>`;
+  tr.innerHTML = `<td><input class="pr-name" value="${esc(name)}" ${name === "default" ? "readonly" : ""} style="width:200px"></td>`
+    + cell("pr-in", row.input) + cell("pr-cached", row.cached_input) + cell("pr-out", row.output)
+    + cell("pr-ain", row.audio_input) + cell("pr-acached", row.cached_audio_input) + cell("pr-aout", row.audio_output)
+    + `<td>${name === "default" ? "" : '<button class="btn-danger pr-del">remove</button>'}</td>`;
   tr.querySelector(".pr-del")?.addEventListener("click", () => tr.remove());
   $("#pr-table tbody").appendChild(tr);
 }
 $("#pr-add").addEventListener("click", () => addPriceRow());
 $("#pr-save").addEventListener("click", async () => {
   const models = {};
-  for (const tr of $("#pr-table tbody").querySelectorAll("tr")) { const n = tr.querySelector(".pr-name").value.trim(); if (!n) continue; models[n] = { input: +tr.querySelector(".pr-in").value, cached_input: +tr.querySelector(".pr-cached").value, output: +tr.querySelector(".pr-out").value }; }
+  for (const tr of $("#pr-table tbody").querySelectorAll("tr")) { const n = tr.querySelector(".pr-name").value.trim(); if (!n) continue; models[n] = { input: +tr.querySelector(".pr-in").value, cached_input: +tr.querySelector(".pr-cached").value, output: +tr.querySelector(".pr-out").value,
+      audio_input: +tr.querySelector(".pr-ain").value, cached_audio_input: +tr.querySelector(".pr-acached").value, audio_output: +tr.querySelector(".pr-aout").value }; }
   try { await api("/app/pricing", json({ currency: "USD", models, retrieval_per_call: +$("#pr-retrieval").value || 0 }, "PUT")); $("#pr-status").textContent = "saved; applies to new answers"; } catch (e) { $("#pr-status").textContent = e.message; }
+});
+// what each choice actually changes, said before anyone saves it
+function llmNote() {
+  const p = $("#rt-LLM_PROVIDER").value;
+  const speech = p === "openai" ? "OpenAI too" : "the Azure account (a gateway and Claude have no realtime or audio models)";
+  const needs = p === "compatible" ? "Base URL required. " : p === "azure" ? "Key optional: without one the app uses its signed-in identity. " : "";
+  $("#llm-note").textContent = `${needs}Chat, routing and suggestions run on this service; speech mode and playback run on ${speech}.`;
+}
+$("#rt-LLM_PROVIDER").addEventListener("change", llmNote);
+$("#llm-test").addEventListener("click", async () => {
+  const out = $("#llm-test-status");
+  out.textContent = "asking the model…";
+  try {
+    const r = await api("/app/llm/test", json({}, "POST"));
+    out.textContent = r.ok
+      ? `ok · ${r.service} · ${r.model} · ${r.elapsed_ms} ms · replied "${r.reply}" · speech on ${r.speech_on}`
+      : `failed · ${r.service} · ${r.error}`;
+  } catch (e) { out.textContent = e.message; }
 });
 S.loaders.settings = loadUsage; S.loaders["spane-usage"] = loadUsage;
 
@@ -30,13 +53,30 @@ $("#base-save").addEventListener("click", () => saveBase().catch((e) => { $("#ba
 $("#base-save-sync").addEventListener("click", async () => { try { await saveBase(); const j = await api("/skills/sync", { method: "POST" }); pollJob(j.job_id, $("#st-log"), $("#base-status")); } catch (e) { $("#base-status").textContent = e.message; } });
 
 // ---- runtime settings ----
-const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "ASSISTANT_NAME_EN", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL"];
+// The voices the realtime and audio models speak with; cedar and marin are the newer, warmer pair.
+const VOICES = ["alloy", "ash", "ballad", "cedar", "coral", "echo", "marin", "sage", "shimmer", "verse"];
+const TRANSCRIBERS = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
+const READERS = ["gpt-audio-1.5", "gpt-4o-mini-tts", ""];
+const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "ASSISTANT_NAME_EN", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL", "ASSISTANT_GENDER", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "REALTIME_ENDPOINT", "REALTIME_API_KEY"];
 S.loaders["spane-runtime"] = async () => {
   const s = await api("/app/settings"); await loadModels();
   for (const k of ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "SUGGESTIONS_MODEL"]) fillModelSelect($(`#rt-${k}`), s.effective[k]);
   $("#rt-SUGGESTIONS_MODE").value = s.effective.SUGGESTIONS_MODE || "dynamic";
   fillModelSelect($("#rt-CONCIERGE_MODEL"), s.effective.CONCIERGE_MODEL || s.effective.DEFAULT_CHAT_MODEL); $("#rt-ORCHESTRATION_MODE").value = s.effective.ORCHESTRATION_MODE || "router"; $("#rt-HISTORY_TURNS").value = s.effective.HISTORY_TURNS ?? 6;
   $("#rt-KB_REASONING_EFFORT").value = s.effective.KB_REASONING_EFFORT; $("#rt-ASSISTANT_NAME").value = s.effective.ASSISTANT_NAME; $("#rt-ASSISTANT_NAME_EN").value = s.effective.ASSISTANT_NAME_EN || ""; $("#rt-APP_USER_NAME").value = s.effective.APP_USER_NAME; $("#rt-APP_USER_INITIALS").value = s.effective.APP_USER_INITIALS;
+  $("#rt-ASSISTANT_GENDER").value = s.effective.ASSISTANT_GENDER || "male";
+  fillSelect($("#rt-REALTIME_VOICE"), VOICES.map((n) => ({ name: n })), s.effective.REALTIME_VOICE);
+  fillSelect($("#rt-REALTIME_TRANSCRIBE_MODEL"), TRANSCRIBERS.map((n) => ({ name: n })), s.effective.REALTIME_TRANSCRIBE_MODEL);
+  fillSelect($("#rt-TTS_DEPLOYMENT"), READERS.map((n) => ({ name: n })), s.effective.TTS_DEPLOYMENT);
+  $("#rt-REALTIME_AVATAR_URL").value = s.effective.REALTIME_AVATAR_URL || "";
+  try { fillSelect($("#rt-REALTIME_DEPLOYMENT"), await api("/app/models?kind=realtime"), s.effective.REALTIME_DEPLOYMENT); }
+  catch { fillSelect($("#rt-REALTIME_DEPLOYMENT"), [], s.effective.REALTIME_DEPLOYMENT); }
+  $("#rt-REALTIME_ENDPOINT").value = s.effective.REALTIME_ENDPOINT || "";
+  $("#rt-REALTIME_API_KEY").value = s.effective.REALTIME_API_KEY || "";
+  $("#rt-LLM_PROVIDER").value = s.effective.LLM_PROVIDER || "azure";
+  llmNote();
+  $("#rt-LLM_BASE_URL").value = s.effective.LLM_BASE_URL || "";
+  $("#rt-LLM_API_KEY").value = s.effective.LLM_API_KEY || "";   // dots when a key is bound, empty when none is
   $("#rt-status").textContent = Object.keys(s.overlay).length ? `overrides active: ${Object.keys(s.overlay).join(", ")}` : "no overrides (values from .env)";
 };
 async function saveRuntime() { const data = {}; for (const k of RT_KEYS) data[k] = $(`#rt-${k}`).value; const r = await api("/app/settings", json(data, "PUT")); $("#rt-status").textContent = r.note; return r; }

@@ -22,9 +22,9 @@ from pydantic import BaseModel
 
 from . import sessions as SESS
 from .config import Settings
-from .models import Answer, SessionRecord
-from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills, load_base, load_skills, read_base, skill_to_zip,
-                     validate_skill, write_base, write_skill)
+from .models import Answer, Reference, SessionRecord
+from .skills import (create_skill, delete_skill, install_skill_zip, lint_skills, load_base, load_skills, persona_words, read_base,
+                     skill_to_zip, validate_skill, write_base, write_skill)
 
 import logging as _logging
 
@@ -135,6 +135,34 @@ class ChatRequest(BaseModel):
     source: str = "app"  # app | studio
     lat: Optional[float] = None  # the customer's position, sent only when they allow it for a "near me" question
     lon: Optional[float] = None
+
+
+class RealtimeSessionRequest(BaseModel):
+    lang: str = ""  # th | en: the page's language, a hint for the transcription; the model still follows the speaker
+
+
+class RealtimeToolRequest(BaseModel):
+    name: str
+    arguments: dict | str = ""
+    session_id: Optional[str] = None
+    lat: Optional[float] = None  # the customer's position, from the browser: the model never sees or asks for it
+    lon: Optional[float] = None
+
+
+class VoiceTurn(BaseModel):
+    question: str
+    answer: str
+    language: str = "th"
+    skill_id: str = "voice"
+    tool_calls: list[dict] = []
+    references: list[dict] = []
+    usage: dict = {}
+
+
+class VoiceTurnsRequest(BaseModel):
+    session_id: Optional[str] = None
+    turns: list[VoiceTurn] = []
+    model: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -257,6 +285,11 @@ def app_config(request: Request):
         "user_email": who["email"],
         "assistant_name": settings.assistant_name,
         "assistant_name_en": settings.assistant_name_en,
+        "assistant_gender": settings.assistant_gender,
+        "assistant_particle": persona_words(settings.assistant_gender)["particle"],  # so a Thai UI string is in the persona's voice
+        "voice_enabled": bool(settings.speech_endpoint and settings.realtime_deployment),
+        "tts_enabled": bool(settings.speech_endpoint and settings.tts_deployment),
+        "avatar_url": settings.realtime_avatar_url,
         "maps_key": settings.google_maps_key,  # empty: a place card links out to Maps instead of embedding it
         "starter_prompts": starters[:3],
         "skills": [{"id": s.id, "name": s.name, "product_category": s.product_category} for s in skills.values()],
@@ -532,6 +565,111 @@ def chat_reset(session_id: str, request: Request):
 
 
 # ---------------- base rules, settings, models ----------------
+# ---------------- speech mode (Azure OpenAI Realtime over WebRTC) ----------------
+@app.post("/realtime/session")
+def realtime_session(req: RealtimeSessionRequest, request: Request):
+    """A short-lived key for one voice call, with the persona, the voice and the tools already baked into it.
+
+    The browser never gets the account credential or the instructions: it only gets this key, which Azure accepts for
+    one WebRTC handshake and nothing else."""
+    from . import realtime as RT
+
+    skills, base = _skills()
+    cfg = RT.session_config(settings, skills, base, lang=req.lang)
+    try:
+        secret = RT.mint_client_secret(settings, cfg)
+    except RT.RealtimeError as e:
+        raise HTTPException(502, f"realtime session: {e}") from e
+    who = identity(request)
+    _audit.info("voice session model=%s voice=%s lang=%s user=%r", settings.realtime_deployment, settings.realtime_voice,
+                req.lang or "auto", who["email"] or who["name"])
+    return {"client_secret": secret["value"], "expires_at": secret.get("expires_at"), "calls_url": settings.realtime_calls_url,
+            "model": settings.realtime_deployment, "voice": settings.realtime_voice,
+            "avatar_url": settings.realtime_avatar_url, "assistant_gender": settings.assistant_gender}
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    voice: str = ""
+
+
+@app.post("/tts")
+def tts(req: SpeakRequest):
+    """An answer read aloud, in the persona's own voice, so the play button sounds like the call does.
+
+    503 when no voice deployment is configured: the page then falls back to the browser's own speech synthesis."""
+    from . import realtime as RT
+
+    text = RT.speakable(req.text or "")
+    if not text:
+        raise HTTPException(400, "nothing to read")
+    try:
+        audio = RT.speak(settings, text, voice=req.voice)
+    except RT.RealtimeError as e:
+        raise HTTPException(503 if "not set" in str(e) else 502, f"speech: {e}") from e
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.post("/realtime/tool")
+def realtime_tool(req: RealtimeToolRequest):
+    """One tool call from the voice model, answered from the same knowledge bases and live services the text agents use."""
+    from . import realtime as RT
+
+    args = req.arguments
+    if isinstance(args, str):
+        try:
+            args = json.loads(args or "{}")
+        except json.JSONDecodeError as e:
+            raise HTTPException(400, f"bad arguments: {e}") from e
+    if not isinstance(args, dict):
+        raise HTTPException(400, "arguments must be an object")
+    skills, _ = _skills()
+    try:
+        return RT.run_tool(settings, skills, req.name, args, lat=req.lat, lon=req.lon)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}") from e
+
+
+@app.post("/realtime/turns")
+def realtime_turns(req: VoiceTurnsRequest, request: Request):
+    """Save what was said on a call as an ordinary conversation, tagged source=voice.
+
+    A spoken turn is not streamed through /chat, so it would otherwise leave no history: this keeps the call in the
+    same list the customer and Studio already read, and lets a call be continued in text later."""
+    if req.session_id and not SESS.ID_RE.match(req.session_id):
+        raise HTTPException(400, "bad session id")
+    if not req.turns:
+        raise HTTPException(400, "no turns")
+    from .pricing import load_pricing, voice_turn_cost
+
+    pricing = load_pricing(settings)
+    model = req.model or settings.realtime_deployment
+    with _lock:
+        rec = (SESS.load_session(settings, req.session_id) if req.session_id else None) or SESS.new_record(req.session_id)
+        _require_owner(request, rec)
+        by = _stamp_owner(rec, request)
+        if not rec.turns:
+            rec.source = "voice"
+        for t in req.turns:
+            refs = []
+            for r in t.references[:5]:
+                try:
+                    refs.append(Reference(**r))
+                except Exception:  # noqa: BLE001 - a malformed reference must not lose the turn
+                    pass
+            SESS.append_turns(rec, t.question, Answer(
+                skill_id=t.skill_id or "voice", confidence=1.0, route_reason="realtime", text=t.answer,
+                language=t.language if t.language in ("th", "en") else "th", references=refs, tool_calls=t.tool_calls,
+                trace={"mode": "realtime", "model": model, "usage": {"total": t.usage, "agent": t.usage} if t.usage else {},
+                       "cost": voice_turn_cost(pricing, model, t.usage) if t.usage else {}}), by=by)
+            if t.skill_id and t.skill_id != "voice":
+                rec.prev_skill = t.skill_id
+        SESS.save_session(settings, rec)
+    return {"session_id": rec.id, "title": rec.title, "turns": len(rec.turns)}
+
+
 @app.get("/skills/_base")
 def get_base():
     return read_base(settings.skills_dir)
@@ -548,24 +686,33 @@ def put_base(data: dict):
 _models_cache: dict = {"at": 0.0, "items": []}
 
 
+def _models_of_kind(items: list[dict], kind: str) -> list[dict]:
+    """chat: the deployments a text agent can use. realtime: the speech-mode ones, which the chat list hides."""
+    if kind == "realtime":
+        return [i for i in items if "realtime" in i["name"]]
+    return [i for i in items if not any(x in i["name"] for x in ("embedding", "audio", "realtime", "image"))]
+
+
 @app.get("/app/models")
-def list_models(refresh: bool = False):
+def list_models(refresh: bool = False, kind: str = "chat"):
     """Model deployments of the Azure OpenAI account (ARM, cached 120 s); the configured models when ARM is unreachable."""
     import time
 
     if not refresh and _models_cache["items"] and time.time() - _models_cache["at"] < 120:
-        return _models_cache["items"]
+        return _models_of_kind(_models_cache["items"], kind)
     try:
         from .llm import list_deployments
 
-        items = [i for i in list_deployments(settings) if i["name"] and not any(x in i["name"] for x in ("embedding", "audio", "realtime", "image"))]
+        items = [i for i in list_deployments(settings) if i["name"]]
         _models_cache.update(at=time.time(), items=items)
-        return items
+        return _models_of_kind(items, kind)
     except Exception as e:  # noqa: BLE001
         if _models_cache["items"]:
-            return _models_cache["items"]
+            return _models_of_kind(_models_cache["items"], kind)
         names: list[str] = []
-        for n in (settings.default_chat_model, settings.router_model, settings.suggestions_model, settings.concierge_model, settings.judge_model):
+        configured = ([settings.realtime_deployment] if kind == "realtime"
+                      else [settings.default_chat_model, settings.router_model, settings.suggestions_model, settings.concierge_model, settings.judge_model])
+        for n in configured:
             if n and n not in names:
                 names.append(n)
         return [{"name": n, "model": n, "publisher": "", "type": "", "error": f"{type(e).__name__}"} for n in names]
@@ -579,18 +726,61 @@ def get_app_settings():
            "KB_MAX_OUTPUT_TOKENS": settings.kb_max_output_tokens, "ASSISTANT_NAME": settings.assistant_name, "ASSISTANT_NAME_EN": settings.assistant_name_en, "APP_USER_NAME": settings.app_user_name,
            "APP_USER_INITIALS": settings.app_user_initials, "KB_LLM_DEPLOYMENT": settings.kb_llm_deployment, "JUDGE_MODEL": settings.judge_model,
            "ORCHESTRATION_MODE": settings.orchestration_mode, "CONCIERGE_MODEL": settings.concierge_model, "HISTORY_TURNS": settings.history_turns,
-           "SUGGESTIONS_MODE": settings.suggestions_mode, "SUGGESTIONS_MODEL": settings.suggestions_model}
-    return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": load_overlay(settings.root)}
+           "SUGGESTIONS_MODE": settings.suggestions_mode, "SUGGESTIONS_MODEL": settings.suggestions_model,
+           "ASSISTANT_GENDER": settings.assistant_gender, "REALTIME_DEPLOYMENT": settings.realtime_deployment,
+           "REALTIME_VOICE": settings.realtime_voice, "REALTIME_TRANSCRIBE_MODEL": settings.realtime_transcribe_model,
+           "REALTIME_AVATAR_URL": settings.realtime_avatar_url, "TTS_DEPLOYMENT": settings.tts_deployment,
+           "LLM_PROVIDER": settings.llm_provider, "LLM_BASE_URL": settings.llm_base_url,
+           "LLM_API_KEY": _mask(settings.llm_api_key), "REALTIME_ENDPOINT": settings.realtime_endpoint,
+           "REALTIME_API_KEY": _mask(settings.realtime_api_key)}
+    overlay = {k: (_mask(v) if k in SECRET_KEYS else v) for k, v in load_overlay(settings.root).items()}
+    return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": overlay}
+
+
+SECRET_KEYS = ("LLM_API_KEY", "REALTIME_API_KEY")
+MASK = "••••••••"
+
+
+def _mask(value: str) -> str:
+    """A secret is reported as set or not set, never handed back: the page shows dots and sends them back unchanged."""
+    return MASK if value else ""
 
 
 @studio.put("/app/settings", dependencies=[Depends(require_admin)])
 def put_app_settings(data: dict):
     from .config import save_overlay
 
-    saved = save_overlay(settings.root, {k: ("" if v is None else str(v)) for k, v in data.items()})
+    clean = {}
+    for k, v in data.items():
+        v = "" if v is None else str(v)
+        if k in SECRET_KEYS and v == MASK:
+            continue  # the page echoed the mask back: leave the stored key alone
+        clean[k] = v
+    saved = save_overlay(settings.root, clean)
     fresh = Settings.load(settings.root)
     settings.__dict__.update(fresh.__dict__)  # hot-reload for this process
+    saved = {k: (_mask(v) if k in SECRET_KEYS else v) for k, v in saved.items()}
     return {"overlay": saved, "note": "applied; run skills sync to publish agent versions that use DEFAULT_CHAT_MODEL / CONCIERGE_MODEL / KB settings"}
+
+
+@studio.post("/app/llm/test", dependencies=[Depends(require_admin)])
+def test_llm(data: dict | None = None):
+    """Prove a bound key actually answers, before the team finds out from a customer that it does not."""
+    import time
+
+    from .llm import chat_model
+
+    model = str((data or {}).get("model") or settings.default_chat_model)
+    t0 = time.perf_counter()
+    try:
+        reply = chat_model(settings, model, max_tokens=16).invoke("Reply with the single word: ok")
+        text = (reply.content if isinstance(reply.content, str) else str(reply.content)).strip()
+        return {"ok": True, "model": model, "service": settings.llm_provider, "speech_on": settings.speech_service,
+                "base_url": settings.chat_base_url or settings.aoai_endpoint, "reply": text[:60],
+                "elapsed_ms": int((time.perf_counter() - t0) * 1000)}
+    except Exception as e:  # noqa: BLE001 - the message is the point of the test
+        return {"ok": False, "model": model, "service": settings.llm_provider, "speech_on": settings.speech_service,
+                "error": f"{type(e).__name__}: {str(e)[:300]}", "elapsed_ms": int((time.perf_counter() - t0) * 1000)}
 
 
 @app.post("/route")
@@ -1368,6 +1558,13 @@ def mobile_page(request: Request):
     if studio_role(request, None) == "external":
         return _page("external.html")
     return _page("mobile.html")
+
+
+@app.get("/talk")
+def talk_page():
+    """The chat page with speech mode, for anyone signed in: the external role already gets it at /, and this is how
+    staff (admin, tester) reach the same page from the customer app or Studio."""
+    return _page("external.html")
 
 
 @app.get("/legacy")

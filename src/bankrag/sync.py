@@ -25,7 +25,11 @@ KB_TOOL = "knowledge_base_retrieve"
 
 # ---------- definitions ----------
 def persona_names(settings: Settings) -> dict[str, str]:
-    return {"assistant_name": settings.assistant_name, "assistant_name_en": settings.assistant_name_en}
+    """Everything a prompt may say about who the persona is: the two names plus the words their gender decides."""
+    from .skills import persona_words
+
+    return {"assistant_name": settings.assistant_name, "assistant_name_en": settings.assistant_name_en,
+            **persona_words(settings.assistant_gender)}
 
 
 def kb_tool_ref(settings: Settings, spec: SkillSpec, kb_owner: Optional[SkillSpec] = None) -> dict:

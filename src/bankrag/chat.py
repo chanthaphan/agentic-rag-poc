@@ -23,13 +23,20 @@ from .llm import chat_model, sum_usage
 from .pricing import load_pricing, turn_cost, usage_cost
 from .config import Settings
 from . import search_index as SI
-from .sync import runtime_definition, spec_hash, synced_kb_owners, published_definition
+from .sync import persona_names, runtime_definition, spec_hash, synced_kb_owners, published_definition
 from .models import CONCIERGE_AGENT, Answer, Citation, RouteDecision, SessionRecord, SkillSpec
 
 OFFTOPIC_REPLY = {
-    "th": "ขออภัยค่ะ ผู้ช่วยนี้ตอบได้เฉพาะคำถามเกี่ยวกับผลิตภัณฑ์ของธนาคารกรุงเทพ เช่น บัตรเครดิต บัตรเดบิต ประกัน และการลงทุน",
+    "th": "ขออภัย{particle} ผู้ช่วยนี้ตอบได้เฉพาะคำถามเกี่ยวกับผลิตภัณฑ์ของธนาคารกรุงเทพ เช่น บัตรเครดิต บัตรเดบิต ประกัน และการลงทุน",
     "en": "Sorry, this assistant only answers questions about Bangkok Bank products such as credit cards, debit cards, insurance and investments.",
 }
+
+
+def offtopic_reply(settings: Settings, language: str) -> str:
+    """The canned off-topic reply in the persona's own voice (the Thai one carries a politeness particle)."""
+    from .skills import personalize
+
+    return personalize(OFFTOPIC_REPLY.get(language, OFFTOPIC_REPLY["th"]), persona_names(settings))
 MIN_CONFIDENCE = 0.5
 HISTORY_TURNS = 6  # default window of earlier question/answer pairs the agent sees (HISTORY_TURNS in settings)
 MAX_TOOL_ROUNDS = 6
@@ -219,7 +226,7 @@ class ChatSession:
         decision = self.decide(question, force_skill)
         self.history.append({"role": "user", "content": question})
         if decision.skill_id == R.OFFTOPIC:
-            text = OFFTOPIC_REPLY.get(decision.language, OFFTOPIC_REPLY["th"])
+            text = offtopic_reply(self.settings, decision.language)
             self.history.append({"role": "assistant", "content": text})
             general = self.skills.get("general")
             yield {"type": "route", "skill_id": R.OFFTOPIC, "confidence": decision.confidence, "language": decision.language, "reason": decision.reason, "agent_name": ""}
@@ -342,6 +349,12 @@ class ChatSession:
         category = spec.product_category if spec else None
         cites = citations_from_markers([raw_text], refs, lookup_title=lambda title: _lookup_title(self.settings, title, category))
         seen = {c.url for c in cites if c.url}
+        # the documents are numbered in the prompt, so an answer may cite them as [1][2]: resolve those against the
+        # references it was actually given, in the same order they were given
+        for c in citations_from_indexes(raw_text, references):
+            if c.url and c.url not in seen:
+                seen.add(c.url)
+                cites.append(c)
         for c in citations_from_text(raw_text):
             if c.url not in seen:
                 seen.add(c.url)
@@ -508,6 +521,11 @@ class ChatSession:
 
 
 _MARKER_RE = re.compile(r"【[^】]*】")
+# The documents handed to the model are numbered "[1] <title>", so models echo that numbering back as [1][2][5] at the
+# end of an answer. The customer should never see it - the app shows sources in its own card - but the numbers do say
+# WHICH document backed the claim, so they are read into citations first and only then removed. A bracket followed by
+# "(" is a markdown link, not a marker, and is left alone.
+_INDEX_MARKER_RE = re.compile(r"[ \t]*\[(\d{1,3}(?:\s*[,;–-]\s*\d{1,3})*)\](?!\()")
 
 
 _SOURCES_HEADER_RE = re.compile(r"(?:^|\n)[ \t]*(?:[-*•]\s*)?(?:\*\*|__|#+\s*)?(?:Sources?|References?|แหล่งข้อมูล(?:อ้างอิง)?|แหล่งที่มา|ที่มา(?:ของข้อมูล)?|อ้างอิง)(?:\*\*|__)?[ \t]*[:：]?[ \t]*(?=\n|$)", re.I)
@@ -521,7 +539,7 @@ _SOURCE_SENTENCE_RES = [
 ]
 
 
-# Narration that is a CLAUSE, not a sentence: "สำหรับ SCB อ่านจากเอกสารที่เกรสได้ดู ยังไม่มีข้อมูลเปรียบเทียบ…". Dropping the
+# Narration that is a CLAUSE, not a sentence: "สำหรับ SCB อ่านจากเอกสารที่ได้ดู ยังไม่มีข้อมูลเปรียบเทียบ…". Dropping the
 # whole sentence would take the answer with it, so only the clause goes. Thai puts spaces between phrases even though
 # it has none between words, so such a clause is one whitespace-delimited token - which is what makes this safe.
 # "เอกสารแนบ" / "เอกสารสัญญา" are the customer's own paperwork and the regulator's annexes - real things, not our
@@ -568,8 +586,10 @@ def strip_source_talk(text: str) -> str:
 
 
 def strip_markers(text: str) -> str:
-    """Remove citation markers like 【4:0†source】, any echoed reply-language hint, and source narration from the visible answer."""
+    """Remove citation markers (【4:0†source】 and the plain [1][2] numbering of the retrieved documents), any echoed
+    reply-language hint, and source narration from the visible answer."""
     text = _LOCATION_ECHO_RE.sub(" ", _HINT_ECHO_RE.sub(" ", _MARKER_RE.sub("", text)))
+    text = _INDEX_MARKER_RE.sub("", text)
     text = strip_source_talk(text)
     return re.sub(r"[ \t]+\n", "\n", text).strip()
 
@@ -742,6 +762,27 @@ def citations_from_text(text: str) -> list[Citation]:
         if url not in seen:
             seen.add(url)
             out.append(Citation(title=title.strip(), url=url))
+    return out
+
+
+def citations_from_indexes(text: str, references: list) -> list[Citation]:
+    """Citations named by the numbering of the retrieved documents: [1], [2][3], [1-3]."""
+    wanted: list[int] = []
+    for group in _INDEX_MARKER_RE.findall(text or ""):
+        for part in re.split(r"[,;]", group):
+            part = part.strip()
+            m = re.fullmatch(r"(\d{1,3})\s*[–-]\s*(\d{1,3})", part)
+            nums = range(int(m.group(1)), int(m.group(2)) + 1) if m else ([int(part)] if part.isdigit() else [])
+            for n in nums:
+                if n not in wanted:
+                    wanted.append(n)
+    out: list[Citation] = []
+    for n in wanted:
+        if 1 <= n <= len(references):
+            r = references[n - 1]
+            title, url = (getattr(r, "title", "") or "").strip(), (getattr(r, "source_url", "") or "").strip()
+            if title or url:
+                out.append(Citation(title=title, url=url))
     return out
 
 

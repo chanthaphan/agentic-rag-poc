@@ -92,12 +92,26 @@ def validate_skill(spec: SkillSpec, knowledge_dir: Path | None = None) -> tuple[
     return errors, warnings
 
 
-PERSONA_PLACEHOLDERS = ("{assistant_name}", "{assistant_name_en}")
+PERSONA_PLACEHOLDERS = ("{assistant_name}", "{assistant_name_en}", "{gender_word}", "{particle}", "{particle_q}",
+                        "{particle_soft}", "{pronoun_th}", "{wrong_particles}")
+# The persona's gender decides the Thai politeness particles and pronoun, so a renamed persona does not keep the old
+# voice: one setting (ASSISTANT_GENDER) fills every prompt, the same way the name does.
+PERSONA_WORDS = {
+    "male": {"gender_word": "man", "particle": "ครับ", "particle_q": "ครับ", "particle_soft": "นะครับ",
+             "pronoun_th": "ผม", "wrong_particles": "ค่ะ, คะ, นะคะ, ดิฉัน"},
+    "female": {"gender_word": "woman", "particle": "ค่ะ", "particle_q": "คะ", "particle_soft": "นะคะ",
+               "pronoun_th": "ดิฉัน", "wrong_particles": "ครับ, นะครับ, ผม"},
+}
+
+
+def persona_words(gender: str) -> dict[str, str]:
+    """The gendered words of the persona; anything but 'female' is the male voice (the settings default)."""
+    return dict(PERSONA_WORDS.get((gender or "").strip().lower(), PERSONA_WORDS["male"]))
 
 
 def personalize(text: str, names: dict[str, str] | None) -> str:
-    """Fill the persona placeholders ({assistant_name}, {assistant_name_en}) so the name lives in one setting, not in
-    every prompt file. Plain replacement, not str.format: prompts are free to contain other braces."""
+    """Fill the persona placeholders (PERSONA_PLACEHOLDERS: the two names and the gendered words) so the persona lives
+    in settings, not in every prompt file. Plain replacement, not str.format: prompts may contain other braces."""
     for key, value in (names or {}).items():
         text = text.replace("{" + key + "}", value)
     return text

@@ -38,11 +38,13 @@ async function loadModels(refresh = false) {
   try { S.models = await api(`/app/models${refresh ? "?refresh=1" : ""}`); } catch { S.models = [{ name: "gpt-4.1-mini" }]; }
   return S.models;
 }
-function fillModelSelect(sel, current) {
-  const names = S.models.map((m) => m.name);
+function fillSelect(sel, list, current) {
+  const names = (list || []).map((m) => m.name);
   if (current && !names.includes(current)) names.unshift(current);
-  sel.innerHTML = names.map((n) => `<option value="${esc(n)}" ${n === current ? "selected" : ""}>${esc(n)}</option>`).join("");
+  if (!names.length) names.push("");
+  sel.innerHTML = names.map((n) => `<option value="${esc(n)}" ${n === current ? "selected" : ""}>${esc(n) || "(none)"}</option>`).join("");
 }
+function fillModelSelect(sel, current) { fillSelect(sel, S.models, current); }
 const fmtUsd = TR.fmtUsd;
 
 (async function authNav() { try { const r = await fetch(new URL("/.auth/me", location.origin), { credentials: "same-origin" }); if (r.ok) $("#ms-signout").hidden = false; } catch {} })();

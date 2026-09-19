@@ -80,3 +80,24 @@ def test_models_route_falls_back_to_the_configured_models(monkeypatch):
     api._models_cache.update(at=0.0, items=[])
     items = TestClient(api.app).get("/app/models?refresh=1").json()
     assert items and items[0]["name"] == api.settings.default_chat_model and items[0]["error"] == "RuntimeError"
+
+
+def test_the_model_list_can_be_asked_for_the_realtime_deployments(monkeypatch):
+    """The chat pickers hide realtime deployments; the speech-mode picker is the one place that wants them."""
+    from fastapi.testclient import TestClient
+
+    from bankrag import api
+
+    monkeypatch.setattr(L, "list_deployments", lambda s: [{"name": "gpt-4.1-mini"}, {"name": "gpt-realtime-2.1"}, {"name": "text-embedding-3-large"}])
+    api._models_cache.update(at=0.0, items=[])
+    c = TestClient(api.app)
+    assert [m["name"] for m in c.get("/app/models?refresh=1").json()] == ["gpt-4.1-mini"]
+    assert [m["name"] for m in c.get("/app/models?kind=realtime").json()] == ["gpt-realtime-2.1"]
+
+    def boom(settings):
+        raise RuntimeError("no arm")
+
+    monkeypatch.setattr(L, "list_deployments", boom)
+    monkeypatch.setattr(api.settings, "realtime_deployment", "gpt-realtime-1.5")
+    api._models_cache.update(at=0.0, items=[])
+    assert [m["name"] for m in c.get("/app/models?refresh=1&kind=realtime").json()] == ["gpt-realtime-1.5"]

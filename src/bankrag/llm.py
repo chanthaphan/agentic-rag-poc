@@ -18,14 +18,40 @@ MODEL_MAX_RETRIES = 2
 
 
 def chat_model(settings: Settings, model: str, *, temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> BaseChatModel:
-    """An `AzureChatOpenAI` bound to one deployment; the key from .env, or the signed-in identity when there is none."""
+    """A chat model bound to one deployment.
+
+    Normally that is the Azure OpenAI account, keyed by .env or by the signed-in identity. When a key (and, for an
+    OpenAI-compatible service, a base URL) has been bound in Studio, the same call goes to that service instead - so a
+    team can point the POC at their own subscription without touching the image."""
+    if settings.llm_provider == "anthropic" and settings.llm_api_key:
+        from langchain_anthropic import ChatAnthropic
+
+        kw: dict[str, Any] = dict(model=model, api_key=settings.llm_api_key, timeout=MODEL_TIMEOUT_S,
+                                  max_retries=MODEL_MAX_RETRIES, max_tokens=max_tokens or 2048)
+        if settings.llm_base_url:
+            kw["base_url"] = settings.llm_base_url
+        if temperature is not None:
+            kw["temperature"] = temperature
+        return ChatAnthropic(**kw)
+
+    if settings.uses_own_service:
+        from langchain_openai import ChatOpenAI
+
+        kw = dict(model=model, base_url=settings.chat_base_url, api_key=settings.model_key or "unset",
+                  stream_usage=True, timeout=MODEL_TIMEOUT_S, max_retries=MODEL_MAX_RETRIES)
+        if temperature is not None:
+            kw["temperature"] = temperature
+        if max_tokens is not None:
+            kw["max_tokens"] = max_tokens
+        return ChatOpenAI(**kw)
+
     from langchain_openai import AzureChatOpenAI
 
     settings.require("aoai_endpoint")
     kw: dict[str, Any] = dict(azure_endpoint=settings.aoai_endpoint, azure_deployment=model, model=model, api_version=settings.aoai_api_version,
                               stream_usage=True, timeout=MODEL_TIMEOUT_S, max_retries=MODEL_MAX_RETRIES)
-    if settings.aoai_api_key:
-        kw["api_key"] = settings.aoai_api_key
+    if settings.model_key:
+        kw["api_key"] = settings.model_key
     else:
         kw["azure_ad_token_provider"] = token_provider(COGNITIVE_SCOPE)
     if temperature is not None:

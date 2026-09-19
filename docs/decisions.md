@@ -118,3 +118,31 @@ chunks instead of five compensate in part. Also fixed on the way: `skills sync -
 keep the knowledge-base owner the last real sync recorded, so a skill on the shared base is no longer republished
 pointing at a base that does not exist and no longer shows "outdated" forever.
 
+## 30. The voice call runs in the browser; the app keeps the key, the prompt and the tools
+Speech mode could have been built as a server relay (browser → app → model) so every byte of audio passed through
+FastAPI. It is a WebRTC call from the browser to the Azure OpenAI realtime deployment instead: the audio path is one
+hop, a spoken reply lands in about a second, and a single-replica container app is not streaming audio for every
+caller. What the browser gets is a key that lives five minutes and carries a session it cannot edit — the persona, the
+voice, the turn detection and the tool list are all minted server-side at `/openai/v1/realtime/client_secrets`, so the
+instructions never reach the client and neither does the account credential. Grounding is not left to the model's
+memory: its tool calls come back to `POST /realtime/tool`, which reads the same knowledge base the matching text agent
+reads and calls the same FX and branch bodies, and what was said is written back through `POST /realtime/turns` as an
+ordinary conversation tagged `source=voice`. Trade-offs: the browser must reach Azure directly (the endpoint answers
+the CORS preflight, checked before building it) and a call bills audio tokens, roughly ten times text, so the addendum
+is short, tool output is capped at 1200 characters per document, and an idle call hangs up after five minutes.
+
+## 31. The persona's gender is a setting, like its name
+The persona was named by a setting but written as a woman: "You are a woman" and ค่ะ / คะ / นะคะ were typed into the
+base rules, the concierge template and the canned off-topic reply. Renaming เกรส to ต้า would therefore have produced a
+man with a woman's voice. The gendered words are now placeholders filled from `ASSISTANT_GENDER` the same way the name
+is filled — `{gender_word}`, `{particle}`, `{particle_q}`, `{particle_soft}`, `{pronoun_th}`, `{wrong_particles}` — so
+one setting changes every prompt, and because the words are part of the agent definition the hash changes and a sync
+republishes every agent. The app's own Thai strings read the particle from `/app/config`. Default: ต้า / Tah, male.
+
+## 32. The avatar falls back to a face we draw ourselves
+Ready Player Me, the usual source of a rigged avatar with ARKit and Oculus visemes, closed to the public in January
+2026, and the only CC0 avatar shipped with TalkingHead is a woman. Rather than block speech mode on an asset, the
+avatar is a driver interface with two implementations: a GLB rendered by TalkingHead when `REALTIME_AVATAR_URL` is
+set, and otherwise a stylized banker assembled from three.js primitives in `avatar.js`. Both take their mouth from
+the same HeadAudio viseme stream, so swapping in a GLB (an Avaturn export, say) changes one setting and nothing else.
+A GLB that fails to load falls back to the drawn face rather than to a silent call.
