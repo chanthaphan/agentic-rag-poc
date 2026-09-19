@@ -21,6 +21,9 @@ def _settings(**over) -> Settings:
     s = Settings.load(ROOT)
     s.aoai_endpoint = "https://acct.openai.azure.com"
     s.aoai_api_key = "k"
+    # a binding on the developer's own machine (.env or the Studio overlay) must not decide what these tests see
+    s.realtime_endpoint = s.realtime_api_key = s.llm_api_key = s.llm_base_url = ""
+    s.llm_provider = "azure"
     s.realtime_deployment = "gpt-realtime-2.1"
     s.realtime_voice = "cedar"
     for k, v in over.items():
@@ -321,3 +324,33 @@ def test_the_play_endpoint_returns_audio_in_the_personas_voice(monkeypatch):
     monkeypatch.setattr(RT, "speak", real_speak)
     assert c.post("/tts", json={"text": "hello"}).status_code == 503  # the page falls back to the browser voice
     assert c.get("/app/config").json()["tts_enabled"] is False
+
+
+def test_the_call_can_live_on_its_own_azure_resource(monkeypatch):
+    """A realtime resource is often handed out on its own, carrying nothing but the realtime model.
+
+    Binding one must move the CALL and nothing else: reading an answer aloud keeps using the app's own account,
+    which is where the audio model actually is."""
+    s = _settings(realtime_endpoint="https://realtime-only.openai.azure.com", realtime_api_key="rt-key")
+    assert s.speech_endpoint == "https://realtime-only.openai.azure.com"
+    assert s.realtime_client_secrets_url == "https://realtime-only.openai.azure.com/openai/v1/realtime/client_secrets"
+    assert s.realtime_calls_url.endswith("/openai/v1/realtime/calls")
+    assert RT.auth_headers(s) == {"api-key": "rt-key"}        # the call goes to the bound resource
+    # the play button stays on the account that carries the audio model
+    assert s.speech_url == "https://acct.openai.azure.com/openai/v1/audio/speech"
+    assert RT.audio_headers(s) == {"api-key": "k"}
+
+    seen = {}
+
+    def handler(request):
+        seen["url"], seen["key"] = str(request.url), request.headers.get("api-key")
+        return httpx.Response(200, json={"value": "ek_rt"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        assert RT.mint_client_secret(s, {"type": "realtime", "model": "gpt-realtime-2.1"}, client=c)["value"] == "ek_rt"
+    assert seen["url"].startswith("https://realtime-only.openai.azure.com") and seen["key"] == "rt-key"
+
+    # unbound, everything stays on the one account
+    plain = _settings()
+    assert plain.speech_endpoint == "https://acct.openai.azure.com"
+    assert RT.auth_headers(plain) == RT.audio_headers(plain) == {"api-key": "k"}

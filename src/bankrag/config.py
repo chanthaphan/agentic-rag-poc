@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "ASSISTANT_GENDER", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY")
+OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "ASSISTANT_GENDER", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "REALTIME_ENDPOINT", "REALTIME_API_KEY")
 _overlay: dict[str, str] = {}
 
 
@@ -137,6 +137,10 @@ class Settings:
     realtime_voice: str  # the model's voice: alloy, ash, ballad, cedar, coral, echo, marin, sage, shimmer, verse
     realtime_transcribe_model: str  # transcribes what the customer said, for the captions and the saved turn
     realtime_avatar_url: str  # GLB the voice page renders; empty = the built-in three.js avatar
+    # Speech can live on a different Azure OpenAI resource from the chat models: realtime is only in some regions, and
+    # a team is often given a realtime resource of its own. Empty means "the same account as everything else".
+    realtime_endpoint: str
+    realtime_api_key: str
     tts_deployment: str  # reads an answer aloud on play; an audio model (gpt-audio) keeps the call's voice, a tts one is also accepted
     # Bringing your own model service: a key pasted in Studio overrides the deployment's own, and with provider
     # "openai" the models are called on any OpenAI-compatible endpoint instead of the Azure account.
@@ -208,6 +212,8 @@ class Settings:
             realtime_voice=_env("REALTIME_VOICE", "cedar"),
             realtime_transcribe_model=_env("REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
             realtime_avatar_url=_env("REALTIME_AVATAR_URL", ""),
+            realtime_endpoint=_env("REALTIME_ENDPOINT", "").rstrip("/"),
+            realtime_api_key=_env("REALTIME_API_KEY", ""),
             tts_deployment=_env("TTS_DEPLOYMENT", "gpt-audio-1.5"),
             llm_provider=_provider(_env("LLM_PROVIDER", "azure")),
             llm_base_url=_env("LLM_BASE_URL", "").rstrip("/"),
@@ -263,14 +269,38 @@ class Settings:
         return "openai" if self.llm_provider == "openai" and self.llm_api_key else "azure"
 
     @property
+    def speech_endpoint(self) -> str:
+        """The account speech mode runs on: its own when one is bound, otherwise the app's."""
+        return self.realtime_endpoint or self.aoai_endpoint
+
+    @property
+    def speech_key(self) -> str:
+        """The key speech mode authenticates with; empty falls through to the account key or the signed-in identity."""
+        if self.realtime_endpoint:
+            return self.realtime_api_key  # a bound resource brings its own key, never the other account's
+        return self.aoai_api_key
+
+    @property
+    def realtime_v1_base_url(self) -> str:
+        """The v1 surface the CALL uses: the realtime resource when one is bound, otherwise the app's account."""
+        if self.speech_service == "openai":
+            return self.llm_base_url or OPENAI_BASE
+        return f"{self.speech_endpoint}/openai/v1"
+
+    @property
     def aoai_v1_base_url(self) -> str:
-        """The v1 surface the realtime, speech and embedding calls use."""
-        return (self.llm_base_url or OPENAI_BASE) if self.speech_service == "openai" else f"{self.aoai_endpoint}/openai/v1"
+        """The v1 surface for everything else audio: reading an answer aloud, and embeddings.
+
+        Deliberately NOT the realtime resource: a resource given out for realtime usually carries nothing else, so
+        binding one for the call must not take the play button down with it."""
+        if self.speech_service == "openai":
+            return self.llm_base_url or OPENAI_BASE
+        return f"{self.aoai_endpoint}/openai/v1"
 
     @property
     def realtime_client_secrets_url(self) -> str:
         """Where the app mints the short-lived key the browser uses for its WebRTC call (GA surface, no api-version)."""
-        return f"{self.aoai_v1_base_url}/realtime/client_secrets"
+        return f"{self.realtime_v1_base_url}/realtime/client_secrets"
 
     @property
     def speech_url(self) -> str:
@@ -280,7 +310,7 @@ class Settings:
     @property
     def realtime_calls_url(self) -> str:
         """Where the browser posts its SDP offer; the audio then flows browser to Azure, never through this app."""
-        return f"{self.aoai_v1_base_url}/realtime/calls"
+        return f"{self.realtime_v1_base_url}/realtime/calls"
 
     def kb_mcp_url(self, kb_name: str) -> str:
         return f"{self.search_endpoint}/knowledgebases/{kb_name}/mcp?api-version={self.search_api_version}"

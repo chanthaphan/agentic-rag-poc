@@ -287,8 +287,8 @@ def app_config(request: Request):
         "assistant_name_en": settings.assistant_name_en,
         "assistant_gender": settings.assistant_gender,
         "assistant_particle": persona_words(settings.assistant_gender)["particle"],  # so a Thai UI string is in the persona's voice
-        "voice_enabled": bool(settings.aoai_endpoint and settings.realtime_deployment),
-        "tts_enabled": bool(settings.aoai_endpoint and settings.tts_deployment),
+        "voice_enabled": bool(settings.speech_endpoint and settings.realtime_deployment),
+        "tts_enabled": bool(settings.speech_endpoint and settings.tts_deployment),
         "avatar_url": settings.realtime_avatar_url,
         "maps_key": settings.google_maps_key,  # empty: a place card links out to Maps instead of embedding it
         "starter_prompts": starters[:3],
@@ -731,12 +731,13 @@ def get_app_settings():
            "REALTIME_VOICE": settings.realtime_voice, "REALTIME_TRANSCRIBE_MODEL": settings.realtime_transcribe_model,
            "REALTIME_AVATAR_URL": settings.realtime_avatar_url, "TTS_DEPLOYMENT": settings.tts_deployment,
            "LLM_PROVIDER": settings.llm_provider, "LLM_BASE_URL": settings.llm_base_url,
-           "LLM_API_KEY": _mask(settings.llm_api_key)}
+           "LLM_API_KEY": _mask(settings.llm_api_key), "REALTIME_ENDPOINT": settings.realtime_endpoint,
+           "REALTIME_API_KEY": _mask(settings.realtime_api_key)}
     overlay = {k: (_mask(v) if k in SECRET_KEYS else v) for k, v in load_overlay(settings.root).items()}
     return {"keys": list(OVERLAY_KEYS), "effective": eff, "overlay": overlay}
 
 
-SECRET_KEYS = ("LLM_API_KEY",)
+SECRET_KEYS = ("LLM_API_KEY", "REALTIME_API_KEY")
 MASK = "••••••••"
 
 

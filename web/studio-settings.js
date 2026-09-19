@@ -57,7 +57,7 @@ $("#base-save-sync").addEventListener("click", async () => { try { await saveBas
 const VOICES = ["alloy", "ash", "ballad", "cedar", "coral", "echo", "marin", "sage", "shimmer", "verse"];
 const TRANSCRIBERS = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
 const READERS = ["gpt-audio-1.5", "gpt-4o-mini-tts", ""];
-const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "ASSISTANT_NAME_EN", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL", "ASSISTANT_GENDER", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY"];
+const RT_KEYS = ["SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_LLM_DEPLOYMENT", "ASSISTANT_NAME", "ASSISTANT_NAME_EN", "APP_USER_NAME", "APP_USER_INITIALS", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "JUDGE_MODEL", "ASSISTANT_GENDER", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "REALTIME_ENDPOINT", "REALTIME_API_KEY"];
 S.loaders["spane-runtime"] = async () => {
   const s = await api("/app/settings"); await loadModels();
   for (const k of ["ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "SUGGESTIONS_MODEL"]) fillModelSelect($(`#rt-${k}`), s.effective[k]);
@@ -71,6 +71,8 @@ S.loaders["spane-runtime"] = async () => {
   $("#rt-REALTIME_AVATAR_URL").value = s.effective.REALTIME_AVATAR_URL || "";
   try { fillSelect($("#rt-REALTIME_DEPLOYMENT"), await api("/app/models?kind=realtime"), s.effective.REALTIME_DEPLOYMENT); }
   catch { fillSelect($("#rt-REALTIME_DEPLOYMENT"), [], s.effective.REALTIME_DEPLOYMENT); }
+  $("#rt-REALTIME_ENDPOINT").value = s.effective.REALTIME_ENDPOINT || "";
+  $("#rt-REALTIME_API_KEY").value = s.effective.REALTIME_API_KEY || "";
   $("#rt-LLM_PROVIDER").value = s.effective.LLM_PROVIDER || "azure";
   llmNote();
   $("#rt-LLM_BASE_URL").value = s.effective.LLM_BASE_URL || "";

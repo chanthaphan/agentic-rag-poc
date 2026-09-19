@@ -146,10 +146,8 @@ def session_config(settings: Settings, skills: dict[str, SkillSpec], base_body: 
 
 
 # ---------------- the ephemeral key ----------------
-def auth_headers(settings: Settings) -> dict[str, str]:
-    """The bound key, the account key, or the signed-in identity - the same choice llm.chat_model makes.
-
-    An OpenAI-compatible service wants a bearer token; Azure OpenAI takes either, and `api-key` is its own header."""
+def audio_headers(settings: Settings) -> dict[str, str]:
+    """Reading an answer aloud runs on the app's own account, not on a resource bound only for the call."""
     if settings.speech_service == "openai":
         return {"Authorization": f"Bearer {settings.llm_api_key}"}
     if settings.aoai_api_key:
@@ -157,10 +155,21 @@ def auth_headers(settings: Settings) -> dict[str, str]:
     return {"Authorization": f"Bearer {token(COGNITIVE_SCOPE)}"}
 
 
+def auth_headers(settings: Settings) -> dict[str, str]:
+    """The bound key, the account key, or the signed-in identity - the same choice llm.chat_model makes.
+
+    An OpenAI-compatible service wants a bearer token; Azure OpenAI takes either, and `api-key` is its own header."""
+    if settings.speech_service == "openai":
+        return {"Authorization": f"Bearer {settings.llm_api_key}"}
+    if settings.speech_key:
+        return {"api-key": settings.speech_key}
+    return {"Authorization": f"Bearer {token(COGNITIVE_SCOPE)}"}
+
+
 def mint_client_secret(settings: Settings, session: dict, *, client: Optional[httpx.Client] = None) -> dict:
     """A short-lived key for one WebRTC call, with this session baked into it."""
-    if not settings.aoai_endpoint:
-        raise RealtimeError("AOAI_ENDPOINT is not set")
+    if not settings.speech_endpoint:
+        raise RealtimeError("no endpoint for speech: set REALTIME_ENDPOINT or AOAI_ENDPOINT")
     if not settings.realtime_deployment:
         raise RealtimeError("REALTIME_DEPLOYMENT is not set: speech mode is off")
     body = {"session": session, "expires_after": {"anchor": "created_at", "seconds": SECRET_TTL_S}}
@@ -253,13 +262,13 @@ def speak(settings: Settings, text: str, *, voice: str = "", client: Optional[ht
     chosen = voice or settings.realtime_voice
     try:
         if "tts" in settings.tts_deployment.lower():  # a dedicated text-to-speech deployment
-            r = http.post(settings.speech_url, headers={**auth_headers(settings), "Content-Type": "application/json"},
+            r = http.post(settings.speech_url, headers={**audio_headers(settings), "Content-Type": "application/json"},
                           json={"model": settings.tts_deployment, "input": text, "voice": chosen, "response_format": "mp3"})
             if r.status_code >= 300:
                 raise RealtimeError(f"{r.status_code} {r.text[:300]}")
             return r.content
         r = http.post(f"{settings.aoai_v1_base_url}/chat/completions",
-                      headers={**auth_headers(settings), "Content-Type": "application/json"},
+                      headers={**audio_headers(settings), "Content-Type": "application/json"},
                       json={"model": settings.tts_deployment, "modalities": ["text", "audio"],
                             "audio": {"voice": chosen, "format": "mp3"},
                             "messages": [{"role": "system", "content": READ_ALOUD}, {"role": "user", "content": text}]})
