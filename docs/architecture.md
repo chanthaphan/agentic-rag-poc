@@ -94,6 +94,7 @@ The `external` role is for people outside the team (a partner, a business review
 | Action | external | tester | admin |
 |---|---|---|---|
 | Open the chat web page (`/` for externals, in place of the customer app; `/studio` is refused): chat with voice input, history and a how-it-was-produced panel, own conversations only | yes | no (they get Studio) | no (they get Studio) |
+| Speech mode: a voice call with the 3D persona (`/` for externals, `/talk` for everyone signed in) | yes | yes | yes |
 | Open Studio, view every tab except Access | no | yes | yes |
 | Skills: create, edit, save, sync one or all, upload zip, playground, versions and restore | no | yes | yes |
 | Skills: delete a skill (and its published versions / knowledge base), prune | no | no | yes |
@@ -110,6 +111,35 @@ The server enforces this (`require_studio` refuses the external role, `require_a
 ### Session visibility
 
 In the customer app, `GET /sessions` returns only the signed-in person's conversations (matched by email, or by name for sessions saved before emails were recorded) and `GET /sessions/{id}`, `/chat` on an existing session and `/chat/{id}/reset` refuse other people's sessions with 403. Studio members (tester or admin) may open any session and can pass `?all=1` to list them all (the external role may not); Studio's Conversations tab uses the review endpoints, which already cover everyone. Without SSO (local dev) nothing is filtered.
+
+## Speech mode (a voice call with the persona)
+
+`realtime.py` + `voice.js` + `avatar.js` add a spoken channel beside the text one. The browser holds the call itself:
+it opens a WebRTC connection straight to the Azure OpenAI realtime deployment (`REALTIME_DEPLOYMENT`, default
+`gpt-realtime-2.1`), so the audio never passes through the app and a spoken reply comes back in about a second. The app
+keeps the three things that matter:
+
+- `POST /realtime/session` mints a short-lived key (`{AOAI_ENDPOINT}/openai/v1/realtime/client_secrets`, account key or
+  managed identity) with the session already configured: the persona (`skills/_base` personalised, the Responsible
+  Lending block, and a speech addendum that forbids markdown, citations and read-out URLs and asks for one to three
+  spoken sentences), the voice (`REALTIME_VOICE`, default `cedar`), semantic turn detection, transcription, and the
+  tools. The browser never receives the credential or the instructions, and cannot change them.
+- `POST /realtime/tool` answers every tool the model calls: `search_bank_knowledge(query, topic)` retrieves from the
+  same knowledge base that skill's text agent uses (`synced_kb_owners` → `kb_tools.rest_retrieve`, trimmed to 1200
+  characters per document), and `fx_rate` / `find_branch` are the same live-service bodies the agents and `/mcp/services`
+  call. One search tool with a topic enum rather than one per skill: no routing round-trip inside a voice loop, and the
+  model picks the topic from the same skill descriptions the router reads. Coordinates come from the page, never the model.
+- `POST /realtime/turns` stores what was said as an ordinary `SessionRecord` with `source=voice`, one `Turn` pair per
+  exchange, carrying the tool calls, the references and the realtime usage, so a call appears in the person's history
+  and in Studio's conversation review, and can be continued in text.
+
+The face is `avatar.js`: a GLB rendered with TalkingHead when `REALTIME_AVATAR_URL` points at one, otherwise a stylized
+banker built from three.js primitives, so speech mode needs no asset. Both mouths are driven by HeadAudio (MIT, vendored
+in `web/headaudio/`), an AudioWorklet that classifies the model's own audio into Oculus visemes about 50 ms behind the
+sound — no text, no timings, no language model, which is why the lip-sync follows Thai as well as English.
+
+`GET /talk` serves the same page to anyone signed in, so admins and testers reach speech mode from the customer app's
+top bar or from Studio; the external role already has it at `/`.
 
 ## Supervisor mode (in-process handoff)
 

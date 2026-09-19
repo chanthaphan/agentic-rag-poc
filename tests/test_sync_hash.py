@@ -90,3 +90,29 @@ def test_the_persona_name_comes_from_settings():
     assert "เคอร์วอน" in concierge_instructions(s, skills) and "{assistant_name" not in concierge_instructions(s, skills)
     # a different name is a different definition, so a sync republishes it
     assert spec_hash(desired_definition(s, skills["credit-card"], base)) != spec_hash(desired_definition(_settings(), skills["credit-card"], base))
+
+
+def test_the_persona_gender_comes_from_settings():
+    """The Thai voice follows one setting too: a male persona must never be left speaking with female particles."""
+    from bankrag.supervisor import concierge_instructions
+
+    skills, base = load_skills(ROOT / "skills"), load_base(ROOT / "skills")
+    male = _settings(assistant_gender="male")
+    female = _settings(assistant_gender="female")
+    m = desired_definition(male, skills["credit-card"], base).instructions
+    f = desired_definition(female, skills["credit-card"], base).instructions
+    assert "You are a man" in m and "ครับ" in m and "ผม" in m
+    assert "You are a woman" in f and "ค่ะ" in f and "ดิฉัน" in f
+    for text in (m, f, concierge_instructions(male, skills), concierge_instructions(female, skills)):
+        assert "{particle" not in text and "{gender_word" not in text and "{pronoun_th" not in text
+    assert "ครับ" in concierge_instructions(male, skills) and "ค่ะ" in concierge_instructions(female, skills)
+    # the words are part of the definition, so switching gender republishes every agent
+    assert spec_hash(desired_definition(male, skills["credit-card"], base)) != spec_hash(desired_definition(female, skills["credit-card"], base))
+
+
+def test_the_off_topic_reply_speaks_in_the_personas_voice():
+    from bankrag.chat import offtopic_reply
+
+    assert offtopic_reply(_settings(assistant_gender="male"), "th").startswith("ขออภัยครับ")
+    assert offtopic_reply(_settings(assistant_gender="female"), "th").startswith("ขออภัยค่ะ")
+    assert "{particle}" not in offtopic_reply(_settings(), "en")

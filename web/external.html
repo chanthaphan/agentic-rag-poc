@@ -8,6 +8,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Product Assistant</title>
 <link rel="stylesheet" href="/static/external.css">
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+  "talkinghead":"https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7/modules/talkinghead.mjs"
+}}
+</script>
 </head>
 <body>
 <div class="ws">
@@ -32,6 +39,7 @@
     <header class="topbar">
       <button class="menu-btn" id="menu-btn" aria-label="Menu"><span></span><span></span><span></span></button>
       <div class="bar-title" id="bar-title">New conversation</div>
+      <button class="talk-btn" id="btn-talk" hidden title="Talk to the assistant"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span id="talk-lbl">Talk</span></button>
       <div class="lang" id="lang" role="group" aria-label="Language"><button data-l="en">EN</button><button data-l="th">ไทย</button></div>
       <label class="switch" id="details-switch" title="Show how each answer was produced"><input type="checkbox" id="show-details"><span id="details-lbl">Show details</span></label>
     </header>
@@ -54,9 +62,28 @@
 </div>
 <div class="side-bg" id="side-bg"></div>
 
+<!-- The voice call. It lives outside .ws because render() rewrites the transcript column on every turn. -->
+<section class="voice" id="voice" hidden aria-label="Voice call">
+  <div class="voice-top"><b id="voice-name"></b><span class="voice-status" id="voice-status" data-state="idle"></span></div>
+  <div class="voice-stage">
+    <div class="voice-avatar" id="voice-avatar"></div>
+    <div class="voice-fallback" id="voice-fallback" hidden>🎧</div>
+  </div>
+  <div class="voice-captions" id="voice-captions"></div>
+  <div class="voice-ctl">
+    <span class="voice-hint" id="voice-hint"></span>
+    <button class="vbtn" id="voice-mute">Mute</button>
+    <button class="vbtn end" id="voice-end">End call</button>
+  </div>
+  <!-- muted on purpose: the avatar plays the audio through Web Audio, this element only keeps the track alive (Chrome) -->
+  <audio id="voice-sink" muted playsinline></audio>
+</section>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <script src="/static/trace.js"></script>
+<script src="/static/play.js"></script>
 <script src="/static/external.js"></script>
+<script type="module" src="/static/voice.js"></script>
 </body>
 </html>

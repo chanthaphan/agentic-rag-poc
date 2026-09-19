@@ -184,3 +184,17 @@ def test_external_exports_only_their_own_chat_log(tmp_path, monkeypatch):
     r = c.get("/sessions/export.xlsx", headers=_hdr("boss@bangkokbank.com", "Boss"))
     assert [row[3].value for row in load_workbook(io.BytesIO(r.content))["Chat log"].iter_rows(min_row=2, max_col=4)] == ["Private question"]
 
+
+
+def test_the_voice_page_is_reachable_by_everyone_signed_in(tmp_path, monkeypatch):
+    """Externals get the chat page at /, staff get the same page (with speech mode) at /talk."""
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(api.settings, "studio_admins", ["boss@bangkokbank.com"])
+    monkeypatch.setattr(api.settings, "studio_externals", ["guest@partner.com"])
+    SESS._schema_done.clear()
+    c = TestClient(api.app)
+    for headers in ({}, _hdr("boss@bangkokbank.com"), _hdr("guest@partner.com")):
+        r = c.get("/talk", headers=headers)
+        assert r.status_code == 200 and "voice.js?v=" in r.text and "importmap" in r.text
+    # the customer app still answers / for staff, and offers the way through
+    assert "/talk" in c.get("/", headers=_hdr("boss@bangkokbank.com")).text

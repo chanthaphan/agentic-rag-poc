@@ -13,7 +13,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing."""
 
 
-OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS")
+OVERLAY_KEYS = ("SUGGESTIONS_MODE", "SUGGESTIONS_MODEL", "ROUTER_MODEL", "DEFAULT_CHAT_MODEL", "KB_REASONING_EFFORT", "KB_MAX_OUTPUT_TOKENS", "ASSISTANT_NAME", "APP_USER_NAME", "APP_USER_INITIALS", "ASSISTANT_NAME_EN", "ASSISTANT_GENDER", "KB_LLM_DEPLOYMENT", "JUDGE_MODEL", "ORCHESTRATION_MODE", "CONCIERGE_MODEL", "HISTORY_TURNS", "REALTIME_DEPLOYMENT", "REALTIME_VOICE", "REALTIME_TRANSCRIBE_MODEL", "REALTIME_AVATAR_URL", "TTS_DEPLOYMENT", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY")
 _overlay: dict[str, str] = {}
 
 
@@ -21,6 +21,29 @@ def _env(name: str, default: str = "") -> str:
     if name in _overlay and str(_overlay[name]).strip():
         return str(_overlay[name]).strip()
     return os.environ.get(name, default).strip()
+
+
+# Where the chat models are called. Four ways a team can bring their own key:
+#   azure       the Azure OpenAI account in AOAI_ENDPOINT (a key, or the signed-in identity)
+#   openai      OpenAI directly, on api.openai.com
+#   compatible  anything speaking the OpenAI API: LiteLLM, OpenRouter, vLLM, an internal gateway (needs a base URL)
+#   anthropic   Anthropic directly (chat only: speech mode has no audio models there and stays on Azure/OpenAI)
+PROVIDERS = ("azure", "openai", "compatible", "anthropic")
+OPENAI_BASE = "https://api.openai.com/v1"
+
+
+def _provider(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v in ("litellm", "openrouter", "vllm", "gateway", "custom", "external", "compatible"):
+        return "compatible"
+    if v in ("claude", "anthropic"):
+        return "anthropic"
+    return v if v in PROVIDERS else "azure"
+
+
+def _gender(value: str) -> str:
+    """male unless the setting clearly says female: the persona's Thai particles and pronoun follow it."""
+    return "female" if (value or "").strip().lower() in ("female", "f", "woman", "หญิง") else "male"
 
 
 def _orchestration_mode(value: str) -> str:
@@ -108,6 +131,18 @@ class Settings:
     app_user_initials: str
     assistant_name: str  # the persona's Thai name; {assistant_name} in the prompts, the app title and greeting
     assistant_name_en: str  # the same persona in English; {assistant_name_en} in the prompts and the English greeting
+    assistant_gender: str  # male | female: fills {gender_word}, {particle}, {particle_q}, {particle_soft}, {pronoun_th}, {wrong_particles}
+    # Speech mode (Azure OpenAI Realtime over WebRTC)
+    realtime_deployment: str  # the realtime deployment the voice page talks to; empty turns speech mode off
+    realtime_voice: str  # the model's voice: alloy, ash, ballad, cedar, coral, echo, marin, sage, shimmer, verse
+    realtime_transcribe_model: str  # transcribes what the customer said, for the captions and the saved turn
+    realtime_avatar_url: str  # GLB the voice page renders; empty = the built-in three.js avatar
+    tts_deployment: str  # reads an answer aloud on play; an audio model (gpt-audio) keeps the call's voice, a tts one is also accepted
+    # Bringing your own model service: a key pasted in Studio overrides the deployment's own, and with provider
+    # "openai" the models are called on any OpenAI-compatible endpoint instead of the Azure account.
+    llm_provider: str  # azure | openai
+    llm_base_url: str  # for provider "openai": https://api.openai.com/v1 or a compatible gateway
+    llm_api_key: str   # the key the app uses; empty falls back to AOAI_API_KEY, then the signed-in identity
     root: Path
     skills_dir: Path
     knowledge_dir: Path
@@ -165,8 +200,18 @@ class Settings:
             studio_externals=[e.strip().lower() for e in _env("STUDIO_EXTERNALS", "").split(",") if e.strip()],
             app_user_name=_env("APP_USER_NAME", "Pim"),
             app_user_initials=_env("APP_USER_INITIALS", "PW"),
-            assistant_name=_env("ASSISTANT_NAME", "เกรส"),
-            assistant_name_en=_env("ASSISTANT_NAME_EN", "Grace"),
+            # a persona's name is configuration, not code: unset, the assistant is simply "the assistant"
+            assistant_name=_env("ASSISTANT_NAME", "ผู้ช่วย"),
+            assistant_name_en=_env("ASSISTANT_NAME_EN", "Assistant"),
+            assistant_gender=_gender(_env("ASSISTANT_GENDER", "male")),
+            realtime_deployment=_env("REALTIME_DEPLOYMENT", "gpt-realtime-2.1"),
+            realtime_voice=_env("REALTIME_VOICE", "cedar"),
+            realtime_transcribe_model=_env("REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
+            realtime_avatar_url=_env("REALTIME_AVATAR_URL", ""),
+            tts_deployment=_env("TTS_DEPLOYMENT", "gpt-audio-1.5"),
+            llm_provider=_provider(_env("LLM_PROVIDER", "azure")),
+            llm_base_url=_env("LLM_BASE_URL", "").rstrip("/"),
+            llm_api_key=_env("LLM_API_KEY", ""),
             root=root,
             skills_dir=root / _env("SKILLS_DIR", "skills"),
             knowledge_dir=root / _env("KNOWLEDGE_DIR", "knowledge"),
@@ -193,8 +238,49 @@ class Settings:
         )
 
     @property
+    def model_key(self) -> str:
+        """The key the models are called with: the one bound in Studio, else the deployment's own."""
+        return self.llm_api_key or self.aoai_api_key
+
+    @property
+    def chat_base_url(self) -> str:
+        """Where chat calls go for an OpenAI-shaped service (OpenAI itself defaults to its own address)."""
+        if self.llm_provider == "openai":
+            return self.llm_base_url or OPENAI_BASE
+        return self.llm_base_url
+
+    @property
+    def uses_own_service(self) -> bool:
+        """True when the chat models run somewhere other than the Azure account bound to this app."""
+        if self.llm_provider == "anthropic":
+            return bool(self.llm_api_key)
+        return self.llm_provider in ("openai", "compatible") and bool(self.chat_base_url)
+
+    @property
+    def speech_service(self) -> str:
+        """Speech mode needs realtime and audio models, which only Azure OpenAI and OpenAI have. A gateway or
+        Anthropic serves the chat while the voice stays on the Azure account this app was deployed with."""
+        return "openai" if self.llm_provider == "openai" and self.llm_api_key else "azure"
+
+    @property
     def aoai_v1_base_url(self) -> str:
-        return f"{self.aoai_endpoint}/openai/v1"
+        """The v1 surface the realtime, speech and embedding calls use."""
+        return (self.llm_base_url or OPENAI_BASE) if self.speech_service == "openai" else f"{self.aoai_endpoint}/openai/v1"
+
+    @property
+    def realtime_client_secrets_url(self) -> str:
+        """Where the app mints the short-lived key the browser uses for its WebRTC call (GA surface, no api-version)."""
+        return f"{self.aoai_v1_base_url}/realtime/client_secrets"
+
+    @property
+    def speech_url(self) -> str:
+        """Where an answer is turned into audio to play back (the same v1 surface the realtime session uses)."""
+        return f"{self.aoai_v1_base_url}/audio/speech"
+
+    @property
+    def realtime_calls_url(self) -> str:
+        """Where the browser posts its SDP offer; the audio then flows browser to Azure, never through this app."""
+        return f"{self.aoai_v1_base_url}/realtime/calls"
 
     def kb_mcp_url(self, kb_name: str) -> str:
         return f"{self.search_endpoint}/knowledgebases/{kb_name}/mcp?api-version={self.search_api_version}"

@@ -11,6 +11,15 @@ models:
   gpt-5.6-luna:            {input: 1.25, cached_input: 0.125, output: 10.00}  # estimate
   gpt-5.6-terra:           {input: 5.00, cached_input: 0.50, output: 30.00}   # estimate
   text-embedding-3-large:  {input: 0.13, cached_input: 0.13, output: 0.00}
+  # Speech mode. A realtime model bills audio tokens separately and far above its text rate, so these rows carry both:
+  # a voice turn costed on the text rates alone would read as nearly free. Verify against your own price sheet.
+  gpt-realtime-2.1:        {input: 4.00, cached_input: 0.40, output: 16.00, audio_input: 32.00, cached_audio_input: 0.40, audio_output: 64.00}
+  gpt-realtime-2.1-mini:   {input: 0.60, cached_input: 0.06, output: 2.40, audio_input: 10.00, cached_audio_input: 0.30, audio_output: 20.00}
+  gpt-realtime-1.5:        {input: 4.00, cached_input: 0.40, output: 16.00, audio_input: 32.00, cached_audio_input: 0.40, audio_output: 64.00}
+  gpt-4o-mini-transcribe:  {input: 1.25, cached_input: 1.25, output: 5.00, audio_input: 3.00, cached_audio_input: 3.00, audio_output: 0.00}
+  # Reads an answer aloud when the customer taps play (the same audio family as the call, so the same voice).
+  gpt-audio-1.5:           {input: 4.00, cached_input: 0.40, output: 16.00, audio_input: 32.00, cached_audio_input: 0.40, audio_output: 64.00}
+  gpt-4o-mini-tts:         {input: 0.60, cached_input: 0.60, output: 0.00, audio_input: 0.00, cached_audio_input: 0.00, audio_output: 12.00}
   default:                 {input: 1.00, cached_input: 0.25, output: 4.00}
 # Optional: retrieval cost per call for agentic retrieval (Free tier allocation = 0)
 retrieval_per_call: 0.0

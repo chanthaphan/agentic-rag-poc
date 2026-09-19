@@ -7,9 +7,16 @@
 <meta name="theme-color" content="#d3dceb">
 <title>Bangkok Bank Assistant</title>
 <link rel="stylesheet" href="/static/mobile.css">
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+  "talkinghead":"https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7/modules/talkinghead.mjs"
+}}
+</script>
 </head>
 <body>
-<nav class="topnav" id="topnav"><a href="/studio" class="tn-btn">Studio</a><a href="/.auth/logout?post_logout_redirect_uri=/" class="tn-btn" id="tn-signout" hidden>Sign out</a></nav>
+<nav class="topnav" id="topnav"><a href="/talk" class="tn-btn" id="tn-talk" hidden>Talk</a><a href="/studio" class="tn-btn">Studio</a><a href="/.auth/logout?post_logout_redirect_uri=/" class="tn-btn" id="tn-signout" hidden>Sign out</a></nav>
 <div class="stage">
   <div class="phone-col">
   <div class="phone">
@@ -28,6 +35,7 @@
         <div class="hdr-row">
           <h1 id="title">Assistant</h1>
           <div class="hdr-right">
+            <button class="icon-btn" id="btn-call" aria-label="Talk by voice" title="Talk by voice" hidden><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></button>
             <button class="icon-btn" id="btn-history" aria-label="History"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button>
             <button class="avatar" id="avatar" aria-label="Account">PW</button>
           </div>
@@ -35,6 +43,7 @@
         <div class="account" id="account" hidden>
           <div class="acc-name" id="acc-name">…</div>
           <div class="acc-email" id="acc-email"></div>
+          <a class="acc-link" id="acc-talk" href="/talk" hidden>Talk by voice</a>
           <a class="acc-link" id="acc-studio" href="/studio" hidden>Open Studio</a>
           <a class="acc-signout" id="acc-signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out of Microsoft</a>
         </div>
@@ -57,6 +66,21 @@
 
     </div>
 
+    <!-- speech mode, inside the phone: the same panel the web page uses, sized to the screen -->
+    <section class="voice" id="voice" hidden aria-label="Voice call">
+      <div class="voice-top"><b id="voice-name"></b><span class="voice-status" id="voice-status" data-state="idle"></span></div>
+      <div class="voice-stage">
+        <div class="voice-avatar" id="voice-avatar"></div>
+        <div class="voice-fallback" id="voice-fallback" hidden>🎧</div>
+      </div>
+      <div class="voice-captions" id="voice-captions"></div>
+      <div class="voice-ctl">
+        <span class="voice-hint" id="voice-hint"></span>
+        <button class="vbtn" id="voice-mute">Mute</button>
+        <button class="vbtn end" id="voice-end">End call</button>
+      </div>
+      <audio id="voice-sink" playsinline></audio>
+    </section>
     <div class="sheet-bg" id="sheet-bg"><div class="sheet" id="sheet"></div></div>
     <div class="home"><span></span></div>
   </div>
@@ -71,6 +95,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <script src="/static/trace.js"></script>
+<script src="/static/play.js"></script>
 <script src="/static/mobile.js"></script>
+<script type="module" src="/static/voice.js"></script>
 </body>
 </html>

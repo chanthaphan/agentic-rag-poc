@@ -40,3 +40,26 @@ def test_citations_from_markers_and_inline_links():
     assert [(c.title, c.url) for c in out] == [("Bangkok Bank Visa Platinum", "https://www.bangkokbank.com/platinum"), ("Infinite Card", "https://www.bangkokbank.com/infinite")]
     links = citations_from_text("ดูได้ที่ [Platinum](https://www.bangkokbank.com/platinum) และ [Platinum](https://www.bangkokbank.com/platinum) ค่ะ")
     assert [(c.title, c.url) for c in links] == [("Platinum", "https://www.bangkokbank.com/platinum")]
+
+
+def test_the_numbering_of_the_documents_never_reaches_the_customer():
+    """The documents are numbered "[1] title" in the prompt, so models echo [1][2][5] at the end of an answer.
+
+    The customer sees sources in the app's own card, so the numbers are read into citations and then removed."""
+    from bankrag.chat import citations_from_indexes, strip_markers
+    from bankrag.models import Reference
+
+    refs = [Reference(title="Be1st", source_url="https://x/be1st"),
+            Reference(title="Platinum", source_url="https://x/plat"),
+            Reference(title="Infinite", source_url="https://x/inf")]
+    answer = "ส่วนที่เกินจากที่ธนาคารช่วยประสานงานให้ครับ[1][2][3]"
+    assert strip_markers(answer) == "ส่วนที่เกินจากที่ธนาคารช่วยประสานงานให้ครับ"
+    assert [c.title for c in citations_from_indexes(answer, refs)] == ["Be1st", "Platinum", "Infinite"]
+
+    # a list and a range resolve too, and a number nobody retrieved is dropped rather than invented
+    assert [c.title for c in citations_from_indexes("ค่าธรรมเนียม [1, 3] และ [2-3] และ [9]", refs)] == ["Be1st", "Infinite", "Platinum"]
+    assert strip_markers("ค่าธรรมเนียม 3,000 บาท [1, 2] และเงื่อนไข [1-3] ครับ") == "ค่าธรรมเนียม 3,000 บาท และเงื่อนไข ครับ"
+
+    # what must NOT be touched: a markdown link whose text is a number, and ordinary numbers in the answer
+    assert strip_markers("ดูที่ [1](https://x/a) ครับ") == "ดูที่ [1](https://x/a) ครับ"
+    assert strip_markers("โทร 0 2638 4000 ครับ") == "โทร 0 2638 4000 ครับ"

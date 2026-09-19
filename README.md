@@ -14,6 +14,7 @@ Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](doc
 
 - **/** – customer app: the Bangkok Bank mobile prototype's Conversation screen inside an iPhone frame (BBL Sans, glass background, suggestion chips, typing dots, bottom tab bar). Conversations are persisted in SQLite (`.state/bankrag.db`, tables `sessions` and `turns` with per-answer skill, language, tokens, latency and retrieved-chunk counts) so follow-up questions keep their LangGraph thread (memory in the same SQLite file) and previous skill even after a restart; `GET /sessions/stats` aggregates usage and cost; model prices live in `pricing.yaml` (editable in Studio → Settings & usage) and every answer carries a `trace` with timings, token usage, retrieval stats and USD cost; the history button lists past chats. A 👎 on an answer asks why: pick any of the listed reasons (wrong information, did not answer the question, not enough detail, hard to understand, wrong language or tone, too slow), add a note, and it is stored with the rating for review in Studio. A "Behind the scenes" panel beside the phone shows routing, detected language, agent, tool calls and sources per turn. The language of each message (Thai or English) is detected per turn; the answer and the suggested follow-ups follow it. Answers stream token by token and render as markdown (bold, lists, tables). The agent sees the last 6 question/answer pairs (`HISTORY_TURNS`) plus a recap of older ones, and each turn's tool output is compacted out of the thread, so input tokens stay bounded.
 - **/studio** – tester workbench (login page, `STUDIO_PASSWORD`): skill editor with lint, preview, version diffs and a streamed playground; knowledge files with PDF status, chunk browser, index search, a built-in site crawler and URL import; eval runner and model comparison; conversation review with ratings, dislike reasons and comments (a Comment filter: with a comment, rated without one, or one reason; the text search also looks in comments) and CSV export; base rules, the Responsible Lending rule pack (edit rules and the product family → skill mapping, import/export the MCCS sheet, dry-run the guard on any answer), runtime settings and bundle export/import. `/legacy` keeps the original debug page. Access roles: `admin`, `tester`, and `external`, which gets a chat web page at `/` (in place of the customer app, with a panel showing how each answer was produced, an EN/ไทย switch and an Excel export of their own chat log with ratings and comments) and none of the Studio tabs.
+- **/talk** – the same chat page with **speech mode** for anyone signed in: a *Talk to <persona>* button opens a voice call with the assistant (Azure OpenAI realtime over WebRTC) and a 3D persona whose mouth follows the spoken audio. The model answers from the same knowledge bases and live services the text agents use, and the call is saved as a conversation tagged `voice`. Turn it on by deploying a realtime model (`infra/16-realtime-deployment.sh`) and setting `REALTIME_DEPLOYMENT`; drop a GLB in `web/avatars/` and set `REALTIME_AVATAR_URL` to replace the built-in face.
 
 ## Layout
 
@@ -21,9 +22,9 @@ Read [docs/architecture.md](docs/architecture.md), [docs/howto-add-skill.md](doc
 skills/            _base (shared rules) + credit-card, debit-card, insurance, wealth, general
 rules/mccs/        Responsible Lending rules (PACK.md product taxonomy + one file per rule)
 knowledge/         credit-card/ seeded from the bblwebsite_crawler (19 products, page + PDF texts)
-src/bankrag/       config, skills, search_index, ingest/, knowledge_base, kb_tools, tools, graph, supervisor, sync, agent_versions, checkpoints, router, chat, llm, api, cli
-web/               mobile.* (customer app), studio.* + studio-common.js (tester workbench), external.* (chat page for the external role), index.html (legacy debug), fonts/
-infra/             az CLI scripts: login, create search service, search roles, write .env, container app
+src/bankrag/       config, skills, search_index, ingest/, knowledge_base, kb_tools, tools, graph, supervisor, sync, agent_versions, checkpoints, router, chat, realtime (speech mode), llm, api, cli
+web/               mobile.* (customer app), studio.* + studio-common.js (tester workbench), external.* (chat page for the external role), voice.js + avatar.js + headaudio/ + avatars/ (speech mode), index.html (legacy debug), fonts/
+infra/             az CLI scripts: login, create search service, search roles, write .env, container app, realtime deployment
 evals/             routing and answer question sets
 ```
 
@@ -67,7 +68,7 @@ uv run bankrag serve               # http://localhost:8010
 
 ## API
 
-`POST /chat` (session_id keeps context), `GET /sessions`, `GET|DELETE /sessions/{id}`, `GET /app/config`, `GET /skills`, `PUT /skills/{id}`*, `POST /skills`*, `DELETE /skills/{id}`*, `GET /skills/{id}/zip`*, `GET /skills/{id}`, `POST /skills/upload` (zip), `POST /skills/sync`, `GET /knowledge/stats`, `GET|DELETE /knowledge/files`*, `POST /knowledge/upload?category=`*, `POST /knowledge/ingest`*, `GET /knowledge/retrieve?q=&skill=`, `GET /jobs/{id}`, `GET /health`. Endpoints marked * require the Studio password (HTTP basic auth).
+`POST /chat` (session_id keeps context), `POST /realtime/session` (a short-lived key for a voice call), `POST /realtime/tool`, `POST /realtime/turns`, `GET /sessions`, `GET|DELETE /sessions/{id}`, `GET /app/config`, `GET /skills`, `PUT /skills/{id}`*, `POST /skills`*, `DELETE /skills/{id}`*, `GET /skills/{id}/zip`*, `GET /skills/{id}`, `POST /skills/upload` (zip), `POST /skills/sync`, `GET /knowledge/stats`, `GET|DELETE /knowledge/files`*, `POST /knowledge/upload?category=`*, `POST /knowledge/ingest`*, `GET /knowledge/retrieve?q=&skill=`, `GET /jobs/{id}`, `GET /health`. Endpoints marked * require the Studio password (HTTP basic auth).
 
 ## Environment
 
